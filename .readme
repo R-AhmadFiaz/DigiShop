@@ -1,0 +1,10 @@
+# Electric Store Inventory System
+
+This project is an inventory and management system for an electric store. The goal is to build a complete backend that can manage the store's products, stock, customers, sales, payments, invoices, and other day-to-day operations.
+
+### Progress
+
+
+Started the backend project by setting up the basic folder structure, including controllers, database, middleware, utilities, types, and constants. Connected the application to MongoDB and created a custom `ApiError` utility to handle application errors in a consistent way.
+
+

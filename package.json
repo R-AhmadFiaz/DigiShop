@@ -4,7 +4,6 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts"
   },
   "keywords": [],
@@ -14,11 +13,13 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
+    "prettier": "^3.9.6",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "mongoose": "^9.9.4"
   }
 }
