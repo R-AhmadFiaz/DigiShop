@@ -8,6 +8,28 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 
 
+const generateAccessAndRefreshToken = (user) => {
+
+
+try {
+        const accessToken = user.generateAccessToken()
+        const refreshToken = user.generateRefreshToken()
+    
+        user.refreshToken = refreshToken
+    
+        user.save({validateBeforeSave: false})
+    
+        return {accessToken, refreshToken}
+} catch (error) {
+    throw new apiError(500, 'Could not generate Access & Refresh tokens')
+}
+
+
+
+}
+
+
+
 
 export const registerUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
 
@@ -45,8 +67,11 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
         password,
         role,
         avatar: avatar.url 
+        
 
     })
+
+    generateAccessAndRefreshToken(user)
 
     const createdUser = await User.findById(user._id).select(
         "-password -refreshToken"
