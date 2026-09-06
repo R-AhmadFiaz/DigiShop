@@ -11,3 +11,6 @@ i made model for user add async handler file to wrap the controller under the sa
 
 
 successfully make the working register page backend that take username password email and role and also check whther this user is already register or not and safely create user using async handler.
+
+
+I have built a login backend that will take either username or email and password to login it will check whether the user is already register and handle all the cases to avoid code crash

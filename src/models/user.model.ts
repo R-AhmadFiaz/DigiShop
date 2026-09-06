@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 import bcrypt from 'bcrypt'
 import { type Request, type Response, type NextFunction } from "express"
 
+export interface IUserMethod {
+    isPasswordCorrect(password: string): Promise<boolean>
+}
+
 const userSchema = new mongoose.Schema(
     {
         username: {
