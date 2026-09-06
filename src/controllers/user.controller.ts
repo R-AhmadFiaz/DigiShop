@@ -4,6 +4,7 @@ import { User, type IUserMethod  } from "../models/user.model.js"
 import { apiError } from "../utils/apiError.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { apiResponse } from "../utils/apiResponse.js"
+import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 
 
@@ -26,11 +27,24 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
 
     }
 
+    const file = req.file as Express.Multer.File 
+
+    if (!file) {
+        throw new apiError(400, 'Cant access path')
+    }
+
+    const avatar = await uploadOnCloudinary(file.path)
+
+   if (!avatar) {
+    throw new apiError(500, 'Failed to Upload on Cloudinary')
+   }
+
     const user = await User.create({
         username,
         email,
         password,
-        role 
+        role,
+        avatar: avatar.url 
 
     })
 
@@ -82,7 +96,7 @@ export const loginUser = asyncHandler( async(req: Request, res: Response, next: 
         throw new apiError(401, 'Password is invalid')
     }
 
-    const loggedInUser = User.findById(isUserFound._id).select('-password -refreshToken' )
+    const loggedInUser = await User.findById(isUserFound._id).select('-password -refreshToken' )
     // delete user.refreshToken
 
     return res.status(200)

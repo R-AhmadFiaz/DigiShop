@@ -32,6 +32,9 @@ const userSchema = new mongoose.Schema(
             type: String,
             enum: ['CASHIER', 'ADMIN', 'OWNER']
         },
+        avatar: {
+            type: String
+        }
         
     },
     {timestamps: true})

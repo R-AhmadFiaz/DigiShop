@@ -14,3 +14,5 @@ successfully make the working register page backend that take username password 
 
 
 I have built a login backend that will take either username or email and password to login it will check whether the user is already register and handle all the cases to avoid code crash
+
+i added multer middleware to upload profile picture of actor in web app using cloudinary put the url in avatar field 
