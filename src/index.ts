@@ -1,21 +1,30 @@
 import 'dotenv/config';
-import express from 'express';
+import { app } from './app.js';
+import { connectDB } from './db/database.js';
+import { error } from 'node:console';
 
-const app = express()
+
 
 const port = process.env.PORT || 3001;
 
-app.get('/',(req,res) => {
-    res.send('ELECTRIC STORE INVENTORY SYSTEM');
+connectDB()
+.then(() => {
+
+    const server = app.listen(port, () => {
+        console.log(`Server is listening on ${port}`);
+        
+    })
+
+    server.on('error', (error) => {
+        console.log(`Server is getting error: ${error}`);
+        
+    })
+ 
+
+}).catch((error) => {
+
+    console.log(`Somthing is wrong in database: ${error}`);
     
 })
-
-app.listen(port,() => {
-
-    console.log(`Server is running on ${port}`);
-    
-    
-})
-
 
 
