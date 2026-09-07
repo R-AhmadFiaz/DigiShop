@@ -6,8 +6,69 @@ import { asyncHandler } from "../utils/asyncHandler.js"
 import { apiResponse } from "../utils/apiResponse.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import type {IUser} from "../models/user.model.js"
+import Jwt, { type JwtPayload }  from "jsonwebtoken"
+
+const refreshAccessToken = async (req: Request, res: Response, next: NextFunction) => {
 
 
+    try {
+        const incommingRefreshToken = await req.cookies?.refreshToken || req.body?.refreshToken
+    
+        if (!incommingRefreshToken) {
+            throw new apiError(400, 'Could not recieve Refresh Token')
+        }
+    
+    
+        const decodedRefreshToken = await Jwt.verify(
+            incommingRefreshToken,
+            process.env.REFRESH_TOKEN_SECRET as string
+        ) as JwtPayload
+    
+        if (!decodedRefreshToken) {
+            throw new apiError(401, 'Unauthorized access of refresh Token')
+        }
+    
+    
+    
+        const user = await User.findById(decodedRefreshToken._id).select("-password")
+    
+        if (!user) {
+            throw new apiError(400, 'Cant find user to refresh access token')
+        }
+    
+        if (incommingRefreshToken !== user.refreshToken) {
+            throw new apiError(401, 'Token is expired')
+        }
+    
+    
+        
+        const {accessToken, refreshToken} =  await generateAccessAndRefreshToken(user)
+
+
+        const options = {
+            httpOnly: true,
+            secure: true
+        }
+    
+        return res.status(200)
+        .cookie('accessToken', accessToken, options)
+        .cookie('refreshToken', refreshToken, options)
+        .json(
+            new apiResponse(
+                200,
+                {user: user},
+                'Tokens assign successfully'
+            )
+    
+        )
+    } catch (error) {
+        console.log(error || 'Failed in Refresh Access Token');
+        
+    }
+    
+    
+    
+}
 
 const generateAccessAndRefreshToken = async (user: IUser) => {
 

@@ -19,3 +19,9 @@ i added multer middleware to upload profile picture of actor in web app using cl
 
 
 i build a function that generate Access and Refresh tokens by taking strings from env file and make a secret from it 
+
+i have added verifyJwt module to populate req and provide the user when he go in authorized routes
+in addition i added global type of Express that define the model of user all over the project without import and export
+
+i have create the method that takes the refresh token whether from http req or req body comming from mobile app etc and then decode it to get the user id which then used to check whther it is same as the refresh token we have saved in database if yes then it call the function to generate the access and refresh token put in cookies again
+
