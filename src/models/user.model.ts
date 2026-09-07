@@ -9,13 +9,15 @@ export interface IUserMethod {
     isPasswordCorrect(password: string): Promise<boolean>
 }
 
-const generateAccessAndRefreshToken = (req: Request, res: Response, next: NextFunction) => {
-
-
-
+export interface IUser extends Document {
+    username: string,
+    email: string,
+    password: string,
+    avatar: string | null,
+    refreshToken: string | null,
+    generateAccessToken() : string,
+    generateRefreshToken() : string
 }
-
-
 
 const userSchema = new mongoose.Schema(
     {
