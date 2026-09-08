@@ -16,7 +16,7 @@ try {
 
     
 } catch (error) {
-    console.log(`database cant be connected ${error}`);
+    console.log(`database cannot be connected ${error}`);
     process.exit(1)
     
 }

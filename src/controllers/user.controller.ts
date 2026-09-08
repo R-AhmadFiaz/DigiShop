@@ -12,14 +12,14 @@ export const refreshAccessToken = asyncHandler( async (req: Request, res: Respon
 
 
     
-        const incommingRefreshToken = await req.cookies?.refreshToken || req.body?.refreshToken
+        const incommingRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken
     
         if (!incommingRefreshToken) {
             throw new apiError(400, 'Could not recieve Refresh Token')
         }
     
     
-        const decodedRefreshToken = await Jwt.verify(
+        const decodedRefreshToken = Jwt.verify(
             incommingRefreshToken,
             process.env.REFRESH_TOKEN_SECRET as string
         ) as JwtPayload
@@ -217,12 +217,14 @@ export const loginUser = asyncHandler( async(req: Request, res: Response, next: 
 
 
 export const loggedOutUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
+
     if (!req.user?._id) {
         throw new apiError(400, 'Could not access the login user')
     }
 
+
     await User.findByIdAndUpdate(
-        req.user?._id,
+        req.user._id,
         {
             $unset: {
                 refreshToken: 1
@@ -243,16 +245,70 @@ export const loggedOutUser = asyncHandler( async(req: Request, res: Response, ne
 
     return res.status(200)
     .clearCookie("accessToken",options)
-    .clearCookie("accessToken",options)
+    .clearCookie("refreshToken",options)
     .json(
         new apiResponse(
             200,
-            {},
+            {username: req.user.username, email: req.user.email},
             'Logged Out Successfully'
         )
     )
 
 })
+
+export const currentUser = asyncHandler(async(req: Request, res: Response, next: NextFunction) => {
+    return res.status(200)
+    .json(
+
+        new apiResponse(
+        200,
+        {user: req.user},
+        'View User Detail'
+
+    )) 
+})
+
+
+export const changePassword = asyncHandler(async(req: Request, res: Response, next: NextFunction) => {
+
+    const {oldPassword, newPassword} = req.body
+
+    if(!oldPassword || !newPassword){
+        throw new apiError(400, 'required all fields')
+    }
+    
+    const user =  await User.findById(req.user?._id)
+    
+    if (!user) {
+        
+        throw new apiError(404, 'User not found')
+    }
+
+    const isPassCorrect = await user.isPasswordCorrect(oldPassword)
+    
+    if (!isPassCorrect) {
+        throw new apiError(401, 'password is incorrect')
+    }
+    user.password = newPassword
+    user.save({validateBeforeSave: true})
+
+    return res.status(200)
+    .json(
+        new apiResponse(
+            200,
+            {},
+            'password is updated successfully'
+        )
+    )
+
+
+})
+
+
+
+
+
+
 
 
 

@@ -9,15 +9,20 @@ type asyncReqHandler = (
     next: NextFunction
 ) => Promise<any>;
 
-export const asyncHandler = (reqHandler: asyncReqHandler) => async (req: Request, res: Response, next: NextFunction): Promise <void> => {
+export const asyncHandler = (reqHandler: asyncReqHandler) => {
 
-
-    try {
+    
+    
+    return async (req: Request, res: Response, next: NextFunction): Promise <void> => {
         
-        await reqHandler(req,res,next)
         
-    } catch (error) {
-        next(error)
+        try {
+        
+            await reqHandler(req,res,next)
+            
+        } catch (error) {
+            next(error)
+        }
+        
     }
-
 }

@@ -39,7 +39,9 @@ export const verifyJWT = asyncHandler(async (req: Request, res: Response, next: 
         next()
     
     } catch (error) {
-        console.log(error || "expired access token");
+        
+
+        next(error)
         
     }
 
