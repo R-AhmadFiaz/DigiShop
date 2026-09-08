@@ -8,10 +8,10 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import type {IUser} from "../models/user.model.js"
 import Jwt, { type JwtPayload }  from "jsonwebtoken"
 
-const refreshAccessToken = async (req: Request, res: Response, next: NextFunction) => {
+export const refreshAccessToken = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
 
 
-    try {
+    
         const incommingRefreshToken = await req.cookies?.refreshToken || req.body?.refreshToken
     
         if (!incommingRefreshToken) {
@@ -61,16 +61,13 @@ const refreshAccessToken = async (req: Request, res: Response, next: NextFunctio
             )
     
         )
-    } catch (error) {
-        console.log(error || 'Failed in Refresh Access Token');
-        
-    }
+  
     
     
     
-}
+})
 
-const generateAccessAndRefreshToken = async (user: IUser) => {
+export const generateAccessAndRefreshToken =  async (user: IUser) => {
 
 
 try {
@@ -89,8 +86,6 @@ try {
 
 
 }
-
-
 
 
 export const registerUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
@@ -219,4 +214,49 @@ export const loginUser = asyncHandler( async(req: Request, res: Response, next: 
     
 
 })
+
+
+export const loggedOutUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
+    if (!req.user?._id) {
+        throw new apiError(400, 'Could not access the login user')
+    }
+
+    await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $unset: {
+                refreshToken: 1
+            }
+        },
+        {
+            new: true
+
+        }
+
+    )
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+
+    return res.status(200)
+    .clearCookie("accessToken",options)
+    .clearCookie("accessToken",options)
+    .json(
+        new apiResponse(
+            200,
+            {},
+            'Logged Out Successfully'
+        )
+    )
+
+})
+
+
+
+
+
+
 

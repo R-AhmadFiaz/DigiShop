@@ -1,25 +1,25 @@
-import mongoose from "mongoose";
+import {Schema, model, Document} from "mongoose";
 import bcrypt from 'bcrypt'
 import { type Request, type Response, type NextFunction } from "express"
 import Jwt from "jsonwebtoken";
 import type {SignOptions} from "jsonwebtoken";
 import { apiError } from "../utils/apiError.js";
 
-export interface IUserMethod {
-    isPasswordCorrect(password: string): Promise<boolean>
-}
+
 
 export interface IUser extends Document {
     username: string,
     email: string,
     password: string,
-    avatar: string | null,
-    refreshToken: string | null,
+    role: 'CASHIER' | 'ADMIN' | 'OWNER',
+    avatar: string | null | undefined,
+    refreshToken: string | null | undefined,
     generateAccessToken() : string,
+    isPasswordCorrect(password: string): Promise<boolean>
     generateRefreshToken() : string
 }
 
-const userSchema = new mongoose.Schema(
+const userSchema = new Schema<IUser>(
     {
         username: {
             required: true,
@@ -122,4 +122,4 @@ userSchema.methods.generateRefreshToken = function() {
 
 
 
-export const User = mongoose.model('User', userSchema)
+export const User = model<IUser>('User', userSchema)

@@ -25,3 +25,4 @@ in addition i added global type of Express that define the model of user all ove
 
 i have create the method that takes the refresh token whether from http req or req body comming from mobile app etc and then decode it to get the user id which then used to check whther it is same as the refresh token we have saved in database if yes then it call the function to generate the access and refresh token put in cookies again
 
+i added logged out controller by wipe out the refresh token 
