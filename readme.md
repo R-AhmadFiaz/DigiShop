@@ -35,3 +35,5 @@ i accidently put verifyJWT before refresh-token route (userRouter.route('/refres
 
 
 i have added current user finder with change passowrd functionality 
+
+Added a controller that store name and description of specific category with one additional feature is slug that is used to create clear and human readable url for searching and also great for SEO 
