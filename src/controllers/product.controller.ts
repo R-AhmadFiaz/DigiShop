@@ -7,7 +7,7 @@ import { generateSlug } from "../utils/generateSlug.js";
 import { Category } from "../models/category.model.js";
 
 
-const createProduct = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+export const createProduct = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
 
     const {name, description, brand, category, unit,
           costPrice, retailPrice, wholesalePrice, stockQuantity,
@@ -17,7 +17,7 @@ const createProduct = asyncHandler(async (req: Request, res: Response, next: Nex
             throw new apiError(400, 'All Field are required')
           }
 
-          const catExist = await Category.findById(category._id)
+          const catExist = await Category.findById(category)
 
           if (!catExist) {
             throw new apiError(404, 'Category not Found')
@@ -27,9 +27,9 @@ const createProduct = asyncHandler(async (req: Request, res: Response, next: Nex
 
           const slug = generateSlug(`${name} ${brand}`)
 
-          const productExist = await Product.findById(slug)
+          const productExist = await Product.findOne({slug})
 
-          if (!productExist) {
+          if (productExist) {
             throw new apiError(409, 'Prouct of this name already Exist')
           }
 
@@ -47,10 +47,10 @@ const createProduct = asyncHandler(async (req: Request, res: Response, next: Nex
             minStockThreshold
           })
 
-          return res.status(200)
+          return res.status(201)
           .json(
             new apiResponse(
-                200,
+                201,
                 {product},
                 'product is created successfully'
 

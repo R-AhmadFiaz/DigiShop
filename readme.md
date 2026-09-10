@@ -37,3 +37,5 @@ i accidently put verifyJWT before refresh-token route (userRouter.route('/refres
 i have added current user finder with change passowrd functionality 
 
 Added a controller that store name and description of specific category with one additional feature is slug that is used to create clear and human readable url for searching and also great for SEO 
+
+i have created product and category model and its controller that let saved the category and then same category id is used in each product document same category products will share same category id 
