@@ -17,6 +17,6 @@ app.use(express.json({limit: '16kb'}))
 app.use(cookieParser())
 
 app.use('/api/v2/users',userRouter)
-app.use('/api/v2/category',categoryRouter)
+app.use('/api/v2/categories',categoryRouter)
 
 export {app}

@@ -33,7 +33,7 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
     })
 
     if (isValid) {
-        throw new apiError(404, 'name and slug already exist in memory')
+        throw new apiError(409, 'name and slug already exist in memory')
     }
 
     const category = await Category.create({
