@@ -40,6 +40,8 @@ Added a controller that store name and description of specific category with one
 
 i have created product and category model and its controller that let saved the category and then same category id is used in each product document same category products will share same category id 
 
-i have build searchProduct cintroller that will search any product by name or brand it could take any and find the product also it will feed the category field with name of category to which this product belong to instead of raw string that is unrecognizable for human 
+i have built searchProduct cintroller that will search any product by name or brand it could take any and find the product also it will feed the category field with name of category to which this product belong to instead of raw string that is unrecognizable for human 
 
 i have created updateProduct controller that takes multiple fields and update on daily basis rates fluctuates so i make a controller that update any filed that is provided with updated data
+
+i have written stockQuantity adjuster that will change the stock number by using calculation rather than overwriting through updateProduct that could make the stock unaccurate if multiple cashier try to change stock simultaneously.

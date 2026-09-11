@@ -5,6 +5,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { type Request, type Response, type NextFunction } from "express";
 import { generateSlug } from "../utils/generateSlug.js";
 import { Category } from "../models/category.model.js";
+import { StockLog } from "../models/stockLog.model.js";
 
 
 export const createProduct = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -132,6 +133,8 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
 
   const updatedProduct = await product.save()
 
+  await updatedProduct.populate("category")
+
   return res.status(200)
   .json(
     new apiResponse(
@@ -142,5 +145,74 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
   )
 
 
+
+})
+
+export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
+
+
+  // take id for finding product and delta and reason from body
+  // check the value is valid and given in req?
+  // check if value is 0 so apply check on it
+  // check Is product is in db 
+  // fetch the stock of current product 
+  // currentstock + value = value ? < 0 false
+  // save the stock & reason back to document 
+  // save the incomming update in stockLog doc and then save it
+  // response
+
+  const {id} = req.params
+  const {quantityDelta, reason} = req.body
+
+  if (quantityDelta == 0 || typeof quantityDelta !== 'number' || isNaN (quantityDelta) ) {
+    throw new apiError(400, 'Required value')
+  }
+
+  if (!reason || typeof reason !== 'string' || reason.trim() == "" ) {
+    throw new apiError(400, 'Required reason')
+  }
+
+  const product = await Product.findById(id)
+
+  if (!product) {
+    throw new apiError(404, 'Product not found')
+  }
+
+  const currentStock = product.stockQuantity
+
+  const result = currentStock + quantityDelta
+
+  if (result < 0) {
+    throw new apiError(400, 'Not enough stock')
+  }
+
+  product.stockQuantity = result
+
+  await product.save()
+
+  const stockLog = await StockLog.create({
+    productId: product._id,
+    quantityDelta,
+    reason
+  })
+
+  return res.status(200)
+  .json(
+    new apiResponse(
+      200,
+      {product, stockLog},
+      'Stock is updated Successfully'
+    )
+  )
+
+
+
+
+
+  
+  
+  
+  
+  
 
 })
