@@ -97,3 +97,50 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
 
 
 })
+
+export const updateProduct = asyncHandler(async (req: Request, res: Response) => {
+
+  const {id} = req.params
+
+  const {retailPrice, stockQuantity, minStockThreshold, costPrice, wholesalePrice} = req.body
+
+  const product = await Product.findById(id)
+
+  if (!product) {
+    throw new apiError(404, 'Product not Found')
+  }
+
+  if (retailPrice !== undefined) {
+    product.retailPrice = retailPrice
+  }
+
+  if (stockQuantity !== undefined) {
+    product.stockQuantity = stockQuantity
+  }
+
+  if (minStockThreshold !== undefined) {
+    product.minStockThreshold = minStockThreshold
+  }
+
+  if (costPrice !== undefined) {
+    product.costPrice = costPrice
+  }
+
+  if (wholesalePrice !== undefined) {
+    product.wholesalePrice = wholesalePrice
+  }
+
+  const updatedProduct = await product.save()
+
+  return res.status(200)
+  .json(
+    new apiResponse(
+      200,
+      {updatedProduct},
+      'Product Updated Successfully'
+    )
+  )
+
+
+
+})
