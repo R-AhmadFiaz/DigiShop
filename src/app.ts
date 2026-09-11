@@ -19,7 +19,9 @@ app.use(cookieParser())
 
 app.use('/api/v2/users', userRouter)
 app.use('/api/v2/categories', categoryRouter)
-app.use('/api/v2/product', productRouter)
+app.use('/api/v2/products', productRouter)
+
 
 
 export {app}
+

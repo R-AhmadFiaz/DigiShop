@@ -39,3 +39,5 @@ i have added current user finder with change passowrd functionality
 Added a controller that store name and description of specific category with one additional feature is slug that is used to create clear and human readable url for searching and also great for SEO 
 
 i have created product and category model and its controller that let saved the category and then same category id is used in each product document same category products will share same category id 
+
+i have build searchProduct cintroller that will search any product by name or brand it could take any and find the product also it will feed the category field with name of category to which this product belong to instead of raw string that is unrecognizable for human 

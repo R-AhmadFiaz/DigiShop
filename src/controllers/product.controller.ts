@@ -65,3 +65,35 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
 
     
 })
+
+export const searchProduct = asyncHandler(async (req: Request, res: Response) => {
+
+  const {search, category} = req.query
+
+  let filter = {}
+
+  if (search) {
+    filter = {...filter,
+
+      $or: [{name: {$regex: String(search), $options: 'i'}}, {brand: {$regex: String(search), $options: 'i'}}]
+               
+    }
+  }
+
+  if (category) {
+    filter = {...filter, category: String(category)}
+  }
+
+  const product = await Product.find(filter).populate("category")
+
+  return res.status(200)
+  .json(
+    new apiResponse(
+      200,
+      {product},
+      'Product is fetched successfully'
+    )
+  )
+
+
+})
