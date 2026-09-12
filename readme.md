@@ -45,3 +45,5 @@ i have built searchProduct cintroller that will search any product by name or br
 i have created updateProduct controller that takes multiple fields and update on daily basis rates fluctuates so i make a controller that update any filed that is provided with updated data
 
 i have written stockQuantity adjuster that will change the stock number by using calculation rather than overwriting through updateProduct that could make the stock unaccurate if multiple cashier try to change stock simultaneously.
+
+i have added the feature controller that will check the stock that goes below the red line already set and need more stock it will give the count and product whole info who is decline 

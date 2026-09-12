@@ -1,4 +1,4 @@
-import { Product } from "../models/product.model.js";
+import { Product, type IProduct } from "../models/product.model.js";
 import { apiError } from "../utils/apiError.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -178,19 +178,44 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
     throw new apiError(404, 'Product not found')
   }
 
-  const currentStock = product.stockQuantity
+  // const currentStock = product.stockQuantity
 
-  const result = currentStock + quantityDelta
+  // const result = currentStock + quantityDelta
 
-  if (result < 0) {
-    throw new apiError(400, 'Not enough stock')
+  // if (result < 0) {
+  //   throw new apiError(400, 'Not enough stock')
+  // }
+
+  // product.stockQuantity = result
+
+  // await product.save()
+
+  // const stockLog = await StockLog.create({
+  //   productId: product._id,
+  //   quantityDelta,
+  //   reason
+  // })
+
+  //                                      now do it with production level way
+
+  const updatestock = await Product.findOneAndUpdate<IProduct>(
+    {
+      _id: product._id,
+      stockQuantity: { $gte: -quantityDelta}
+    },
+    {
+      $inc: {stockQuantity: quantityDelta}
+    },
+    {new: true}
+
+  )
+
+  if (updatestock == null ) {
+
+   throw new apiError(400, 'Dont have enough stock')
   }
 
-  product.stockQuantity = result
-
-  await product.save()
-
-  const stockLog = await StockLog.create({
+   const stockLog = await StockLog.create({
     productId: product._id,
     quantityDelta,
     reason
@@ -200,7 +225,7 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
   .json(
     new apiResponse(
       200,
-      {product, stockLog},
+      {updatestock, stockLog},
       'Stock is updated Successfully'
     )
   )
@@ -215,4 +240,35 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
   
   
 
+})
+
+export const lowStock =  asyncHandler(async (req: Request, res: Response) => {
+
+  // take the id of product (if i wanna chek for individual not recommended)
+  // fetch the stockQuantity and lowStockThreshld 
+  // check if stockQuantiy go elow the low stock 
+  // sedn response
+
+
+  const isStockLow = await Product.find({
+
+    $expr: {
+      $lte: ["$stockQuantity", "$minStockThreshold"]
+    }
+    
+})
+
+return res.status(200)
+.json(
+  new apiResponse(
+    200,
+    {"counts": (await isStockLow).length,
+     "Products": isStockLow},
+    'Stock is Checked Successfully'
+  )
+)
+
+
+
+  
 })
