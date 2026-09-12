@@ -5,6 +5,7 @@ import { userRouter } from './routes/user.route.js'
 import { categoryRouter } from './routes/category.route.js'
 import cors from "cors";
 import { productRouter } from "./routes/product.route.js";
+import { orderRouter } from "./routes/order.routes.js";
 
 const app = express()
 
@@ -20,6 +21,7 @@ app.use(cookieParser())
 app.use('/api/v2/users', userRouter)
 app.use('/api/v2/categories', categoryRouter)
 app.use('/api/v2/products', productRouter)
+app.use('/api/v2/order', orderRouter)
 
 
 

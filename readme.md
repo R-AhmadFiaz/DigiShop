@@ -47,3 +47,6 @@ i have created updateProduct controller that takes multiple fields and update on
 i have written stockQuantity adjuster that will change the stock number by using calculation rather than overwriting through updateProduct that could make the stock unaccurate if multiple cashier try to change stock simultaneously.
 
 i have added the feature controller that will check the stock that goes below the red line already set and need more stock it will give the count and product whole info who is decline 
+
+
+it takes me whole day to build create order controller because there were few challenges to cope with we used mongoose operator to calculate the stock and manage the data if the request failed midway to save data from getting corrupt and will return the previous stock and data back safely 
