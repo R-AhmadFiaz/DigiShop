@@ -50,3 +50,10 @@ i have added the feature controller that will check the stock that goes below th
 
 
 it takes me whole day to build create order controller because there were few challenges to cope with we used mongoose operator to calculate the stock and manage the data if the request failed midway to save data from getting corrupt and will return the previous stock and data back safely 
+
+
+i have added two controller one to cancel the order safely without correcpting the data and second one is to change the status from pending to deliver 
+
+# End of backend core functions
+
+today i have completed my backend system that have all core functions enough to run the store inventory safely and all code is production ready tyoe safe using type script learn a lot through out my project 
