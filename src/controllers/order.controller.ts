@@ -6,6 +6,7 @@ import { Product } from "../models/product.model.js";
 import type { IOrder, IOrderItems } from "../models/order.model.js";
 import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
+import { Session } from "node:inspector";
 
 
 
@@ -130,6 +131,120 @@ return res.status(201)
 } finally {
     session.endSession()
 }
+
+
+})
+
+
+export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
+    // fetch the order id from parameter
+    // check it in mongo db 
+    // check its must be pending state
+    // start session transaction
+    // use atomic db operation to restok back
+    // transition status to cancel
+
+    const {orderId} = req.params
+
+    if (!orderId) {
+        throw new apiError(400, 'Could not recieve Order')
+    }
+
+    const session = await mongoose.startSession()
+    session.startTransaction()
+    
+    
+    
+    
+    try {
+        
+        
+        const orderInDb = await Order.findById(orderId).session(session)
+
+        if (!orderInDb || orderInDb.status !== 'PENDING') {
+            throw new apiError(404, 'No Order of this id found')
+        }
+        
+        
+        for (const item of orderInDb.items) {
+            await Product.findOneAndUpdate(
+                
+                    {_id: item.productId},
+                    {
+                        $inc: {stockQuantity: item.quantity}
+                    },
+                    {
+                        new: true,
+                        session
+                    }
+                
+            )
+
+        }
+
+        orderInDb.status = 'CANCELLED'
+
+        await orderInDb.save({session})
+
+        await session.commitTransaction()
+
+    return res.status(200)
+    .json(
+        new apiResponse(
+            200,
+            {orderInDb},
+            'Order Cancel Successfully'
+        )
+    )
+        
+    } catch (error) {
+        await session.abortTransaction()
+        throw new apiError(500, `failed to cancel the order ${error}`)        
+    } finally {
+        session.endSession()
+    }
+
+
+   
+    
+
+
+
+
+
+
+    
+    
+})
+
+
+export const updateOrderStatus = asyncHandler(async(req: Request, res: Response) => {
+
+    const {orderId} = req.params
+    
+    if (!orderId) {
+        throw new apiError(400, 'Doesnt get Order ID')
+    }
+
+    const order = await Order.findById(orderId)
+
+    if (!order) {
+        throw new apiError(404, 'Order not found')
+    }
+
+    if (order.status !== 'PENDING') {
+        throw new apiError(401, 'Required to be Pending to change status')
+    }
+
+    order.status = 'DELIVERED'
+    await order.save()
+
+    return res.status(200).json(
+        new apiResponse(200, order, 'Ordered marked as delivered successfully')
+    )
+
+
+
 
 
 })

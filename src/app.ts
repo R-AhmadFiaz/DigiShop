@@ -21,7 +21,7 @@ app.use(cookieParser())
 app.use('/api/v2/users', userRouter)
 app.use('/api/v2/categories', categoryRouter)
 app.use('/api/v2/products', productRouter)
-app.use('/api/v2/order', orderRouter)
+app.use('/api/v2/orders', orderRouter)
 
 
 
