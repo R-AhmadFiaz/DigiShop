@@ -1,20 +1,27 @@
 import {Schema, model, Document, Types} from 'mongoose'
 
+// sub order interface
+
 export interface IOrderItems {
     productId: Types.ObjectId,
     quantity: number,
     unitPrice: number,
 
     
-}
+} 
+
+// Order interface
 
 export interface IOrder extends Document{
+    type: 'INVOICE' | 'QUOTATION',
     items: IOrderItems[],
     totalPrice: number,
-    status: 'PENDING' | 'DELIVERED' | 'CANCELLED',
+    status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
     createdAt: Date,
     updatedAt: Date
 }
+
+// sub-Order schema
 
 const orderItemSchema = new Schema<IOrderItems>({
     productId: {
@@ -35,8 +42,22 @@ const orderItemSchema = new Schema<IOrderItems>({
     
 }, {_id: false})
 
+
+// Order schema
+
 const orderSchema = new Schema<IOrder>(
     {
+
+        type: {
+
+            type: String,
+            enum: ['INVOICE', 'QUOTATION'],
+            required: true,
+            default: 'INVOICE'
+
+        },
+        
+        
         items: {
             type: [orderItemSchema],
             required: true,
@@ -48,7 +69,7 @@ const orderSchema = new Schema<IOrder>(
         },
         status: {
             type: String,
-            enum: ['PENDING', 'DELIVERED', 'CANCELLED'],
+            enum: ['PENDING', 'DELIVERED', 'CANCELLED', 'DRAFT', 'EXPIRED', 'CONVERTED'],
             default: 'PENDING'
 
         }

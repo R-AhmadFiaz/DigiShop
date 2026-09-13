@@ -7,6 +7,7 @@ import type { IOrder, IOrderItems } from "../models/order.model.js";
 import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { Session } from "node:inspector";
+import { StockLog } from "../models/stockLog.model.js";
 
 
 
@@ -63,8 +64,7 @@ try {
     for(const item of items){   
 
 
-    const product = await Product.findById(item.productId)
-    console.log(product);
+    // const product = await Product.findById(item.productId)
     
     const updatedproduct = await Product.findOneAndUpdate(
         {
@@ -86,6 +86,8 @@ try {
     if (!updatedproduct) {
         throw new apiError(404, 'Stock is not enough')
     }
+
+
 
     const itemTotal = updatedproduct.retailPrice * item.quantity
 
@@ -111,6 +113,19 @@ const [createOrder] = await Order.create([{
 if (!createOrder) {
     throw new apiError(500, 'Could not create Order')
 }
+
+for (const item of processedItems) {
+
+    await StockLog.create([{
+        productId: item.productId,
+        quantityDelta: -item.quantity,
+        referenceId: createOrder._id,
+        reason: 'Ordered Created',
+
+    }],{session})
+    
+}
+
 
 await session.commitTransaction()
 
@@ -247,4 +262,79 @@ export const updateOrderStatus = asyncHandler(async(req: Request, res: Response)
 
 
 
+})
+
+export const createQuotation = asyncHandler(async(req: Request, res: Response) => {
+    
+    // take the array of product from req.body
+    // check and validate the array and object inside 
+    // find the item from the array 
+    // validate it
+    // find its quantity and retail price 
+    // calculate it and store in variable
+    // push all items in array and create the final response
+
+    const {items} = req.body
+
+    if (!items || !Array.isArray(items) || items.length == 0) {
+        throw new apiError(400, 'Required Atleast one item To proceed')
+    }
+
+    for (const item of items) {
+        
+         if (!item || typeof item !== 'object' || typeof item.quantity !== 'number' || !item.productId  || item.quantity < 1) {
+            throw new apiError(400, 'ALL fiels are required')
+        }
+    }
+    
+    let totalCost = 0
+    let processedItems = []
+    
+    for (const item of items) {
+        const product = await Product.findById(item.productId)
+        
+        if (!product) {
+            throw new apiError(404, 'Product not found')
+            
+        }
+
+        totalCost += product?.retailPrice * item.quantity
+
+        processedItems.push({
+
+            productId: product._id,
+            quantity: item.quantity,
+            unitPrice: item.retailPrice
+
+        })
+        
+    }
+
+
+    const quotation = await Order.create({
+
+        type: 'QUOTATION',
+        status: 'DRAFT',
+        items: processedItems,
+        totalPrice: totalCost,
+
+    })
+
+
+
+    return res.status(201)
+    .json(
+        new apiResponse(
+            201,
+            {
+                quotation
+            },
+            'Quotation Created Successfully'
+        )
+    )
+
+
+
+
+    
 })

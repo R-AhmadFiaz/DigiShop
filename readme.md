@@ -57,3 +57,10 @@ i have added two controller one to cancel the order safely without correcpting t
 # End of backend core functions
 
 today i have completed my backend system that have all core functions enough to run the store inventory safely and all code is production ready tyoe safe using type script learn a lot through out my project 
+
+
+## continuing
+
+by doing research about market i come to realize i need to upgrade the backend to stand out in market fro tht i will do more addition in this backend 
+
+i have make the controller that will make quotation whioch will not touch stock it just fetch product the quantity and make the total cost of it 
