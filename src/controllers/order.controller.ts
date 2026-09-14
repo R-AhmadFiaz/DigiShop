@@ -8,6 +8,7 @@ import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { Session } from "node:inspector";
 import { StockLog } from "../models/stockLog.model.js";
+import { networkInterfaces } from "node:os";
 
 
 
@@ -337,4 +338,135 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
 
 
     
+})
+
+export const updateQuotationStatus = asyncHandler(async(req: Request, res: Response) => {
+    // take the data come from quotation id
+    // validate all data 
+    // check if its type is 'QUOTATION'
+    // check if status is draft
+    // start the session  
+    // fetch the product document 
+    // use the each product id in quantity.items through for loop
+    // use find and update method to update the stock for every product by its quantity tag the session with each
+    // change the status of quotation from draft to closed
+    // with each product save the price in total variable
+    // when the array of products is update from stock and cost is found we will write create() 
+    // we will use createOrder id to stockLog history of it 
+    // after that we will put that create order array in response
+
+    const { quotationId } = req.params
+
+    if (!quotationId) {
+        throw new apiError(400, 'Quotation ID is required')
+    }
+    
+    const quotation = await Order.findById(quotationId)
+    
+    if (!quotation) {
+        throw new apiError(404, 'Quotation is not found')
+        
+    }
+
+    const isValid = typeof quotation == 'object'
+                    && Array.isArray(quotation.items)
+                    && quotation.items.length !== 0
+                    && quotation.status == 'DRAFT'
+
+
+    if (!isValid) {
+        throw new apiError(400, 'Array of products are required')
+    }
+
+    const session = await mongoose.startSession()
+
+    session.startTransaction()
+
+    try {
+
+        let totalCost = 0
+
+        let processedItems: IOrderItems[] = []
+
+        for (const item of quotation.items) {
+
+            const order = await Product.findByIdAndUpdate(
+            {_id: item.productId,
+            stockQuantity: {$gte: item.quantity}},
+            {
+                $inc: {stockQuantity: -item.quantity},
+
+
+            },
+            {
+                new: true,
+                session
+            }
+        )
+
+        totalCost += item.quantity * item.unitPrice
+
+        processedItems.push({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice
+        })
+            
+        }
+
+        const [createOrder] = Order.create({
+            type: 'INVOICE',
+            items: processedItems,
+            totalPrice: totalCost,
+            status: 'PENDING',
+            
+
+        })
+
+        for (const item of processedItems) {
+
+            await StockLog.create({
+
+            productId: item.productId,
+            quantityDelta: -item.quantity,
+            reason: 'Order Sold',
+            referenceId: createOrder._id
+
+        })
+            
+        }
+
+        return res.status(201)
+        .json(
+            new apiResponse(
+                201,
+                {
+                    createOrder
+                },
+                'Order Created Successfully'
+            )
+        )
+       
+
+
+
+
+        
+        
+    } catch (error) {
+        session.abortTransaction()
+        throw new apiError(500, `Could not fetch Quotation data: ${error}`)
+    } finally {
+
+        session.endSession()
+    }
+
+
+
+
+
+
+
+
+
 })
