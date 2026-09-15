@@ -6,9 +6,8 @@ import { Product } from "../models/product.model.js";
 import type { IOrder, IOrderItems } from "../models/order.model.js";
 import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
-import { Session } from "node:inspector";
 import { StockLog } from "../models/stockLog.model.js";
-import { networkInterfaces } from "node:os";
+import { start } from "node:repl";
 
 
 
@@ -177,6 +176,10 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
         
         const orderInDb = await Order.findById(orderId).session(session)
 
+        if (orderInDb?.type === 'QUOTATION') {
+            throw new apiError(400, 'Quotation is not allowed to be cancel')
+        }
+
         if (!orderInDb || orderInDb.status !== 'PENDING') {
             throw new apiError(404, 'No Order of this id found')
         }
@@ -196,7 +199,19 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
                 
             )
 
+             await StockLog.create([{
+                productId: item.productId,
+                quantityDelta: item.quantity,
+                reason: 'Order get cancelled',
+                referenceId: orderInDb._id
+        }], {session})
+
         }
+
+
+        
+        
+        
 
         orderInDb.status = 'CANCELLED'
 
@@ -513,3 +528,86 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
 
 })
+
+
+export const viewStockLog = asyncHandler(async(req: Request, res: Response) => {
+
+    // fetch productID reason startDate endDate page and limit from http
+    // validate that any of them must be used to check
+    // make filter object and put the data that req provided
+    // search according to the filter provided
+
+
+    const {productId, reason, startDate, endDate, page = 1, limit = 10 } = req.query
+
+    let filter: Record<string, any>= {}
+
+    let pageNum = Math.max(1, Number(page) || 1)
+    let pageLimit = Math.max(1, Number(limit) || 10)
+
+    if(productId) {
+        filter.productId = productId
+    }
+    if (reason) {
+        filter.reason = reason
+    }
+    if (startDate || endDate) {
+        filter.createdAt = {}
+        if (startDate) {
+            filter.createdAt.$gte = new Date(startDate as string)
+        }
+        if (endDate) {
+            filter.createdAt.$lte = new Date(endDate as string)
+        }
+        
+    }
+   
+
+    let skip: number = (pageNum - 1) * pageLimit
+
+                            const [logs, logCount] = await Promise.all([
+                                StockLog.find(filter)
+                                .populate('productId', 'name brand retailPrice')
+                                .sort({createdAt: -1})        
+                                .skip(skip)
+                                .limit(pageLimit),
+
+                                StockLog.countDocuments(filter)
+                            ])
+
+
+    let totalPages = Math.ceil(logCount / pageLimit)
+
+    return res.status(200)
+    .json(
+        new apiResponse(
+            200,
+            {
+                logs,
+                pagination: {
+                    logCount,
+                    totalPages,
+                    currentPage: pageNum,
+                    limit: pageLimit,
+                    
+                }
+            },
+            'Stock Log retreived Successfully'
+        )
+    )
+
+
+
+
+
+
+
+
+
+
+
+})
+
+
+
+

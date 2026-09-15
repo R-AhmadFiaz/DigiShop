@@ -103,4 +103,6 @@ const orderSchema = new Schema<IOrder>(
 
     }, {timestamps: true})
 
+    orderSchema.index({type: 1, status: 1})
+
 export const Order = model<IOrder>('Order', orderSchema)

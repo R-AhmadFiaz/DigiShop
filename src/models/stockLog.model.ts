@@ -35,5 +35,7 @@ const stockLogSchema = new Schema<IStockLog>(
         }
     }, {timestamps: true})
 
+    stockLogSchema.index({productId: 1, createdAt: -1})
+
 export const StockLog = model<IStockLog>('StockLog', stockLogSchema)
 

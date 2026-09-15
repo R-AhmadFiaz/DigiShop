@@ -68,3 +68,5 @@ i have make the controller that will make quotation whioch will not touch stock 
 as following the sequence after quotation i decide to make the controller that will take the quotation change it into invoice so the sequence to of sale will be first quotation so we dont blindly browse the stock and database that buyer dont even volunteer to buy so it is safe check it will first give customer estimation after that if he desire to buy we can change it to invoice
 
 Secondly i have added order base discound feature that owner will set and it will calculate subtotal minus the discount it can be fixed and percentage and then provide total bill
+
+Now come the most usefull controller every shop and warehouse need is to check the history of his stock and sell purchase to manage the buissness for that i created view stock log controller that will take query and retrive the data related with pages number of item found and page limit 
