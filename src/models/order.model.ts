@@ -15,6 +15,10 @@ export interface IOrderItems {
 export interface IOrder extends Document{
     type: 'INVOICE' | 'QUOTATION',
     items: IOrderItems[],
+    discountAmount: number,
+    discountType: 'PERCENTAGE' | 'FIXED' | 'NONE',
+    discountValue: number,
+    subtotal: number,
     totalPrice: number,
     status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
     createdAt: Date,
@@ -57,7 +61,6 @@ const orderSchema = new Schema<IOrder>(
 
         },
         
-        
         items: {
             type: [orderItemSchema],
             required: true,
@@ -72,7 +75,30 @@ const orderSchema = new Schema<IOrder>(
             enum: ['PENDING', 'DELIVERED', 'CANCELLED', 'DRAFT', 'EXPIRED', 'CONVERTED'],
             default: 'PENDING'
 
+        },
+        discountType: {
+            type: String,
+            enum: ['PERCENTAGE', 'FIXED', 'NONE'],
+            default: 'NONE'
+
+        },
+        discountValue: {
+            type: Number,
+            default: 0
+
+        },
+        discountAmount: {
+            type: Number,
+            required: true,
+            default: 0,
+            min: 0
+        },
+        subtotal: {
+            type: Number,
+            required: true,
+            default: 0
         }
+
 
 
     }, {timestamps: true})

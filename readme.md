@@ -64,3 +64,7 @@ today i have completed my backend system that have all core functions enough to 
 by doing research about market i come to realize i need to upgrade the backend to stand out in market fro tht i will do more addition in this backend 
 
 i have make the controller that will make quotation whioch will not touch stock it just fetch product the quantity and make the total cost of it 
+
+as following the sequence after quotation i decide to make the controller that will take the quotation change it into invoice so the sequence to of sale will be first quotation so we dont blindly browse the stock and database that buyer dont even volunteer to buy so it is safe check it will first give customer estimation after that if he desire to buy we can change it to invoice
+
+Secondly i have added order base discound feature that owner will set and it will calculate subtotal minus the discount it can be fixed and percentage and then provide total bill

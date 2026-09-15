@@ -272,10 +272,11 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     // find the item from the array 
     // validate it
     // find its quantity and retail price 
+    // calculate discount
     // calculate it and store in variable
     // push all items in array and create the final response
 
-    const {items} = req.body
+    const {items, discountValue = 0, discountType = 'NONE'} = req.body
 
     if (!items || !Array.isArray(items) || items.length == 0) {
         throw new apiError(400, 'Required Atleast one item To proceed')
@@ -290,6 +291,8 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     
     let totalCost = 0
     let processedItems = []
+    let subtotal = 0
+    let discountAmount = 0
     
     for (const item of items) {
         const product = await Product.findById(item.productId)
@@ -299,17 +302,36 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
             
         }
 
-        totalCost += product?.retailPrice * item.quantity
+        subtotal += product?.retailPrice * item.quantity
 
         processedItems.push({
 
             productId: product._id,
             quantity: item.quantity,
-            unitPrice: item.retailPrice
+            unitPrice: product.retailPrice
 
         })
         
     }
+
+    if (discountType === 'PERCENTAGE') {
+        if (discountValue < 0 || discountValue > 100) {
+            throw new apiError(400, 'Required Valid Percentage amount')
+        }
+        discountAmount = subtotal * (discountValue/ 100)
+    }
+
+    if (discountType === 'FIXED') {
+        if (discountValue < 0 || discountValue > subtotal) {
+            throw new apiError(400, 'Required Valid Fixed Amount')
+        }
+        discountAmount = discountValue
+    }
+
+
+    totalCost = subtotal - discountAmount
+
+    
 
 
     const quotation = await Order.create({
@@ -317,6 +339,10 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         type: 'QUOTATION',
         status: 'DRAFT',
         items: processedItems,
+        discountType,
+        discountValue,
+        discountAmount,
+        subtotal,
         totalPrice: totalCost,
 
     })
@@ -371,6 +397,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
     const isValid = typeof quotation == 'object'
                     && Array.isArray(quotation.items)
                     && quotation.items.length !== 0
+                    && quotation.type === 'QUOTATION'
                     && quotation.status == 'DRAFT'
 
 
@@ -384,13 +411,12 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
     try {
 
-        let totalCost = 0
 
         let processedItems: IOrderItems[] = []
 
         for (const item of quotation.items) {
 
-            const order = await Product.findByIdAndUpdate(
+            const order = await Product.findOneAndUpdate(
             {_id: item.productId,
             stockQuantity: {$gte: item.quantity}},
             {
@@ -404,37 +430,56 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
             }
         )
 
-        totalCost += item.quantity * item.unitPrice
+        if (!order) {
+            throw new apiError(400, 'COULD NOT UPDATE QUOTATION TO ORDER')
+        }
 
+
+        
+        
         processedItems.push({
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice
         })
-            
-        }
+        
+    }
+  
 
-        const [createOrder] = Order.create({
+        const [createOrder] = await Order.create([{
             type: 'INVOICE',
             items: processedItems,
-            totalPrice: totalCost,
-            status: 'PENDING',
+            discountAmount: quotation.discountAmount,
+            discountType: quotation.discountType,
+            subtotal: quotation.subtotal,
+            totalPrice: quotation.totalPrice,
+            status: 'PENDING'
+
             
 
-        })
+        }], {session})
+
+        if (!createOrder) {
+            throw new apiError(400, 'Insufficient stock for products')
+        }
 
         for (const item of processedItems) {
 
-            await StockLog.create({
+            await StockLog.create([{
 
             productId: item.productId,
             quantityDelta: -item.quantity,
             reason: 'Order Sold',
             referenceId: createOrder._id
 
-        })
+        }], {session})
             
         }
+
+        quotation.status = 'CONVERTED'
+        await quotation.save({session})
+
+        await session.commitTransaction()
 
         return res.status(201)
         .json(
@@ -446,15 +491,13 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
                 'Order Created Successfully'
             )
         )
-       
-
 
 
 
         
         
     } catch (error) {
-        session.abortTransaction()
+        await session.abortTransaction()
         throw new apiError(500, `Could not fetch Quotation data: ${error}`)
     } finally {
 
