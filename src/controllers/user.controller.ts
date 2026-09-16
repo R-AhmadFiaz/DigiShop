@@ -90,9 +90,9 @@ try {
 
 export const registerUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
 
-    const {username, email, password, role} = req.body
+    const {username, email, password} = req.body
 
-    if(!(username && email && password && role)){
+    if(!(username && email && password)){
         throw new apiError(400,'All fields are required')
     }
 
@@ -122,7 +122,7 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
         username,
         email,
         password,
-        role,
+        role: 'OWNER',
         avatar: avatar.url 
         
 
@@ -156,6 +156,64 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
 
 
 
+})
+
+export const createStaff =  asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
+    // fetch the user from req.user
+    // check is this user role is 'owner'
+    // create the user set his role to cashier
+
+    const user = req.user
+
+    if (user.role !== 'OWNER') {
+        throw new apiError(403,'Required Owner to Create staff')
+    }
+
+    const {username, email, password} = req.body
+
+    if (!username || !email || !password) {
+        throw new apiError(400, 'Required All Fields')
+    }
+
+    const file = req.file as Express.Multer.File
+
+    const avatar = await uploadOnCloudinary(file?.path)
+
+    const userCreate = await User.create({
+        username, 
+        email,
+        password,
+        role: 'CASHIER',
+        avatar: avatar?.url
+    })
+
+
+    const cashier = await User.findById(userCreate._id).select("-password -refreshToken")
+
+
+
+
+
+
+
+
+    return res.status(201)
+    .json(
+        new apiResponse(
+            201,
+            {
+                cashier
+            },
+            'Cashier Account Created Successfully'
+        )
+    )
+
+
+
+
+
+    
+    
 })
 
 

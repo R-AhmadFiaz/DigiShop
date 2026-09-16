@@ -70,3 +70,6 @@ as following the sequence after quotation i decide to make the controller that w
 Secondly i have added order base discound feature that owner will set and it will calculate subtotal minus the discount it can be fixed and percentage and then provide total bill
 
 Now come the most usefull controller every shop and warehouse need is to check the history of his stock and sell purchase to manage the buissness for that i created view stock log controller that will take query and retrive the data related with pages number of item found and page limit 
+
+
+I have made a restriction that only owner of store can create account for cashier for that i have created a createStaff controller that only owner request can accept and enter in it and create the account
