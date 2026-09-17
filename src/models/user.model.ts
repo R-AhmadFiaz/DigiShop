@@ -51,7 +51,7 @@ const userSchema = new Schema<IUser>(
         },
         refreshToken: {
             type: String,
-            required: true
+            required: false
         }
         
     },

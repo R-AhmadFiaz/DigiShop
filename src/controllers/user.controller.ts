@@ -166,7 +166,7 @@ export const createStaff =  asyncHandler( async(req: Request, res: Response, nex
     const user = req.user
 
     if (user.role !== 'OWNER') {
-        throw new apiError(403,'Required Owner to Create staff')
+        throw new apiError(403, 'Required Owner to Create staff')
     }
 
     const {username, email, password} = req.body
@@ -176,6 +176,10 @@ export const createStaff =  asyncHandler( async(req: Request, res: Response, nex
     }
 
     const file = req.file as Express.Multer.File
+
+    if (!file) {
+        throw new apiError(400, 'No File Uploaded')
+    }
 
     const avatar = await uploadOnCloudinary(file?.path)
 
@@ -189,13 +193,6 @@ export const createStaff =  asyncHandler( async(req: Request, res: Response, nex
 
 
     const cashier = await User.findById(userCreate._id).select("-password -refreshToken")
-
-
-
-
-
-
-
 
     return res.status(201)
     .json(

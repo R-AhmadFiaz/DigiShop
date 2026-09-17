@@ -73,3 +73,6 @@ Now come the most usefull controller every shop and warehouse need is to check t
 
 
 I have made a restriction that only owner of store can create account for cashier for that i have created a createStaff controller that only owner request can accept and enter in it and create the account
+
+now i applied error handler in readme that will throw same format error messge in postman and same status code i applied in apiError instead of ugly html 
+And did a little debugging session of controllers

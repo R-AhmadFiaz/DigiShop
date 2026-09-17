@@ -1,7 +1,8 @@
 
 
 import { registerUser, loginUser, refreshAccessToken,
-         loggedOutUser, currentUser, changePassword }
+         loggedOutUser, currentUser, changePassword, 
+         createStaff}
           from "../controllers/user.controller.js";
 import  express  from "express";
 import { upload } from "../middleware/multer.middleware.js";
@@ -9,7 +10,9 @@ import { verifyJWT } from "../middleware/auth.middleware.js";
 
 export const userRouter = express()
 
-userRouter.route('/register').post(upload.single("avatar"),registerUser)
+userRouter.route('/register').post(upload.single("avatar"), registerUser)
+
+userRouter.route('/register-staff').post(verifyJWT, upload.single("avatar"), createStaff)
 
 userRouter.route('/login').post(loginUser)
 
