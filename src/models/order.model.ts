@@ -21,6 +21,7 @@ export interface IOrder extends Document{
     subtotal: number,
     totalPrice: number,
     status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
+    saleType: 'WHOLESALE' | 'RETAIL',
     createdAt: Date,
     updatedAt: Date
 }
@@ -97,6 +98,12 @@ const orderSchema = new Schema<IOrder>(
             type: Number,
             required: true,
             default: 0
+        },
+        saleType: {
+            type: String,
+            enum: ['WHOLESALE', 'RETAIL'],
+            required: true,
+            default: 'RETAIL'
         }
 
 

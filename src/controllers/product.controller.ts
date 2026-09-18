@@ -6,6 +6,7 @@ import { type Request, type Response, type NextFunction } from "express";
 import { generateSlug } from "../utils/generateSlug.js";
 import { Category } from "../models/category.model.js";
 import { StockLog } from "../models/stockLog.model.js";
+import mongoose from "mongoose";
 
 
 export const createProduct = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -198,29 +199,36 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
 
   //                                      now do it with production level way
 
-  const updatestock = await Product.findOneAndUpdate<IProduct>(
-    {
-      _id: product._id,
-      stockQuantity: { $gte: -quantityDelta}
-    },
-    {
-      $inc: {stockQuantity: quantityDelta}
-    },
-    {new: true}
-
-  )
-
-  if (updatestock == null ) {
-
-   throw new apiError(400, 'Dont have enough stock')
-  }
-
-   const stockLog = await StockLog.create({
-    productId: product._id,
-    quantityDelta,
-    reason
-  })
-
+  const session = await mongoose.startSession()
+  
+  session.startTransaction()
+  try {
+    
+  
+    const updatestock = await Product.findOneAndUpdate(
+      {
+        _id: product._id,
+        stockQuantity: { $gte: -quantityDelta}
+      },
+      {
+        $inc: {stockQuantity: quantityDelta}
+      },
+      {new: true, session}
+  
+    )
+  
+    if (updatestock == null ) {
+  
+     throw new apiError(400, 'Dont have enough stock')
+    }
+  
+    const stockLog = await StockLog.create([{
+      productId: product._id,
+      quantityDelta,
+      reason
+    }], {session})
+  
+ 
   return res.status(200)
   .json(
     new apiResponse(
@@ -230,15 +238,20 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
     )
   )
 
+   } catch (error) {
 
+    await session.abortTransaction()
+    if (error instanceof apiError) {
+      throw error
+    } else {
+      throw new apiError(500, 'Something Went Wrong')
+    }
+    
+  } finally {
 
+    await session.endSession()
+  }
 
-
-  
-  
-  
-  
-  
 
 })
 

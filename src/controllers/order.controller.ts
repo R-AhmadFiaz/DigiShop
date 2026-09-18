@@ -22,11 +22,22 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
     // collect unit price 
 
 
-    const { items } = req.body
+    const { items, saleType, discountType = 'NONE', discountValue = 0} = req.body
+    const {_id: userID} = req.user
 
     if (!items || !Array.isArray(items) || items.length === 0) {
         throw new apiError(400, 'Array of items required!')
     }
+
+    if (!saleType || !['WHOLESALE', 'RETAIL'].includes(saleType)) {
+        throw new apiError(400, 'REQUIRED VALID SALE TYPE')
+    }
+
+    if (!discountType || !['PERCENTAGE', 'FIXED'].includes(discountType)) {
+        throw new apiError(400, 'REQUIRED VALID DISCOUNT TYPE')
+    }
+
+
     
     for (const item of items) {
         const isObject = typeof item === 'object' && item !== null && !Array.isArray(item)
@@ -56,6 +67,12 @@ const session = await mongoose.startSession()
 session.startTransaction()
 
 try {
+
+    let discountAmount = 0
+    
+    let subtotal = 0
+
+    let itemTotal = 0
 
     let totalPrice: number = 0;
 
@@ -87,26 +104,66 @@ try {
         throw new apiError(404, 'Stock is not enough')
     }
 
+    if (saleType == 'RETAIL') {
+        
+        itemTotal = updatedproduct.retailPrice * item.quantity
+    }
+
+    if (saleType == 'WHOLESALE' && !updatedproduct.wholesalePrice) {
+        throw new apiError(400 , 'REQUIRED WHOLESALE PRICE')
+    }
 
 
-    const itemTotal = updatedproduct.retailPrice * item.quantity
+    if (saleType == 'WHOLESALE') {
+        
+        itemTotal = item.quantity * updatedproduct.wholesalePrice!
+    }
 
-    totalPrice += itemTotal
+    
+
+   
+
+
+    subtotal += itemTotal
 
     processedItems.push({
 
         productId: updatedproduct._id,
         quantity: item.quantity,
-        unitPrice: updatedproduct.retailPrice
-        
+        unitPrice: saleType == 'WHOLESALE' ? updatedproduct.wholesalePrice! : updatedproduct.retailPrice
+
     }) 
 
 }
 
+
+     if (discountType === 'PERCENTAGE') {
+        if (discountValue < 0 || discountValue > 100) {
+            throw new apiError(400, 'Required Valid Percentage amount')
+        }
+        discountAmount = subtotal * (discountValue/ 100)
+    }
+
+    if (discountType === 'FIXED') {
+        if (discountValue < 0 || discountValue > subtotal) {
+            throw new apiError(400, 'Required Valid Fixed Amount')
+        }
+        discountAmount = discountValue
+    }
+
+    totalPrice = subtotal - discountAmount
+
 const [createOrder] = await Order.create([{
     items: processedItems,
     totalPrice,
-    status: 'PENDING'
+    status: 'PENDING',
+    createdBy: userID,
+    saleType,
+    discountAmount,
+    discountValue,
+    subtotal
+
+
 
 }], { session })
 
@@ -120,7 +177,10 @@ for (const item of processedItems) {
         productId: item.productId,
         quantityDelta: -item.quantity,
         referenceId: createOrder._id,
+        createdBy: userID,
         reason: 'Ordered Created',
+        saleType,
+
 
     }],{session})
     
@@ -142,7 +202,13 @@ return res.status(201)
 
 }catch (error) {
     await session.abortTransaction()
-    throw new apiError(409, `Could not fetch the data ${error}`)
+    if (error instanceof apiError) {
+        throw error
+
+    }else{
+
+        throw new apiError(500, `Could not fetch the data ${error}`)
+    }
 } finally {
     session.endSession()
 }
@@ -229,8 +295,14 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
     )
         
     } catch (error) {
-        await session.abortTransaction()
-        throw new apiError(500, `failed to cancel the order ${error}`)        
+    await session.abortTransaction()
+    if (error instanceof apiError) {
+        throw error
+
+    }else{
+
+        throw new apiError(409, `Could not fetch the data ${error}`)
+    }      
     } finally {
         session.endSession()
     }
@@ -291,19 +363,24 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     // calculate it and store in variable
     // push all items in array and create the final response
 
-    const {items, discountValue = 0, discountType = 'NONE'} = req.body
+    const {items, discountValue = 0, discountType = 'NONE', saleType} = req.body
 
     if (!items || !Array.isArray(items) || items.length == 0) {
         throw new apiError(400, 'Required Atleast one item To proceed')
     }
 
+    if (!saleType || !['WHOLESALE', 'RETAIL'].includes(saleType)) {
+        throw new apiError(400, 'SALE TYPE IS REQUIRED')
+    }
+
     for (const item of items) {
         
          if (!item || typeof item !== 'object' || typeof item.quantity !== 'number' || !item.productId  || item.quantity < 1) {
-            throw new apiError(400, 'ALL fiels are required')
+            throw new apiError(400, 'ALL fields are required')
         }
     }
     
+    let itemTotal = 0
     let totalCost = 0
     let processedItems = []
     let subtotal = 0
@@ -317,13 +394,27 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
             
         }
 
-        subtotal += product?.retailPrice * item.quantity
+        if (saleType === 'RETAIL') {
+            itemTotal = item.quantity * product.retailPrice
+        }
+
+        if (saleType === 'WHOLESALE' && !product.wholesalePrice ) {
+            throw new apiError(400, 'REQUIRED WHOLESALE PRICE')
+        }
+        
+        
+        if (saleType === 'WHOLESALE') {
+            itemTotal = item.quantity * product.wholesalePrice!
+            
+        }
+
+        subtotal += itemTotal
 
         processedItems.push({
 
             productId: product._id,
             quantity: item.quantity,
-            unitPrice: product.retailPrice
+            unitPrice: saleType === 'WHOLESALE' ? product.wholesalePrice! : product.retailPrice
 
         })
         
@@ -346,7 +437,9 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
 
     totalCost = subtotal - discountAmount
 
-    
+    if (!processedItems || processedItems.length == 0) {
+        throw new apiError(500, 'COULD NOT FETCH THE PRODUCTS CORRECTLY')
+    }
 
 
     const quotation = await Order.create({
@@ -359,6 +452,7 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         discountAmount,
         subtotal,
         totalPrice: totalCost,
+        saleType
 
     })
 
@@ -397,6 +491,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
     // after that we will put that create order array in response
 
     const { quotationId } = req.params
+    const {_id: userID} = req.user
 
     if (!quotationId) {
         throw new apiError(400, 'Quotation ID is required')
@@ -468,24 +563,28 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
             discountType: quotation.discountType,
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
-            status: 'PENDING'
-
+            status: 'PENDING',
+            createdBy: userID,
+            saleType: quotation.saleType
             
-
+            
+            
         }], {session})
-
+        
         if (!createOrder) {
             throw new apiError(400, 'Insufficient stock for products')
         }
-
+        
         for (const item of processedItems) {
-
+            
             await StockLog.create([{
-
-            productId: item.productId,
-            quantityDelta: -item.quantity,
-            reason: 'Order Sold',
-            referenceId: createOrder._id
+                
+                productId: item.productId,
+                quantityDelta: -item.quantity,
+                reason: 'Order Sold',
+                referenceId: createOrder._id,
+                createdBy: userID,
+                saleType: quotation.saleType
 
         }], {session})
             
@@ -512,8 +611,14 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
         
         
     } catch (error) {
-        await session.abortTransaction()
-        throw new apiError(500, `Could not fetch Quotation data: ${error}`)
+ await session.abortTransaction()
+    if (error instanceof apiError) {
+        throw error
+
+    }else{
+
+        throw new apiError(409, `Could not fetch the data ${error}`)
+    }
     } finally {
 
         session.endSession()
