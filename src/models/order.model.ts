@@ -22,6 +22,7 @@ export interface IOrder extends Document{
     totalPrice: number,
     status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
     saleType: 'WHOLESALE' | 'RETAIL',
+    createdBy: Types.ObjectId,
     createdAt: Date,
     updatedAt: Date
 }
@@ -104,6 +105,11 @@ const orderSchema = new Schema<IOrder>(
             enum: ['WHOLESALE', 'RETAIL'],
             required: true,
             default: 'RETAIL'
+        },
+        createdBy: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            required: true
         }
 
 

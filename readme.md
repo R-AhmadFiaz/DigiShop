@@ -81,3 +81,5 @@ And did a little debugging session of controllers
 I have used rate limiter library of express it will throw an error when you try to login more than 5 time
 
 I have also added multer check that will investigate that the file is really an image type and its size is less than 5MB
+
+i have created customer model and payment history that will tell owner who bought order when by which cashier how much money he paid how much credit left all show on order and track in history
