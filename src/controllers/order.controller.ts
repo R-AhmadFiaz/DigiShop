@@ -8,6 +8,8 @@ import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { StockLog } from "../models/stockLog.model.js";
 import { start } from "node:repl";
+import { CustomerLedger } from "../models/customerLedger.model.js";
+import { Customer } from "../models/customer.model.js";
 
 
 
@@ -22,7 +24,7 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
     // collect unit price 
 
 
-    const { items, saleType, discountType = 'NONE', discountValue = 0} = req.body
+    const { items, saleType, discountType = 'NONE', discountValue = 0, paidAmount = 0, customerId} = req.body
     const {_id: userID} = req.user
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -136,6 +138,8 @@ try {
 
 }
 
+    
+
 
      if (discountType === 'PERCENTAGE') {
         if (discountValue < 0 || discountValue > 100) {
@@ -153,15 +157,31 @@ try {
 
     totalPrice = subtotal - discountAmount
 
+    let amountDue = totalPrice - paidAmount
+
+    if (amountDue > 0 && !customerId) {
+        throw new apiError(400, 'Required customer Id')
+    }
+
+    if (customerId) {
+        const customerExist = await Customer.findById(customerId)
+        if (!customerExist) {
+            throw new apiError(400, 'The customer Id is not valid')
+        }
+    }
+
 const [createOrder] = await Order.create([{
     items: processedItems,
-    totalPrice,
     status: 'PENDING',
     createdBy: userID,
     saleType,
     discountAmount,
     discountValue,
-    subtotal
+    subtotal,
+    totalPrice,
+    amountDue,
+    paidAmount,
+    customerId
 
 
 
@@ -170,6 +190,9 @@ const [createOrder] = await Order.create([{
 if (!createOrder) {
     throw new apiError(500, 'Could not create Order')
 }
+
+
+    
 
 for (const item of processedItems) {
 
@@ -183,7 +206,38 @@ for (const item of processedItems) {
 
 
     }],{session})
-    
+
+    if (!customerId) {
+
+        const customer = await Customer.findByIdAndUpdate(
+            customerId,
+            {
+                $inc: {remainingMoney: amountDue}
+            },
+            {
+                new: true,
+                session
+            }
+        )
+
+        if (!customer) {
+            throw new apiError(500, 'Something went wrong during credit amount in customer')
+        }
+        
+        
+        await CustomerLedger.create([{
+            
+            customerId,
+            amount: customer.remainingMoney,
+            description: 'PURCHASE',
+            referenceId: createOrder._id,
+            createdBy: userID
+
+
+            
+        }])
+        
+    }
 }
 
 
@@ -215,6 +269,11 @@ return res.status(201)
 
 
 })
+
+
+
+
+
 
 
 export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
@@ -321,6 +380,12 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
 })
 
 
+
+
+
+
+
+
 export const updateOrderStatus = asyncHandler(async(req: Request, res: Response) => {
 
     const {orderId} = req.params
@@ -351,6 +416,14 @@ export const updateOrderStatus = asyncHandler(async(req: Request, res: Response)
 
 
 })
+
+
+
+
+
+
+
+
 
 export const createQuotation = asyncHandler(async(req: Request, res: Response) => {
     
@@ -475,6 +548,15 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     
 })
 
+
+
+
+
+
+
+
+
+
 export const updateQuotationStatus = asyncHandler(async(req: Request, res: Response) => {
     // take the data come from quotation id
     // validate all data 
@@ -492,6 +574,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
     const { quotationId } = req.params
     const {_id: userID} = req.user
+    const { customerId, paidAmount } = req.body
 
     if (!quotationId) {
         throw new apiError(400, 'Quotation ID is required')
@@ -502,6 +585,10 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
     if (!quotation) {
         throw new apiError(404, 'Quotation is not found')
         
+    }
+
+    if (paidAmount === undefined || isNaN(paidAmount) || typeof paidAmount !== 'number' || paidAmount < 0 || paidAmount > quotation.totalPrice) {
+        throw new apiError(400, 'REQUIRED VALID PAID AMOUNT')
     }
 
     const isValid = typeof quotation == 'object'
@@ -554,8 +641,14 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
         })
         
     }
-  
 
+
+    let due = quotation.totalPrice - paidAmount
+  
+    if (due > 0 && !customerId) {
+        throw new apiError(400, "Customer ID is required");
+        
+    }
         const [createOrder] = await Order.create([{
             type: 'INVOICE',
             items: processedItems,
@@ -563,6 +656,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
             discountType: quotation.discountType,
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
+            paidAmount,
+            amountDue: due,
             status: 'PENDING',
             createdBy: userID,
             saleType: quotation.saleType
@@ -592,6 +687,35 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
         quotation.status = 'CONVERTED'
         await quotation.save({session})
+
+
+        if (customerId) {
+
+            const customer = await Customer.findByIdAndUpdate(
+                customerId,
+                {
+                    $inc: {
+                        remainingMoney: due
+                    }
+                },
+                {new: true, session}
+            )
+
+            if (!customer) {
+                throw new apiError(400, "Required Valid Customer ID");
+                
+            }
+
+            await CustomerLedger.create([{
+                customerId,
+                amount: due,
+                description: 'PURCHASE',
+                createdBy: userID,
+                referenceId: createOrder._id
+
+
+            }], {session})
+        }
 
         await session.commitTransaction()
 
@@ -633,6 +757,11 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
 
 })
+
+
+
+
+
 
 
 export const viewStockLog = asyncHandler(async(req: Request, res: Response) => {
