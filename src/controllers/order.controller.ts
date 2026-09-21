@@ -204,6 +204,7 @@ for (const item of processedItems) {
         createdBy: userID,
         reason: 'Ordered Created',
         saleType,
+        shopId
 
 
     }],{session})
@@ -289,6 +290,8 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
 
     const {orderId} = req.params
 
+    const {_id: userID, shopId} = req.user
+
     if (!orderId) {
         throw new apiError(400, 'Could not recieve Order')
     }
@@ -302,7 +305,7 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
     try {
         
         
-        const orderInDb = await Order.findById(orderId).session(session)
+        const orderInDb = await Order.findOne({_id: orderId, shopId}).session(session)
 
         if (orderInDb?.type === 'QUOTATION') {
             throw new apiError(400, 'Quotation is not allowed to be cancel')
@@ -316,7 +319,7 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
         for (const item of orderInDb.items) {
             await Product.findOneAndUpdate(
                 
-                    {_id: item.productId},
+                    {_id: item.productId, shopId},
                     {
                         $inc: {stockQuantity: item.quantity}
                     },
@@ -331,7 +334,9 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
                 productId: item.productId,
                 quantityDelta: item.quantity,
                 reason: 'Order get cancelled',
-                referenceId: orderInDb._id
+                referenceId: orderInDb._id,
+                createdBy: userID,
+                shopId
         }], {session})
 
         }
@@ -363,7 +368,7 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
 
     }else{
 
-        throw new apiError(409, `Could not fetch the data ${error}`)
+        throw new apiError(500, `Could not fetch the data in cancel order ${error}`)
     }      
     } finally {
         session.endSession()
@@ -392,19 +397,21 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
 export const updateOrderStatus = asyncHandler(async(req: Request, res: Response) => {
 
     const {orderId} = req.params
+
+    const {_id: userID, shopId} = req.user
     
     if (!orderId) {
         throw new apiError(400, 'Doesnt get Order ID')
     }
 
-    const order = await Order.findById(orderId)
+    const order = await Order.findOne({_id: orderId, shopId})
 
     if (!order) {
         throw new apiError(404, 'Order not found')
     }
 
     if (order.status !== 'PENDING') {
-        throw new apiError(401, 'Required to be Pending to change status')
+        throw new apiError(400, 'Required to be Pending to change status')
     }
 
     order.status = 'DELIVERED'
@@ -465,7 +472,7 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     let discountAmount = 0
     
     for (const item of items) {
-        const product = await Product.findById(item.productId)
+        const product = await Product.findOne({_id: item.productId, shopId})
         
         if (!product) {
             throw new apiError(404, 'Product not found')
@@ -579,14 +586,14 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
     // after that we will put that create order array in response
 
     const { quotationId } = req.params
-    const {_id: userID} = req.user
+    const {_id: userID, shopId} = req.user
     const { customerId, paidAmount } = req.body
 
     if (!quotationId) {
         throw new apiError(400, 'Quotation ID is required')
     }
     
-    const quotation = await Order.findById(quotationId)
+    const quotation = await Order.findOne({_id: quotationId, shopId})
     
     if (!quotation) {
         throw new apiError(404, 'Quotation is not found')
@@ -621,7 +628,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
             const order = await Product.findOneAndUpdate(
             {_id: item.productId,
-            stockQuantity: {$gte: item.quantity}},
+            stockQuantity: {$gte: item.quantity},
+            shopId: quotation.shopId},
             {
                 $inc: {stockQuantity: -item.quantity},
 
@@ -686,7 +694,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
                 reason: 'Order Sold',
                 referenceId: createOrder._id,
                 createdBy: userID,
-                saleType: quotation.saleType
+                saleType: quotation.saleType,
+                shopId
 
         }], {session})
             
@@ -698,8 +707,9 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
         if (customerId) {
 
-            const customer = await Customer.findByIdAndUpdate(
-                customerId,
+            const customer = await Customer.findOneAndUpdate(
+                {_id: customerId, shopId: quotation.shopId},
+
                 {
                     $inc: {
                         remainingMoney: due
@@ -749,7 +759,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
 
     }else{
 
-        throw new apiError(409, `Could not fetch the data ${error}`)
+        throw new apiError(500, `Could not fetch the data ${error}`)
     }
     } finally {
 
