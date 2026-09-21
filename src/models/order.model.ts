@@ -26,6 +26,7 @@ export interface IOrder extends Document{
     paidAmount: number,
     amountDue: number,
     customerId: Types.ObjectId,
+    shopId: Types.ObjectId,
     createdAt: Date,
     updatedAt: Date
 }
@@ -125,6 +126,11 @@ const orderSchema = new Schema<IOrder>(
         customerId: {
             type: Schema.Types.ObjectId,
             ref: 'Customer'
+        },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
+            required: true
         }
 
 

@@ -1,4 +1,4 @@
-import {Schema, model, Document} from "mongoose";
+import {Schema, model, Document, Types} from "mongoose";
 import bcrypt from 'bcrypt'
 import { type Request, type Response, type NextFunction } from "express"
 import Jwt from "jsonwebtoken";
@@ -13,6 +13,7 @@ export interface IUser extends Document {
     password: string,
     role: 'CASHIER' | 'ADMIN' | 'OWNER',
     avatar: string | null | undefined,
+    shopId: Types.ObjectId,
     refreshToken: string | null | undefined,
     generateAccessToken() : string,
     isPasswordCorrect(password: string): Promise<boolean>
@@ -49,10 +50,17 @@ const userSchema = new Schema<IUser>(
         avatar: {
             type: String
         },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop'
+
+
+        },
         refreshToken: {
             type: String,
             required: false
-        }
+        },
+
         
     },
     {timestamps: true})

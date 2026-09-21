@@ -1,10 +1,11 @@
-import { Schema, model } from "mongoose";
+import { Schema, Types, model } from "mongoose";
 
 interface ICustomer {
     name: string,
     phoneNo: string,
     address?: string,
-    remainingMoney: number
+    remainingMoney: number,
+    shopId: Types.ObjectId
 }
 
 const customerSchema = new Schema<ICustomer>(
@@ -26,6 +27,12 @@ const customerSchema = new Schema<ICustomer>(
             type: Number,
             required: true,
             default: 0
+        },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
+            required: true
+            
         }
     }, {timestamps: true})
 

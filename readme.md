@@ -83,3 +83,6 @@ I have used rate limiter library of express it will throw an error when you try 
 I have also added multer check that will investigate that the file is really an image type and its size is less than 5MB
 
 i have created customer model and payment history that will tell owner who bought order when by which cashier how much money he paid how much credit left all show on order and track in history
+
+
+i m making it multi tenent because it will able it to work on multiple shops using shop ID without intervening between each other buisnesses 

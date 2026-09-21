@@ -7,6 +7,7 @@ import { apiResponse } from "../utils/apiResponse.js"
 import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import type {IUser} from "../models/user.model.js"
 import Jwt, { type JwtPayload }  from "jsonwebtoken"
+import { Shop } from "../models/shop.model.js"
 
 export const refreshAccessToken = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
 
@@ -67,7 +68,7 @@ export const refreshAccessToken = asyncHandler( async (req: Request, res: Respon
     
 })
 
-export const generateAccessAndRefreshToken =  async (user: IUser) => {
+export const generateAccessAndRefreshToken =  async (user: IUser, session?: mongoose.ClientSession) => {
 
 
 try {
@@ -76,7 +77,7 @@ try {
     
         user.refreshToken = refreshToken
     
-        await user.save({validateBeforeSave: false})
+        await user.save({validateBeforeSave: false, session: session ?? null})
     
         return {accessToken, refreshToken}
 } catch (error) {
@@ -90,10 +91,27 @@ try {
 
 export const registerUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
 
-    const {username, email, password} = req.body
+    const {username, email, password, shopName, contactNo, address} = req.body
 
+    //check for shop credential
+
+    if (typeof shopName !== 'string' || shopName == undefined ||
+         shopName.trim() == '' || !/^[0-9]+$/.test(contactNo) || 
+        contactNo.length !== 11 || address == undefined ||
+        typeof address !== 'string' || address.trim() == '' ) {
+
+        throw new apiError(400, "Required Valid credentials for register shop");
+        
+    }
+
+
+    
+    
+    
+    
+    // check for user cedentials
     if(!(username && email && password)){
-        throw new apiError(400,'All fields are required')
+        throw new apiError(400,'All fields are required for register Owner')
     }
 
     const existUser = await User.findOne({
@@ -106,52 +124,122 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
 
     }
 
-    const file = req.file as Express.Multer.File 
+    const session = await mongoose.startSession()
 
-    if (!file) {
-        throw new apiError(400, 'Cant access path')
-    }
+    session.startTransaction()
 
-    const avatar = await uploadOnCloudinary(file.path)
 
-   if (!avatar) {
-    throw new apiError(500, 'Failed to Upload on Cloudinary')
-   }
 
-    const user = await User.create({
-        username,
-        email,
-        password,
-        role: 'OWNER',
-        avatar: avatar.url 
-        
+    try {
 
-    })
 
-    const {accessToken, refreshToken} =  await generateAccessAndRefreshToken(user)
+        // shop registration
 
-    const createdUser = await User.findById(user._id).select(
-        "-password -refreshToken"
-    )
+        const [shop] = await Shop.create([{
+            name: shopName,
+            contactNo,
+            address,
+        }], {session})
 
-    if(!createdUser) throw new apiError(404, 'cant create user in database')
-
-        const options = {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production'
+        if (!shop) {
+            throw new apiError(500, "There is problem in shop creation");
+            
         }
 
-    return res.status(201)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
-    .json(
-        new apiResponse(
-            201,
-            createdUser,
-            'User Created Successfully'
+
+
+
+        
+        
+        
+        
+        
+        
+
+        // user registeration
+
+
+        const file = req.file as Express.Multer.File 
+    
+        if (!file) {
+            throw new apiError(500, 'Cant access path in file of avatar')
+        }
+    
+        const avatar = await uploadOnCloudinary(file.path)
+    
+       if (!avatar) {
+        throw new apiError(500, 'Failed to Upload on Cloudinary')
+       }
+    
+        const [user] = await User.create([{
+            username,
+            email,
+            password,
+            role: 'OWNER',
+            avatar: avatar.url, 
+            shopId: shop._id
+            
+    
+        }], {session})
+
+        if (!user) {
+            throw new apiError(500, 'Something is wrong in creating user in registeration')
+        }
+    
+        const {accessToken, refreshToken} =  await generateAccessAndRefreshToken(user, session)
+    
+        const createdUser = await User.findById(user._id).select(
+            "-password -refreshToken"
+        )
+    
+        if(!createdUser) throw new apiError(404, 'cant create user owner in database')
+
+
+        await Shop.findByIdAndUpdate(
+            shop._id,
+            {
+                $set: {ownerId: user?._id}
+            },
+            {new: true, session}
         )
 
-    )
+
+        await session.commitTransaction()
+        
+    
+            const options = {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production'
+            }
+    
+        return res.status(201)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new apiResponse(
+                201,
+                createdUser,
+                'User Created Successfully'
+            )
+    
+        )
+    } catch (error) {
+
+        await session.abortTransaction()
+
+        if (error instanceof apiError) {
+            throw error
+        } else {
+            throw new apiError(500, 'Something is wrong in Regsiter Owner Catch')
+        }
+
+
+        
+    } finally {
+
+        session.endSession()
+
+    }
 
 
 

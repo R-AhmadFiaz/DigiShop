@@ -15,6 +15,8 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
           costPrice, retailPrice, wholesalePrice, stockQuantity,
           minStockThreshold} = req.body
 
+          const {shopId} = req.user
+
           if (!name || !brand || !category || !unit || costPrice === null || retailPrice === null || retailPrice === undefined || stockQuantity === null || stockQuantity === undefined ||minStockThreshold === null) {
             throw new apiError(400, 'All Field are required')
           }
@@ -46,7 +48,8 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
             retailPrice,
             wholesalePrice,
             stockQuantity,
-            minStockThreshold
+            minStockThreshold,
+            shopId
           })
 
           return res.status(201)

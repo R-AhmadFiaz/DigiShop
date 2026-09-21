@@ -12,6 +12,7 @@ export interface IProduct extends Document {
     wholesalePrice?: number,
     stockQuantity: number,
     minStockThreshold: number,
+    shopId: Types.ObjectId,
     createdAt: Date,
     updatedAt: Date
 }
@@ -90,6 +91,11 @@ const productSchema = new Schema<IProduct>(
             required: true
 
         },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
+            required: true
+        }
 
     }, {timestamps: true})
 

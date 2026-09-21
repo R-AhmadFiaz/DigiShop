@@ -7,7 +7,6 @@ import type { IOrder, IOrderItems } from "../models/order.model.js";
 import { Order } from "../models/order.model.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { StockLog } from "../models/stockLog.model.js";
-import { start } from "node:repl";
 import { CustomerLedger } from "../models/customerLedger.model.js";
 import { Customer } from "../models/customer.model.js";
 
@@ -25,7 +24,7 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
 
 
     const { items, saleType, discountType = 'NONE', discountValue = 0, paidAmount = 0, customerId} = req.body
-    const {_id: userID} = req.user
+    const {_id: userID, shopId} = req.user
 
     if (!items || !Array.isArray(items) || items.length === 0) {
         throw new apiError(400, 'Array of items required!')
@@ -89,6 +88,7 @@ try {
         {
             _id: item.productId,
             stockQuantity: {$gte: item.quantity},
+            shopId
 
         },
         {
@@ -164,7 +164,7 @@ try {
     }
 
     if (customerId) {
-        const customerExist = await Customer.findById(customerId)
+        const customerExist = await Customer.findOne({_id: customerId, shopId})
         if (!customerExist) {
             throw new apiError(400, 'The customer Id is not valid')
         }
@@ -181,7 +181,8 @@ const [createOrder] = await Order.create([{
     totalPrice,
     amountDue,
     paidAmount,
-    customerId
+    customerId,
+    shopId
 
 
 
@@ -207,10 +208,11 @@ for (const item of processedItems) {
 
     }],{session})
 
-    if (!customerId) {
+    if (customerId) {
 
-        const customer = await Customer.findByIdAndUpdate(
-            customerId,
+        const customer = await Customer.findOneAndUpdate(
+            {_id: customerId,
+            shopId},
             {
                 $inc: {remainingMoney: amountDue}
             },
@@ -228,14 +230,15 @@ for (const item of processedItems) {
         await CustomerLedger.create([{
             
             customerId,
-            amount: customer.remainingMoney,
+            amount: amountDue,
             description: 'PURCHASE',
             referenceId: createOrder._id,
-            createdBy: userID
+            createdBy: userID,
+            shopId
 
 
             
-        }])
+        }],{session})
         
     }
 }
@@ -438,6 +441,8 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
 
     const {items, discountValue = 0, discountType = 'NONE', saleType} = req.body
 
+    const {shopId} = req.user
+
     if (!items || !Array.isArray(items) || items.length == 0) {
         throw new apiError(400, 'Required Atleast one item To proceed')
     }
@@ -525,7 +530,8 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         discountAmount,
         subtotal,
         totalPrice: totalCost,
-        saleType
+        saleType,
+        shopId
 
     })
 
@@ -660,7 +666,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
             amountDue: due,
             status: 'PENDING',
             createdBy: userID,
-            saleType: quotation.saleType
+            saleType: quotation.saleType,
+            shopId: quotation.shopId
             
             
             
@@ -711,7 +718,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
                 amount: due,
                 description: 'PURCHASE',
                 createdBy: userID,
-                referenceId: createOrder._id
+                referenceId: createOrder._id,
+                shopId: quotation.shopId
 
 
             }], {session})
@@ -774,7 +782,11 @@ export const viewStockLog = asyncHandler(async(req: Request, res: Response) => {
 
     const {productId, reason, startDate, endDate, page = 1, limit = 10 } = req.query
 
+    const {shopId} = req.user
+
     let filter: Record<string, any>= {}
+
+    filter.shopId = shopId
 
     let pageNum = Math.max(1, Number(page) || 1)
     let pageLimit = Math.max(1, Number(limit) || 10)
@@ -799,15 +811,16 @@ export const viewStockLog = asyncHandler(async(req: Request, res: Response) => {
 
     let skip: number = (pageNum - 1) * pageLimit
 
-                            const [logs, logCount] = await Promise.all([
-                                StockLog.find(filter)
-                                .populate('productId', 'name brand retailPrice')
-                                .sort({createdAt: -1})        
-                                .skip(skip)
-                                .limit(pageLimit),
+    
+        const [logs, logCount] = await Promise.all([
+            StockLog.find(filter)
+            .populate('productId', 'name brand retailPrice')
+            .sort({createdAt: -1,})        
+            .skip(skip)
+            .limit(pageLimit),
 
-                                StockLog.countDocuments(filter)
-                            ])
+            StockLog.countDocuments(filter)
+        ])
 
 
     let totalPages = Math.ceil(logCount / pageLimit)

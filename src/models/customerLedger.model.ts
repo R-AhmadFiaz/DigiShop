@@ -6,6 +6,8 @@ interface ICustomerLedger {
     description: string,
     referenceId: Types.ObjectId,
     createdBy: Types.ObjectId,
+    shopId: Types.ObjectId,
+
     createdAt: Date,
     updatedAt: Date
 
@@ -35,6 +37,11 @@ const customerLedgerSchema = new Schema<ICustomerLedger>(
         createdBy: {
             type: Schema.Types.ObjectId,
             ref: 'User'
+        },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
+            required: true
         }
         
     }, {timestamps: true})

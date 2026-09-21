@@ -8,6 +8,8 @@ import { apiResponse } from "../utils/apiResponse.js";
 export const createCustomer = asyncHandler(async(req: Request, res: Response) => {
     const {name, phoneNo, address = ""} = req.body
 
+    const {shopId} = req.user
+
     if (!name || name.trim() == "" || !phoneNo || phoneNo.length > 11 || phoneNo.length < 11 || !/^[0-9]+$/.test(phoneNo)) {
         throw new apiError(400, 'Required Valid Name and Phone number')
     }
@@ -18,7 +20,8 @@ export const createCustomer = asyncHandler(async(req: Request, res: Response) =>
         name,
         phoneNo,
         address,
-        remainingMoney: 0
+        remainingMoney: 0,
+        shopId
     })
 
 
