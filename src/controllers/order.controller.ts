@@ -223,7 +223,8 @@ for (const item of processedItems) {
         createdBy: userID,
         reason: 'Ordered Created',
         saleType,
-        shopId
+        shopId,
+        invoiceNo
 
 
     }],{session})
@@ -254,7 +255,8 @@ for (const item of processedItems) {
             description: 'PURCHASE',
             referenceId: createOrder._id,
             createdBy: userID,
-            shopId
+            shopId,
+            invoiceNo
 
 
             
@@ -682,6 +684,26 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
         throw new apiError(400, "Customer ID is required");
         
     }
+
+
+    const invCounter = await Shop.findByIdAndUpdate(
+        shopId,
+        {
+            $inc: {invoiceNo: 1}
+        },
+        {
+            new: true,
+            session
+        }
+    )
+
+    if (!invCounter) {
+        throw new apiError(500, 'Something is wrong in Quotation to invoice counter')
+    }
+
+    const invoiceNo = `INV-${invCounter.invoiceNo}`
+    
+    
         const [createOrder] = await Order.create([{
             type: 'INVOICE',
             items: processedItems,
@@ -694,7 +716,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
             status: 'PENDING',
             createdBy: userID,
             saleType: quotation.saleType,
-            shopId: quotation.shopId
+            shopId: quotation.shopId,
+            invoiceNo
             
             
             
@@ -714,7 +737,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
                 referenceId: createOrder._id,
                 createdBy: userID,
                 saleType: quotation.saleType,
-                shopId
+                shopId,
+                invoiceNo
 
         }], {session})
             
@@ -748,7 +772,8 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
                 description: 'PURCHASE',
                 createdBy: userID,
                 referenceId: createOrder._id,
-                shopId: quotation.shopId
+                shopId: quotation.shopId,
+                invoiceNo
 
 
             }], {session})
