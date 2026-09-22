@@ -17,11 +17,15 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
 
           const {shopId} = req.user
 
-          if (!name || !brand || !category || !unit || costPrice === null || retailPrice === null || retailPrice === undefined || stockQuantity === null || stockQuantity === undefined ||minStockThreshold === null) {
+          if (!name || !brand || !category || !unit 
+              || costPrice === null || costPrice === undefined
+              || retailPrice === null || retailPrice === undefined
+              || stockQuantity === null || stockQuantity === undefined
+              || minStockThreshold === null) {
             throw new apiError(400, 'All Field are required')
           }
 
-          const catExist = await Category.findById(category)
+          const catExist = await Category.findOne({_id: category, shopId})
 
           if (!catExist) {
             throw new apiError(404, 'Category not Found')
@@ -31,7 +35,7 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
 
           const slug = generateSlug(`${name} ${brand}`)
 
-          const productExist = await Product.findOne({slug})
+          const productExist = await Product.findOne({slug, shopId})
 
           if (productExist) {
             throw new apiError(409, 'Prouct of this name already Exist')
@@ -75,6 +79,8 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
 
   const {search, category} = req.query
 
+  const {shopId} = req.user
+
   let filter = {}
 
   if (search) {
@@ -89,7 +95,7 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
     filter = {...filter, category: String(category)}
   }
 
-  const product = await Product.find(filter).populate("category")
+  const product = await Product.find({...filter, shopId}).populate("category")
 
   return res.status(200)
   .json(
@@ -107,9 +113,15 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
 
   const {id} = req.params
 
+  if (!id || id == undefined || typeof id !== 'string') {
+    throw new apiError(400, 'Required Proper Id')
+  }
+
   const {retailPrice, stockQuantity, minStockThreshold, costPrice, wholesalePrice} = req.body
 
-  const product = await Product.findById(id)
+  const {shopId} = req.user
+
+  const product = await Product.findOne({_id: id, shopId})
 
   if (!product) {
     throw new apiError(404, 'Product not Found')
@@ -167,6 +179,7 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
 
   const {id} = req.params
   const {quantityDelta, reason} = req.body
+  const {shopId, _id: userID} = req.user
 
   if (quantityDelta == 0 || typeof quantityDelta !== 'number' || isNaN (quantityDelta) ) {
     throw new apiError(400, 'Required value')
@@ -176,7 +189,13 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
     throw new apiError(400, 'Required reason')
   }
 
-  const product = await Product.findById(id)
+  if (!id || id == undefined || typeof id !== 'string') {
+    throw new apiError(400, 'Required Proper Id')
+  }
+
+
+
+  const product = await Product.findOne({_id: id, shopId})
 
   if (!product) {
     throw new apiError(404, 'Product not found')
@@ -211,7 +230,8 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
     const updatestock = await Product.findOneAndUpdate(
       {
         _id: product._id,
-        stockQuantity: { $gte: -quantityDelta}
+        stockQuantity: { $gte: -quantityDelta},
+        shopId
       },
       {
         $inc: {stockQuantity: quantityDelta}
@@ -228,7 +248,9 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
     const stockLog = await StockLog.create([{
       productId: product._id,
       quantityDelta,
-      reason
+      reason,
+      createdBy: userID,
+      shopId
     }], {session})
   
  
@@ -266,8 +288,9 @@ export const lowStock =  asyncHandler(async (req: Request, res: Response) => {
   // sedn response
 
 
+  const {shopId} = req.user
   const isStockLow = await Product.find({
-
+    shopId,
     $expr: {
       $lte: ["$stockQuantity", "$minStockThreshold"]
     }

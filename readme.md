@@ -86,3 +86,5 @@ i have created customer model and payment history that will tell owner who bough
 
 
 i m making it multi tenent because it will able it to work on multiple shops using shop ID without intervening between each other buisnesses 
+
+After it add invoice number counter to all orders 

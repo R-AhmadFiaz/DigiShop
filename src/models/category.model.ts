@@ -1,10 +1,12 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 import { Schema, model } from "mongoose";
 
 export interface ICategory {
     name: string,
     description?: string,
     slug: string,
+    shopId: Types.ObjectId,
+
     createdAt: Date,
     updatedAt: Date,
 
@@ -29,7 +31,13 @@ const categorySchema = new Schema<ICategory>(
             unique: true,
             trim: true,
             index: true
-        }
+        },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
+            required: true
+        },
+        
 
     },
     {timestamps: true})

@@ -10,26 +10,6 @@ export interface IOrderItems {
     
 } 
 
-// Order interface
-
-export interface IOrder extends Document{
-    type: 'INVOICE' | 'QUOTATION',
-    items: IOrderItems[],
-    discountAmount: number,
-    discountType: 'PERCENTAGE' | 'FIXED' | 'NONE',
-    discountValue: number,
-    subtotal: number,
-    totalPrice: number,
-    status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
-    saleType: 'WHOLESALE' | 'RETAIL',
-    createdBy: Types.ObjectId,
-    paidAmount: number,
-    amountDue: number,
-    customerId: Types.ObjectId,
-    shopId: Types.ObjectId,
-    createdAt: Date,
-    updatedAt: Date
-}
 
 // sub-Order schema
 
@@ -51,6 +31,30 @@ const orderItemSchema = new Schema<IOrderItems>({
     },
     
 }, {_id: false})
+
+// Order interface
+
+export interface IOrder extends Document{
+    invoiceNo: string,
+    type: 'INVOICE' | 'QUOTATION',
+    items: IOrderItems[],
+    discountAmount: number,
+    discountType: 'PERCENTAGE' | 'FIXED' | 'NONE',
+    discountValue: number,
+    subtotal: number,
+    totalPrice: number,
+    status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
+    saleType: 'WHOLESALE' | 'RETAIL',
+    createdBy: Types.ObjectId,
+    paidAmount: number,
+    amountDue: number,
+    customerId: Types.ObjectId,
+    shopId: Types.ObjectId,
+    createdAt: Date,
+    updatedAt: Date
+}
+
+
 
 
 // Order schema
@@ -131,6 +135,11 @@ const orderSchema = new Schema<IOrder>(
             type: Schema.Types.ObjectId,
             ref: 'Shop',
             required: true
+        },
+        invoiceNo: {
+            type: String,
+            required: true,
+            default: ''
         }
 
 

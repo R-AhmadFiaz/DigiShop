@@ -8,6 +8,7 @@ export interface IStockLog extends Document{
     referenceId?: Types.ObjectId,
     createdBy: Types.ObjectId,
     saleType: string,
+    shopId: Types.ObjectId
     createdAt: Date,
     updatedAt: Date
 
@@ -42,6 +43,11 @@ const stockLogSchema = new Schema<IStockLog>(
         },
         saleType: {
             type: String,
+            required: true
+        },
+        shopId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Shop',
             required: true
         }
     }, {timestamps: true})

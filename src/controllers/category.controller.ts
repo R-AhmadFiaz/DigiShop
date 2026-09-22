@@ -16,6 +16,8 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
 
     const {name, description} = req.body
 
+    const {shopId} = req.user
+
     if (!name || name.trim() == "") {
         throw new apiError(400, 'Name is Missing')
     }
@@ -29,6 +31,7 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
     }
 
     const isValid = await Category.findOne({
+        shopId,
         $or: [{name}, {slug}]
     })
 
@@ -36,10 +39,14 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
         throw new apiError(409, 'name and slug already exist in memory')
     }
 
+
+    
+
     const category = await Category.create({
         name: trimmedName,
         description,
-        slug
+        slug,
+        shopId
     }) 
 
     return res.status(200)

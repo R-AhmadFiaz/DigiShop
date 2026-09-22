@@ -9,6 +9,7 @@ import { apiResponse } from "../utils/apiResponse.js";
 import { StockLog } from "../models/stockLog.model.js";
 import { CustomerLedger } from "../models/customerLedger.model.js";
 import { Customer } from "../models/customer.model.js";
+import { Shop } from "../models/shop.model.js";
 
 
 
@@ -170,6 +171,23 @@ try {
         }
     }
 
+
+    const invCounter = await Shop.findByIdAndUpdate(
+        shopId,
+        {
+            $inc: {invoiceNo: 1}
+        },
+        {new: true, session}
+    )
+
+    if (!invCounter) {
+        throw new apiError(500, 'Something is wrong in invoice counter')
+    }
+
+    let invoiceNo = `INV-${invCounter.invoiceNo}`
+
+
+
 const [createOrder] = await Order.create([{
     items: processedItems,
     status: 'PENDING',
@@ -182,7 +200,8 @@ const [createOrder] = await Order.create([{
     amountDue,
     paidAmount,
     customerId,
-    shopId
+    shopId,
+    invoiceNo
 
 
 

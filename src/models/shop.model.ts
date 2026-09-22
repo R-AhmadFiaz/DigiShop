@@ -6,6 +6,7 @@ interface IShop {
     address: string,
     ownerId: Types.ObjectId,
     contactNo: string,
+    invoiceNo: string,
     createdAt: Date,
     updatedAt: Date
 }
@@ -31,6 +32,11 @@ const shopSchema = new Schema<IShop>(
             type: String,
             required: true,
             unique: true
+        },
+        invoiceNo: {
+            type: String,
+            required: true,
+            default: ''
         }
 
 
