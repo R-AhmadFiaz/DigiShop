@@ -35,7 +35,6 @@ const productSchema = new Schema<IProduct>(
         slug: {
             type: String,
             required: true,
-            unique: true,
             lowercase: true
             
         },
@@ -100,6 +99,7 @@ const productSchema = new Schema<IProduct>(
     }, {timestamps: true})
 
     productSchema.index({ name: "text", brand: "text" });
+    productSchema.index({ shopId: 1, slug: 1 }, {unique: true});
 
 
 export const Product = model<IProduct>('Product', productSchema)

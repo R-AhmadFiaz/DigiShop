@@ -17,18 +17,16 @@ const categorySchema = new Schema<ICategory>(
         name: {
             type: String,
             required: true,
-            unique: true,
             trim: true,
             index: true
         },
         description: {
             type: String,
-            default: true
+            default: ''
         },
         slug: {
             type: String,
             required: true,
-            unique: true,
             trim: true,
             index: true
         },
@@ -41,5 +39,8 @@ const categorySchema = new Schema<ICategory>(
 
     },
     {timestamps: true})
+
+    categorySchema.index({shopId: 1, name: 1}, {unique: true})
+    categorySchema.index({shopId: 1, slug: 1}, {unique: true})
 
 export const Category = model('Category', categorySchema)

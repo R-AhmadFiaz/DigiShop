@@ -48,7 +48,7 @@ export const refreshAccessToken = asyncHandler( async (req: Request, res: Respon
 
         const options = {
             httpOnly: true,
-            secure: true
+            secure: process.env.NODE_ENV === 'production'
         }
     
         return res.status(200)
@@ -253,6 +253,7 @@ export const createStaff =  asyncHandler( async(req: Request, res: Response, nex
 
     const user = req.user
 
+
     if (user.role !== 'OWNER') {
         throw new apiError(403, 'Required Owner to Create staff')
     }
@@ -276,7 +277,8 @@ export const createStaff =  asyncHandler( async(req: Request, res: Response, nex
         email,
         password,
         role: 'CASHIER',
-        avatar: avatar?.url
+        avatar: avatar?.url,
+        shopId: user.shopId
     })
 
 
@@ -340,7 +342,7 @@ export const loginUser = asyncHandler( async(req: Request, res: Response, next: 
 
     const options = {
         httpOnly: true,
-        secure: true
+        secure: process.env.NODE_ENV === 'production'
     }
 
     return res.status(200)
@@ -433,7 +435,7 @@ export const changePassword = asyncHandler(async(req: Request, res: Response, ne
         throw new apiError(401, 'password is incorrect')
     }
     user.password = newPassword
-    user.save({validateBeforeSave: true})
+    await user.save({validateBeforeSave: true})
 
     return res.status(200)
     .json(

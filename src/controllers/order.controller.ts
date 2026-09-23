@@ -175,7 +175,7 @@ try {
     const invCounter = await Shop.findByIdAndUpdate(
         shopId,
         {
-            $inc: {invoiceNo: 1}
+            $inc: {invoiceCounter: 1}
         },
         {new: true, session}
     )
@@ -184,7 +184,7 @@ try {
         throw new apiError(500, 'Something is wrong in invoice counter')
     }
 
-    let invoiceNo = `INV-${invCounter.invoiceNo}`
+    let invoiceNo = `INV-${invCounter.invoiceCounter}`
 
 
 
@@ -467,14 +467,14 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     // calculate it and store in variable
     // push all items in array and create the final response
 
-    const {items, discountValue = 0, discountType = 'NONE', saleType} = req.body
+    const {items, discountValue = 0, discountType = 'NONE', saleType, paidAmount = 0, amountDue = 0} = req.body
 
-    const {shopId} = req.user
+    const {_id: userID, shopId} = req.user
 
     if (!items || !Array.isArray(items) || items.length == 0) {
         throw new apiError(400, 'Required Atleast one item To proceed')
     }
-
+ 
     if (!saleType || !['WHOLESALE', 'RETAIL'].includes(saleType)) {
         throw new apiError(400, 'SALE TYPE IS REQUIRED')
     }
@@ -559,7 +559,10 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         subtotal,
         totalPrice: totalCost,
         saleType,
-        shopId
+        shopId,
+        createdBy: userID,
+        paidAmount: 0,
+        amountDue: 0
 
     })
 
@@ -689,7 +692,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
     const invCounter = await Shop.findByIdAndUpdate(
         shopId,
         {
-            $inc: {invoiceNo: 1}
+            $inc: {invoiceCounter: 1}
         },
         {
             new: true,
@@ -701,7 +704,7 @@ export const updateQuotationStatus = asyncHandler(async(req: Request, res: Respo
         throw new apiError(500, 'Something is wrong in Quotation to invoice counter')
     }
 
-    const invoiceNo = `INV-${invCounter.invoiceNo}`
+    const invoiceNo = `INV-${invCounter.invoiceCounter}`
     
     
         const [createOrder] = await Order.create([{

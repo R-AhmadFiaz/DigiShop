@@ -6,4 +6,4 @@ import { createCustomer } from "../controllers/customer.controller.js";
 
 export const customerRouter = Router()
 
-customerRouter.route('create-customer').post(verifyJWT, createCustomer)
+customerRouter.route('/create-customer').post(verifyJWT, createCustomer)

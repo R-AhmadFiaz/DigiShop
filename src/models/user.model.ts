@@ -106,7 +106,7 @@ userSchema.methods.generateAccessToken = function() {
 
 
 
-const refreshTokenExpiry = process.env.ACCESS_TOKEN_EXPIRY as SignOptions["expiresIn"]
+const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY as SignOptions["expiresIn"]
 
 if(!refreshTokenExpiry) throw new apiError(400, 'Could not get Refresh Token Expiry')
 

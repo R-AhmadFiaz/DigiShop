@@ -8,7 +8,7 @@ import cors from "cors";
 import { productRouter } from "./routes/product.route.js";
 import { orderRouter } from "./routes/order.routes.js";
 import { apiError } from "./utils/apiError.js";
-import { createCustomer } from "./controllers/customer.controller.js";
+import { customerRouter } from "./routes/customer.route.js";
 
 const app = express()
 
@@ -25,7 +25,7 @@ app.use('/api/v2/users', userRouter)
 app.use('/api/v2/categories', categoryRouter)
 app.use('/api/v2/products', productRouter)
 app.use('/api/v2/orders', orderRouter)
-app.use('/api/v2/customers', createCustomer)
+app.use('/api/v2/customers', customerRouter)
 
 app.use((err: apiError, req: Request, res: Response, next: NextFunction) => {
 
