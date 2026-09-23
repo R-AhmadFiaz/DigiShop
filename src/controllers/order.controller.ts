@@ -594,7 +594,7 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
 
 
 
-export const updateQuotationStatus = asyncHandler(async(req: Request, res: Response) => {
+export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Response) => {
     // take the data come from quotation id
     // validate all data 
     // check if its type is 'QUOTATION'

@@ -8,6 +8,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET!,
 });
 
+console.log("cloud:", process.env.CLOUDINARY_CLOUD_NAME);
+console.log("key:", process.env.CLOUDINARY_API_KEY);
+console.log("secret exists:", !!process.env.CLOUDINARY_API_SECRET);
+
 export const uploadOnCloudinary = async (localFilePath: string) => {
   try {
     if (!localFilePath) return null;
@@ -18,15 +22,17 @@ export const uploadOnCloudinary = async (localFilePath: string) => {
     });
 
     // 2. Remove local file from ./public/temp after successful upload
-    fs.unlinkSync(localFilePath);
-    
+ if (fs.existsSync(localFilePath)) {
+      fs.unlinkSync(localFilePath);
+    }    
     return response;
   } catch (error) {
     // 3. Remove local file if upload failed to prevent accumulation of temporary files
       console.log(error);
       
+ if (fs.existsSync(localFilePath)) {
       fs.unlinkSync(localFilePath);
-    
+    }    
     return null;
   }
 };

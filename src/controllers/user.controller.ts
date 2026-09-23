@@ -190,7 +190,7 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
     
         const createdUser = await User.findById(user._id).select(
             "-password -refreshToken"
-        )
+        ).session(session)
     
         if(!createdUser) throw new apiError(404, 'cant create user owner in database')
 

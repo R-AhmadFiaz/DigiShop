@@ -138,7 +138,7 @@ const orderSchema = new Schema<IOrder>(
         },
         invoiceNo: {
             type: String,
-            required: true,
+            required: false,
             default: ''
         }
 
