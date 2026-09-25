@@ -9,6 +9,7 @@ import { productRouter } from "./routes/product.route.js";
 import { orderRouter } from "./routes/order.routes.js";
 import { apiError } from "./utils/apiError.js";
 import { customerRouter } from "./routes/customer.route.js";
+import { aiRouter } from "./routes/ai.route.js";
 
 const app = express()
 
@@ -26,6 +27,7 @@ app.use('/api/v2/categories', categoryRouter)
 app.use('/api/v2/products', productRouter)
 app.use('/api/v2/orders', orderRouter)
 app.use('/api/v2/customers', customerRouter)
+app.use('/api/v2/ai', aiRouter)
 
 app.use((err: apiError, req: Request, res: Response, next: NextFunction) => {
 
