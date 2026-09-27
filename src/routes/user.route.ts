@@ -8,6 +8,7 @@ import  express  from "express";
 import { upload } from "../middleware/multer.middleware.js";
 import { verifyJWT } from "../middleware/auth.middleware.js";
 import { loginLimiter } from "../middleware/rateLimiter.middleware.js";
+import { checkSubscription } from "../middleware/subscription.middleware.js";
 
 export const userRouter = express()
 

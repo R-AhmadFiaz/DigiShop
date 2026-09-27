@@ -3,10 +3,11 @@ import { Router } from "express";
 
 import { verifyJWT } from "../middleware/auth.middleware.js";
 import { cancelOrder, createOrder, createQuotation, updateOrderStatus, updateQuotationToInvoice, viewStockLog } from "../controllers/order.controller.js";
+import { checkSubscription } from "../middleware/subscription.middleware.js";
 
 export const orderRouter = Router()
 
-orderRouter.route('/create-order').post(verifyJWT, createOrder)
+orderRouter.route('/create-order').post(verifyJWT, checkSubscription, createOrder)
 orderRouter.route('/:orderId/cancel').patch(verifyJWT, cancelOrder)
 orderRouter.route('/:orderId/status').patch(verifyJWT, updateOrderStatus)
 orderRouter.route('/quotation').post(verifyJWT, createQuotation)
