@@ -139,6 +139,8 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
             name: shopName,
             contactNo,
             address,
+            subscriptionActive: false,
+            subscriptionExpiry: null
         }], {session})
 
         if (!shop) {

@@ -7,6 +7,8 @@ interface IShop {
     ownerId: Types.ObjectId,
     contactNo: string,
     invoiceCounter: number,
+    subscriptionActive: boolean,
+    subscriptionExpiry: Date | null,
     createdAt: Date,
     updatedAt: Date
 }
@@ -37,6 +39,14 @@ const shopSchema = new Schema<IShop>(
             type: Number,
             required: true,
             default: 0
+        },
+        subscriptionActive: {
+            type: Boolean,
+            default: false
+        },
+        subscriptionExpiry: {
+            type: Date,
+            default: null
         }
 
 
