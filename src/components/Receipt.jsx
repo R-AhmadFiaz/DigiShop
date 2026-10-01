@@ -1,0 +1,112 @@
+import { displayName } from "../utils/identity";
+import { dateText, money } from "./Common";
+export function receiptFrom(order, products = [], customer = null) {
+  return {
+    ...order,
+    customer:
+      customer ||
+      (typeof order.customerId === "object" ? order.customerId : null),
+    lines: order.items.map((item) => {
+      const product =
+        typeof item.productId === "object"
+          ? item.productId
+          : products.find((p) => p._id === item.productId);
+      return {
+        ...item,
+        name: product?.name || "Product unavailable",
+        brand: product?.brand || "",
+        unit: product?.unit || "",
+      };
+    }),
+  };
+}
+export default function Receipt({ receipt }) {
+  return (
+    <section
+      className="receipt"
+      aria-label={
+        receipt.type === "QUOTATION" ? "Quotation" : "Invoice receipt"
+      }
+    >
+      <div className="receipt-heading">
+        <h2 className="h5">
+          {receipt.type === "QUOTATION"
+            ? "Quotation"
+            : receipt.invoiceNo || "Invoice"}
+        </h2>
+        <p>
+          {dateText(receipt.createdAt)} |{" "}
+          {receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"}
+        </p>
+        <p>
+          {receipt.type === "QUOTATION" ? "Created by" : "Sold by"}:{" "}
+          {displayName(receipt.createdByName || "") || "Unavailable"}
+        </p>
+        {receipt.status && <p>Status: {receipt.status.toLowerCase()}</p>}
+        {receipt.customer && (
+          <p>
+            Customer: {receipt.customer.name}{" "}
+            {receipt.customer.phoneNo && " | " + receipt.customer.phoneNo}
+          </p>
+        )}
+      </div>
+      <table className="table table-sm">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th className="text-end">Qty</th>
+            <th className="text-end">Price</th>
+            <th className="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {receipt.lines.map((line, index) => (
+            <tr key={index}>
+              <td>
+                {line.name}
+                <small className="d-block text-body-secondary">
+                  {line.brand}
+                </small>
+              </td>
+              <td className="text-end">
+                {line.quantity} {line.unit}
+              </td>
+              <td className="text-end">{money(line.unitPrice)}</td>
+              <td className="text-end">
+                {money(line.quantity * line.unitPrice)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <dl className="receipt-totals">
+        <dt>Subtotal</dt>
+        <dd>{money(receipt.subtotal)}</dd>
+        <dt>Discount</dt>
+        <dd>{money(receipt.discountAmount)}</dd>
+        <dt>Total</dt>
+        <dd>
+          <strong>{money(receipt.totalPrice)}</strong>
+        </dd>
+        {receipt.type !== "QUOTATION" && (
+          <>
+            <dt>Amount paid</dt>
+            <dd>{money(receipt.paidAmount)}</dd>
+            <dt>
+              {receipt.status === "CANCELLED"
+                ? "Original amount due"
+                : "Amount due"}
+            </dt>
+            <dd>{money(receipt.amountDue)}</dd>
+          </>
+        )}
+      </dl>
+      <button
+        className="btn btn-outline-secondary no-print"
+        onClick={() => window.print()}
+      >
+        Print {receipt.type === "QUOTATION" ? "quotation" : "receipt"}
+      </button>
+    </section>
+  );
+}
