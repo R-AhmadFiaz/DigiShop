@@ -95,7 +95,13 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
     filter = {...filter, category: String(category)}
   }
 
-  const product = await Product.find({...filter, shopId}).populate("category")
+  let productQuery = Product.find({...filter, shopId}).populate("category")
+
+  if (req.user.role === "CASHIER") {
+  productQuery = productQuery.select("-costPrice")
+  }
+
+  const product = await productQuery
 
   return res.status(200)
   .json(
@@ -181,7 +187,7 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
   const {quantityDelta, reason} = req.body
   const {shopId, _id: userID} = req.user
 
-  if (quantityDelta == 0 || typeof quantityDelta !== 'number' || isNaN (quantityDelta) ) {
+  if (quantityDelta == 0 || typeof quantityDelta !== 'number' || !Number.isFinite(quantityDelta) ) {
     throw new apiError(400, 'Required value')
   }
 
@@ -252,8 +258,9 @@ export const adjustStock = asyncHandler(async (req: Request, res: Response) => {
       createdBy: userID,
       shopId
     }], {session})
-  
- 
+
+  await session.commitTransaction()
+
   return res.status(200)
   .json(
     new apiResponse(
@@ -295,7 +302,7 @@ export const lowStock =  asyncHandler(async (req: Request, res: Response) => {
       $lte: ["$stockQuantity", "$minStockThreshold"]
     }
     
-})
+}).select(req.user.role === "CASHIER" ? "-costPrice" : "")
 
 return res.status(200)
 .json(

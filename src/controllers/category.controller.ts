@@ -62,3 +62,29 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
 
 
 })
+
+
+
+
+export const getCategories = asyncHandler(async (
+    req: Request,
+    res: Response
+) => {
+
+    const { shopId } = req.user
+
+    const categories = await Category.find({
+        shopId
+    }).sort({ name: 1 })
+
+
+    return res.status(200)
+    .json(
+        new apiResponse(
+            200,
+            { categories },
+            'Categories fetched successfully'
+        )
+    )
+
+})

@@ -1,3 +1,4 @@
+import { listQuery } from "../utils/listQuery.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { type Request, type Response } from "express";
 import { apiError } from "../utils/apiError.js";
@@ -9,6 +10,7 @@ import { apiResponse } from "../utils/apiResponse.js";
 import { StockLog } from "../models/stockLog.model.js";
 import { CustomerLedger } from "../models/customerLedger.model.js";
 import { Customer } from "../models/customer.model.js";
+import { User } from "../models/user.model.js";
 import { Shop } from "../models/shop.model.js";
 
 
@@ -35,12 +37,19 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
         throw new apiError(400, 'REQUIRED VALID SALE TYPE')
     }
 
-    if (!discountType || !['PERCENTAGE', 'FIXED'].includes(discountType)) {
+    if (!discountType || !['PERCENTAGE', 'FIXED', 'NONE'].includes(discountType)) {
         throw new apiError(400, 'REQUIRED VALID DISCOUNT TYPE')
     }
 
 
     
+    if (typeof paidAmount !== 'number' || !Number.isFinite(paidAmount) || paidAmount < 0) {
+        throw new apiError(400, 'Required valid paid amount')
+    }
+    if (typeof discountValue !== 'number' || !Number.isFinite(discountValue) || discountValue < 0 || (discountType === 'NONE' && discountValue !== 0)) {
+        throw new apiError(400, 'Required valid discount value')
+    }
+
     for (const item of items) {
         const isObject = typeof item === 'object' && item !== null && !Array.isArray(item)
         
@@ -157,6 +166,9 @@ try {
     }
 
     totalPrice = subtotal - discountAmount
+    if (!Number.isFinite(totalPrice) || paidAmount > totalPrice) {
+        throw new apiError(400, 'Paid amount cannot exceed final total')
+    }
 
     let amountDue = totalPrice - paidAmount
 
@@ -192,8 +204,10 @@ const [createOrder] = await Order.create([{
     items: processedItems,
     status: 'PENDING',
     createdBy: userID,
+    createdByName: req.user.username,
     saleType,
     discountAmount,
+    discountType,
     discountValue,
     subtotal,
     totalPrice,
@@ -229,41 +243,55 @@ for (const item of processedItems) {
 
     }],{session})
 
-    if (customerId) {
 
-        const customer = await Customer.findOneAndUpdate(
-            {_id: customerId,
-            shopId},
-            {
-                $inc: {remainingMoney: amountDue}
-            },
-            {
-                new: true,
-                session
-            }
-        )
-
-        if (!customer) {
-            throw new apiError(500, 'Something went wrong during credit amount in customer')
-        }
-        
-        
-        await CustomerLedger.create([{
-            
-            customerId,
-            amount: amountDue,
-            description: 'PURCHASE',
-            referenceId: createOrder._id,
-            createdBy: userID,
-            shopId,
-            invoiceNo
-
-
-            
-        }],{session})
-        
-    }
 }
+
+
+    if (customerId && amountDue > 0) {
+
+            const customer =
+                await Customer.findOneAndUpdate(
+                    {
+                        _id: customerId,
+                        shopId
+                    },
+                    {
+                        $inc: {
+                            remainingMoney: amountDue
+                        }
+                    },
+                    {
+                        new: true,
+                        session
+                    }
+                )
+
+
+            if (!customer) {
+                throw new apiError(
+                    500,
+                    'Something went wrong during credit amount in customer'
+                )
+            }
+
+
+            // Create ONE ledger entry for the order
+            await CustomerLedger.create(
+                [{
+                    customerId,
+                    amount: amountDue,
+                    description: 'PURCHASE',
+                    referenceId: createOrder._id,
+                    createdBy: userID,
+                    shopId,
+                    invoiceNo
+                }],
+                {
+                    session
+                }
+            )
+        }
+
 
 
 await session.commitTransaction()
@@ -326,19 +354,19 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
     try {
         
         
-        const orderInDb = await Order.findOne({_id: orderId, shopId}).session(session)
+        const orderInDb = await Order.findOneAndUpdate(
+            {_id: orderId, shopId, type: 'INVOICE', status: 'PENDING'},
+            {$set: {status: 'CANCELLED'}},
+            {new: true, session}
+        )
 
-        if (orderInDb?.type === 'QUOTATION') {
-            throw new apiError(400, 'Quotation is not allowed to be cancel')
-        }
-
-        if (!orderInDb || orderInDb.status !== 'PENDING') {
+        if (!orderInDb) {
             throw new apiError(404, 'No Order of this id found')
         }
         
         
         for (const item of orderInDb.items) {
-            await Product.findOneAndUpdate(
+            const restoredProduct = await Product.findOneAndUpdate(
                 
                     {_id: item.productId, shopId},
                     {
@@ -351,12 +379,18 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
                 
             )
 
+             if (!restoredProduct) {
+                 throw new apiError(409, "Cannot restore stock: product missing from shop")
+             }
+
              await StockLog.create([{
                 productId: item.productId,
                 quantityDelta: item.quantity,
                 reason: 'Order get cancelled',
                 referenceId: orderInDb._id,
                 createdBy: userID,
+                saleType: orderInDb.saleType,
+                invoiceNo: orderInDb.invoiceNo,
                 shopId
         }], {session})
 
@@ -367,9 +401,39 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
         
         
 
-        orderInDb.status = 'CANCELLED'
-
-        await orderInDb.save({session})
+        // Use recorded debt, including legacy converted invoices without customerId.
+        // Abort inconsistent histories instead of guessing or clamping balances.
+        const purchases = await CustomerLedger.find({
+            referenceId: orderInDb._id, shopId, description: 'PURCHASE'
+        }).session(session)
+        const debt = purchases.reduce((sum, entry) => sum + entry.amount, 0)
+        const debtCustomerId = purchases[0]?.customerId
+        if (!Number.isFinite(debt) || debt < 0 ||
+            purchases.some(entry => String(entry.customerId) !== String(debtCustomerId)) ||
+            (orderInDb.customerId && debtCustomerId && String(orderInDb.customerId) !== String(debtCustomerId)) ||
+            (orderInDb.amountDue > 0 && debt !== orderInDb.amountDue)) {
+            throw new apiError(409, 'Customer debt history is inconsistent; cancellation aborted')
+        }
+        if (debt > 0) {
+            if (!debtCustomerId) throw new apiError(409, "Customer missing from debt history")
+            const customer = await Customer.findOneAndUpdate(
+                {_id: debtCustomerId, shopId, remainingMoney: {$gte: debt}},
+                {$inc: {remainingMoney: -debt}},
+                {new: true, session}
+            )
+            if (!customer) {
+                throw new apiError(409, 'Customer balance cannot safely reverse this debt')
+            }
+            await CustomerLedger.create([{
+                customerId: debtCustomerId,
+                amount: -debt,
+                description: 'CANCELLATION',
+                referenceId: orderInDb._id,
+                createdBy: userID,
+                shopId,
+                invoiceNo: orderInDb.invoiceNo
+            }], {session})
+        }
 
         await session.commitTransaction()
 
@@ -425,18 +489,15 @@ export const updateOrderStatus = asyncHandler(async(req: Request, res: Response)
         throw new apiError(400, 'Doesnt get Order ID')
     }
 
-    const order = await Order.findOne({_id: orderId, shopId})
+    const order = await Order.findOneAndUpdate(
+        {_id: orderId, shopId, type: 'INVOICE', status: 'PENDING'},
+        {$set: {status: 'DELIVERED'}},
+        {new: true}
+    )
 
     if (!order) {
         throw new apiError(404, 'Order not found')
     }
-
-    if (order.status !== 'PENDING') {
-        throw new apiError(400, 'Required to be Pending to change status')
-    }
-
-    order.status = 'DELIVERED'
-    await order.save()
 
     return res.status(200).json(
         new apiResponse(200, order, 'Ordered marked as delivered successfully')
@@ -561,6 +622,7 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         saleType,
         shopId,
         createdBy: userID,
+        createdByName: req.user.username,
         paidAmount: 0,
         amountDue: 0
 
@@ -718,6 +780,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             amountDue: due,
             status: 'PENDING',
             createdBy: userID,
+            createdByName: req.user.username,
             saleType: quotation.saleType,
             shopId: quotation.shopId,
             invoiceNo
@@ -915,3 +978,49 @@ export const viewStockLog = asyncHandler(async(req: Request, res: Response) => {
 
 
 
+
+
+// Resolve legacy attribution only within the invoice's shop, without saving it.
+async function withCreatorName(order: IOrder) {
+    const result = typeof order.toObject === 'function' ? order.toObject() : {...order};
+    if (!result.createdByName?.trim()) {
+        const creator = result.createdBy
+            ? await User.findOne({_id: result.createdBy, shopId: result.shopId}).select('username')
+            : null;
+        result.createdByName = creator?.username || undefined;
+    }
+    return result;
+}
+
+export const getInvoices = asyncHandler(async (req: Request, res: Response) => {
+    const {page, limit, skip, escapedSearch} = listQuery(req.query);
+    const invoiceNo = req.query.invoiceNo;
+    if (invoiceNo !== undefined && (typeof invoiceNo !== 'string' || invoiceNo.length > 100)) {
+        throw new apiError(400, 'Invoice number must be a string of at most 100 characters');
+    }
+    const filter = {
+        shopId: req.user.shopId,
+        type: 'INVOICE' as const,
+        ...(escapedSearch ? {invoiceNo: {$regex: escapedSearch, $options: 'i'}} : {}),
+        ...(invoiceNo !== undefined ? {invoiceNo} : {})
+    };
+    const [orders, orderCount] = await Promise.all([
+        Order.find(filter).sort({createdAt: -1, _id: -1}).skip(skip).limit(limit),
+        Order.countDocuments(filter)
+    ]);
+    return res.status(200).json(new apiResponse(200, {
+        orders: await Promise.all(orders.map(withCreatorName)),
+        pagination: {orderCount, totalPages: Math.ceil(orderCount / limit), currentPage: page, limit}
+    }, 'Invoices fetched successfully'));
+});
+
+export const getInvoice = asyncHandler(async (req: Request, res: Response) => {
+    if (typeof req.params.orderId !== 'string' || !mongoose.isValidObjectId(req.params.orderId)) {
+        throw new apiError(400, 'Valid order ID required');
+    }
+    const order = await Order.findOne({_id: req.params.orderId, shopId: req.user.shopId, type: 'INVOICE'})
+        .populate({path: 'items.productId', match: {shopId: req.user.shopId}, select: 'name brand unit'})
+        .populate({path: 'customerId', match: {shopId: req.user.shopId}, select: 'name phoneNo address'});
+    if (!order) throw new apiError(404, 'Invoice not found');
+    return res.status(200).json(new apiResponse(200, {order: await withCreatorName(order)}, 'Invoice fetched successfully'));
+});

@@ -8,6 +8,7 @@ interface IShop {
     contactNo: string,
     invoiceCounter: number,
     subscriptionActive: boolean,
+    isActive: boolean,
     subscriptionExpiry: Date | null,
     createdAt: Date,
     updatedAt: Date
@@ -43,6 +44,10 @@ const shopSchema = new Schema<IShop>(
         subscriptionActive: {
             type: Boolean,
             default: false
+        },
+        isActive: {
+            type: Boolean,
+            default: true
         },
         subscriptionExpiry: {
             type: Date,

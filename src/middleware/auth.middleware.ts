@@ -39,6 +39,14 @@ export const verifyJWT = asyncHandler(async (req: Request, res: Response, next: 
         next()
     
     } catch (error) {
+
+        if (error instanceof Jwt.TokenExpiredError) {
+        return next(new apiError(401, "Access token expired"))
+        }
+
+        if (error instanceof Jwt.JsonWebTokenError) {
+        return next(new apiError(401, "Invalid access token"))
+         }
         
 
         next(error)

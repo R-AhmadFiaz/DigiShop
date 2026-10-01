@@ -8,6 +8,7 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import type {IUser} from "../models/user.model.js"
 import Jwt, { type JwtPayload }  from "jsonwebtoken"
 import { Shop } from "../models/shop.model.js"
+import { getShopSession } from "../middleware/role.middleware.js"
 
 export const refreshAccessToken = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
 
@@ -220,7 +221,7 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
         .json(
             new apiResponse(
                 201,
-                createdUser,
+                {...createdUser.toObject(), shopName: shop.name},
                 'User Created Successfully'
             )
     
@@ -353,7 +354,7 @@ export const loginUser = asyncHandler( async(req: Request, res: Response, next: 
     .json(
         new apiResponse(
             200,
-            {user: loggedInUser},
+            {user: loggedInUser, ...await getShopSession(isUserFound)},
             'login Successfully'
         )
     )
@@ -409,7 +410,7 @@ export const currentUser = asyncHandler(async(req: Request, res: Response, next:
 
         new apiResponse(
         200,
-        {user: req.user},
+        {user: req.user, ...await getShopSession(req.user)},
         'View User Detail'
 
     )) 

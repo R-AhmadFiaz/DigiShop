@@ -10,11 +10,13 @@ import { verifyJWT } from "../middleware/auth.middleware.js";
 import { loginLimiter } from "../middleware/rateLimiter.middleware.js";
 import { checkSubscription } from "../middleware/subscription.middleware.js";
 
+import { verifyOwner, verifyShopUser } from "../middleware/role.middleware.js";
+
 export const userRouter = express()
 
 userRouter.route('/register').post(upload.single("avatar"), registerUser)
 
-userRouter.route('/register-staff').post(verifyJWT, upload.single("avatar"), createStaff)
+userRouter.route('/register-staff').post(verifyJWT, verifyShopUser, verifyOwner, upload.single("avatar"), createStaff)
 
 userRouter.route('/login').post(loginLimiter, loginUser)
 
@@ -25,7 +27,6 @@ userRouter.route('/refresh-token').post(refreshAccessToken)
 userRouter.route('/current-user').post(verifyJWT, currentUser) 
 
 userRouter.route('/change-password').post(verifyJWT, changePassword) 
-
 
 
 

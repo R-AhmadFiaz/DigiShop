@@ -46,6 +46,7 @@ export interface IOrder extends Document{
     status: 'PENDING' | 'DELIVERED' | 'CANCELLED' | 'DRAFT' | 'EXPIRED' | 'CONVERTED',
     saleType: 'WHOLESALE' | 'RETAIL',
     createdBy: Types.ObjectId,
+    createdByName?: string,
     paidAmount: number,
     amountDue: number,
     customerId: Types.ObjectId,
@@ -118,6 +119,10 @@ const orderSchema = new Schema<IOrder>(
             type: Schema.Types.ObjectId,
             ref: 'User',
             required: true
+        },
+        createdByName: {
+            type: String,
+            trim: true
         },
         paidAmount: {
             type: Number,
