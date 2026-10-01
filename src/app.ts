@@ -33,9 +33,12 @@ app.use('/api/v2/admin', adminRouter)
 
 app.use((err: apiError, req: Request, res: Response, next: NextFunction) => {
 
-    res.status(err.statusCode || 500).json({
+    const status = err.statusCode || 500;
+    const hideInternalError = process.env.NODE_ENV === 'production' &&
+        (status >= 500 || !(err instanceof apiError));
+    res.status(status).json({
         success: false,
-        message: err.message || 'Something Went Wrong' 
+        message: hideInternalError ? 'Internal server error' : err.message || 'Something Went Wrong'
     })
 
 })

@@ -9,6 +9,18 @@ import type {IUser} from "../models/user.model.js"
 import Jwt, { type JwtPayload }  from "jsonwebtoken"
 import { Shop } from "../models/shop.model.js"
 import { getShopSession } from "../middleware/role.middleware.js"
+import { unlink } from "node:fs/promises"
+
+const withAvatarCleanup = (handler: Parameters<typeof asyncHandler>[0]) =>
+    asyncHandler(async (req, res, next) => {
+        try {
+            return await handler(req, res, next)
+        } finally {
+            if (req.file) await unlink(req.file.path).catch(error => {
+                if (error.code !== 'ENOENT') console.error('Avatar temporary file cleanup failed')
+            })
+        }
+    })
 
 export const refreshAccessToken = asyncHandler( async (req: Request, res: Response, next: NextFunction) => {
 
@@ -45,6 +57,8 @@ export const refreshAccessToken = asyncHandler( async (req: Request, res: Respon
     
         
         const {accessToken, refreshToken} =  await generateAccessAndRefreshToken(user)
+        const {password: omittedPassword, refreshToken: omittedRefreshToken, ...safeUser} =
+            typeof user.toObject === 'function' ? user.toObject() : user
 
 
         const options = {
@@ -58,7 +72,7 @@ export const refreshAccessToken = asyncHandler( async (req: Request, res: Respon
         .json(
             new apiResponse(
                 200,
-                {user: user},
+                {user: safeUser},
                 'Tokens assign successfully'
             )
     
@@ -90,7 +104,7 @@ try {
 }
 
 
-export const registerUser = asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
+export const registerUser = withAvatarCleanup( async(req: Request, res: Response, next: NextFunction) => {
 
     const {username, email, password, shopName, contactNo, address} = req.body
 
@@ -249,7 +263,7 @@ export const registerUser = asyncHandler( async(req: Request, res: Response, nex
 
 })
 
-export const createStaff =  asyncHandler( async(req: Request, res: Response, next: NextFunction) => {
+export const createStaff =  withAvatarCleanup( async(req: Request, res: Response, next: NextFunction) => {
     // fetch the user from req.user
     // check is this user role is 'owner'
     // create the user set his role to cashier
