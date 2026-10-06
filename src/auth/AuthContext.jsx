@@ -10,15 +10,19 @@ const AuthContext = createContext(null);
 export const homeFor = (role) =>
   ({ OWNER: "/owner", CASHIER: "/cashier/pos", ADMIN: "/admin/shops" })[role] ||
   "/login";
-function safeUser(user, shopName = user?.shopName) {
+function safeUser(user, session = user) {
   if (!user || !["OWNER", "CASHIER", "ADMIN"].includes(user.role)) return null;
   return {
     username: user.username,
     email: user.email,
     avatar: user.avatar,
     role: user.role,
-    ...(user.role !== "ADMIN" && typeof shopName === "string"
-      ? { shopName }
+    ...(user.role !== "ADMIN"
+      ? Object.fromEntries(
+          ["shopName", "shopAddress", "shopContactNo"]
+            .filter((field) => typeof session?.[field] === "string")
+            .map((field) => [field, session[field]]),
+        )
       : {}),
   };
 }
@@ -50,7 +54,7 @@ export function AuthProvider({ children }) {
         if (!alive) return;
         await checkCashierSubscription(data);
         if (alive) {
-          setUser(safeUser(data.user, data.shopName));
+          setUser(safeUser(data.user, data));
           setShopActive(data.shopActive !== false);
           setSubscriptionExpiry(data.subscriptionExpiry ?? null);
         }
@@ -76,7 +80,7 @@ export function AuthProvider({ children }) {
     });
     setSubscriptionBlocked(false);
     await checkCashierSubscription(data);
-    setUser(safeUser(data.user, data.shopName));
+    setUser(safeUser(data.user, data));
     setShopActive(data.shopActive !== false);
     setSubscriptionExpiry(data.subscriptionExpiry ?? null);
     setError("");

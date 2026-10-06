@@ -1,3 +1,8 @@
+// null means untouched automatic payment; an empty string is a manual edit.
+export function salePayment(paid, total) {
+  const value = paid ?? total;
+  return { value, amount: value === "" ? NaN : Number(value) };
+}
 export function saleTotals(cart, saleType, discountType, discountValue) {
   const subtotal = cart.reduce(
     (sum, line) =>

@@ -1,4 +1,5 @@
 import { displayName } from "../utils/identity";
+import { useAuth } from "../auth/AuthContext";
 import { dateText, money } from "./Common";
 export function receiptFrom(order, products = [], customer = null) {
   return {
@@ -21,6 +22,7 @@ export function receiptFrom(order, products = [], customer = null) {
   };
 }
 export default function Receipt({ receipt }) {
+  const user = useAuth()?.user;
   return (
     <section
       className="receipt"
@@ -28,6 +30,13 @@ export default function Receipt({ receipt }) {
         receipt.type === "QUOTATION" ? "Quotation" : "Invoice receipt"
       }
     >
+      {user?.shopName && (
+        <div className="receipt-shop">
+          <h2>{user.shopName}</h2>
+          {user.shopAddress && <p>{user.shopAddress}</p>}
+          {user.shopContactNo && <p>Phone: {user.shopContactNo}</p>}
+        </div>
+      )}
       <div className="receipt-heading">
         <h2 className="h5">
           {receipt.type === "QUOTATION"

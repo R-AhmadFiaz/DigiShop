@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { literalSearch, saleTotals, validateSale } from "../src/api/sale.js";
+import { literalSearch, salePayment, saleTotals, validateSale } from "../src/api/sale.js";
 const cart = [
   {
     _id: "internal",
@@ -11,6 +11,46 @@ const cart = [
     stockQuantity: 10,
   },
 ];
+test("untouched payment follows cart, quantity, price type and discount totals", () => {
+  for (const total of [
+    saleTotals([], "RETAIL", "NONE", 0).total,
+    saleTotals(cart, "RETAIL", "NONE", 0).total,
+    saleTotals([{ ...cart[0], quantity: 3 }], "RETAIL", "NONE", 0).total,
+    saleTotals(cart, "WHOLESALE", "NONE", 0).total,
+    saleTotals(cart, "RETAIL", "FIXED", 10).total,
+    saleTotals(cart, "RETAIL", "PERCENTAGE", 10).total,
+  ]) assert.deepEqual(salePayment(null, total), { value: total, amount: total });
+});
+test("manual blank stays blank and checkout rejects it rather than assuming payment", () => {
+  for (const total of [100, 150]) {
+    const payment = salePayment("", total);
+    assert.equal(payment.value, "");
+    assert.ok(Number.isNaN(payment.amount));
+    assert.match(validateSale(cart, "RETAIL", "NONE", 0, payment.amount, null), /Amount paid/);
+  }
+});
+test("manual zero, partial and full payments retain their exact input across total changes", () => {
+  for (const paid of ["0", "40", "100", "040.00"])
+    for (const total of [100, 150, 80])
+      assert.deepEqual(salePayment(paid, total), { value: paid, amount: Number(paid) });
+});
+test("full payment allows walk-in sales; positive due still requires a customer", () => {
+  assert.equal(validateSale(cart, "RETAIL", "NONE", 0, salePayment(null, 100).amount, null), "");
+  assert.equal(validateSale(cart, "RETAIL", "NONE", 0, salePayment("100", 100).amount, null), "");
+  for (const paid of ["0", "40"]) {
+    const amount = salePayment(paid, 100).amount;
+    assert.match(validateSale(cart, "RETAIL", "NONE", 0, amount, null), /customer/);
+    assert.equal(validateSale(cart, "RETAIL", "NONE", 0, amount, { name: "Buyer" }), "");
+  }
+});
+test("draft restoration distinguishes automatic, blank, zero and partial payment; reset restores automatic", () => {
+  for (const paid of [null, "", "0", "40"]) {
+    const draft = JSON.parse(JSON.stringify({ paid }));
+    assert.deepEqual(salePayment(draft.paid ?? null, 125), salePayment(paid, 125));
+  }
+  assert.deepEqual(salePayment(undefined, 125), { value: 125, amount: 125 });
+  assert.deepEqual(salePayment(null, 50), { value: 50, amount: 50 });
+});
 test("retail/wholesale and both discounts calculate correctly", () => {
   assert.deepEqual(saleTotals(cart, "RETAIL", "NONE", 0), {
     subtotal: 100,

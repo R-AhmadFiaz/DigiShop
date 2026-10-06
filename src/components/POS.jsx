@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { api, query } from "../api/client";
 import { useDebounce, useLoad } from "../api/hooks";
-import { literalSearch, saleTotals, validateSale } from "../api/sale";
+import { literalSearch, salePayment, saleTotals, validateSale } from "../api/sale";
 import { Empty, Field, money, Notice } from "./Common";
 import CustomerPicker from "./CustomerPicker";
 import Receipt, { receiptFrom } from "./Receipt";
@@ -19,7 +19,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     [discountValue, setDiscountValue] = useState(
       savedDraft.discountValue ?? "0",
     ),
-    [paid, setPaid] = useState(savedDraft.paid ?? ""),
+    [paid, setPaid] = useState(savedDraft.paid ?? null),
     [customer, setCustomer] = useState(savedDraft.customer ?? null),
     [busy, setBusy] = useState(false),
     [customerBusy, setCustomerBusy] = useState(false),
@@ -31,8 +31,11 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     "/products/search-product" + query({ search: literalSearch(term) }),
   );
   const totals = saleTotals(cart, saleType, discountType, discountValue),
-    paidAmount = paid === "" ? totals.total : Number(paid),
-    due = Math.max(0, totals.total - paidAmount);
+    payment = salePayment(paid, totals.total),
+    paidAmount = payment.amount,
+    due = Number.isFinite(paidAmount)
+      ? Math.max(0, totals.total - paidAmount)
+      : 0;
   useEffect(() => {
     if (!cart.length) return;
     const warn = (event) => {
@@ -152,7 +155,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         ]);
       setReceipt(saved);
       setCart([]);
-      setPaid("");
+      setPaid(null);
       setCustomer(null);
       setDiscountType("NONE");
       setDiscountValue("0");
@@ -405,7 +408,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                     step="any"
                     min="0"
                     max={totals.total}
-                    value={paid === "" ? totals.total : paid}
+                    value={payment.value}
                     onChange={(e) => setPaid(e.target.value)}
                   />
                 </Field>

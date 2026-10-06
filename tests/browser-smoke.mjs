@@ -124,7 +124,7 @@ async function mock(event) {
     if (role)
       data = {
         shopActive: role === "ADMIN" || shops[0].isActive !== false,
-        ...(role !== "ADMIN" ? { shopName: shops[0].name } : {}),
+        ...(role !== "ADMIN" ? { shopName: shops[0].name, shopAddress: shops[0].address, shopContactNo: shops[0].contactNo } : {}),
         ...(role === "OWNER"
           ? { subscriptionExpiry: shops[0].subscriptionExpiry }
           : {}),
@@ -153,7 +153,7 @@ async function mock(event) {
     role = (body.username || "").toUpperCase();
     data = {
       shopActive: role === "ADMIN" || shops[0].isActive !== false,
-      ...(role !== "ADMIN" ? { shopName: shops[0].name } : {}),
+      ...(role !== "ADMIN" ? { shopName: shops[0].name, shopAddress: shops[0].address, shopContactNo: shops[0].contactNo } : {}),
       ...(role === "OWNER"
         ? { subscriptionExpiry: shops[0].subscriptionExpiry }
         : {}),
@@ -372,6 +372,23 @@ async function wait(expression) {
       (await evaluate("document.body.innerText")),
   );
 }
+async function assertReceiptShop() {
+  const identity = await evaluate(`(() => {
+    const header = document.querySelector(".receipt").firstElementChild;
+    return {
+      name: header.querySelector("h2")?.textContent,
+      details: [...header.querySelectorAll("p")].map(p => p.textContent),
+      visible: getComputedStyle(header).visibility,
+      isShopHeader: header.classList.contains("receipt-shop")
+    };
+  })()`);
+  assert.deepEqual(identity, {
+    name: shops[0].name,
+    details: [shops[0].address, "Phone: " + shops[0].contactNo],
+    visible: "visible",
+    isShopHeader: true,
+  });
+}
 const click = async (text) => {
   await wait(
     '(()=>{const el=[...document.querySelectorAll("button,a")].find(e=>e.textContent.trim()===' +
@@ -559,6 +576,23 @@ try {
     'location.pathname === "/cashier/pos" && !!document.querySelector(".product-result")',
   );
   await evaluate('document.querySelector(".product-result").click()');
+  const paymentInput = '[...document.querySelectorAll("label")].find(e=>e.textContent.includes("Amount paid")).querySelector("input")';
+  assert.equal(await evaluate(paymentInput + '.value'), "50");
+  await fill('[aria-label="Quantity for Copper Cable"]', "2");
+  assert.equal(await evaluate(paymentInput + '.value'), "100");
+  await fillLabel("Amount paid", "");
+  assert.equal(await evaluate(paymentInput + '.value'), "");
+  const beforeBlankCheckout = calls.filter(c => c.endpoint === "/orders/create-order").length;
+  await click("Complete sale");
+  await wait('document.body.innerText.includes("Amount paid must be between zero and the sale total.")');
+  assert.equal(calls.filter(c => c.endpoint === "/orders/create-order").length, beforeBlankCheckout);
+  await click("Customers");
+  await click("POS");
+  await wait('!!document.querySelector(".cart-table .quantity")');
+  assert.equal(await evaluate(paymentInput + '.value'), "", "Manual blank survives navigation");
+  await fillLabel("Amount paid", "0");
+  await fill('[aria-label="Quantity for Copper Cable"]', "1");
+  assert.equal(await evaluate(paymentInput + '.value'), "0");
   await evaluate("window.confirm = () => false");
   await click("Customers");
   await wait('location.pathname === "/cashier/customers"');
@@ -570,6 +604,10 @@ try {
     "Counter cart survives navigation",
   );
   await fillLabel("Amount paid", "20");
+  await click("Customers");
+  await click("POS");
+  await wait('!!document.querySelector(".cart-table .quantity")');
+  assert.equal(await evaluate(paymentInput + '.value'), "20", "Manual partial payment survives navigation");
   await wait('!!document.querySelector(".customer-result")');
   await click("New customer");
   await fill("[name=name]", "New buyer");
@@ -598,6 +636,7 @@ try {
     ),
   );
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  await assertReceiptShop();
   await screenshot("receipt");
   await send("Emulation.setEmulatedMedia", { media: "print" });
   assert.equal(
@@ -613,6 +652,7 @@ try {
     "visible",
   );
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  await assertReceiptShop();
   const printed = await send("Page.printToPDF", { printBackground: false });
   fs.writeFileSync(
     "tests/artifacts/receipt-print.pdf",
@@ -722,6 +762,7 @@ try {
   await click("Create quotation");
   await wait('document.body.innerText.includes("Quotation saved")');
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Created by: Ali")'));
+  await assertReceiptShop();
   await click("Make sale");
   await wait('!!document.querySelector("dialog[open]")');
   await click("Close");
@@ -732,6 +773,7 @@ try {
   await wait('!document.querySelector("dialog[open]")');
   await wait('document.body.innerText.includes("INV-2")');
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  await assertReceiptShop();
   assert.ok(
     !calls.some(
       (c) =>
@@ -1051,6 +1093,7 @@ try {
   await wait('!!document.querySelector(".receipt")');
   assert.ok(await evaluate('location.pathname.includes("invoice-two")'));
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  await assertReceiptShop();
   await click("Cancel invoice");
   await click("Confirm cancellation");
   await wait('document.body.innerText.includes("Status: cancelled")');
