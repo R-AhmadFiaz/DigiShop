@@ -18,8 +18,8 @@ const {checkSubscription} = await import('../dist/middleware/subscription.middle
 const id = n => n.toString(16).padStart(24, '0');
 const shopId = id(1), otherId = id(2), expiry = new Date(Date.now() + 86400000 * 30);
 const shops = new Map([
-  [shopId, {_id: shopId, name: 'First', subscriptionActive: true, subscriptionExpiry: expiry}],
-  [otherId, {_id: otherId, name: 'Second', isActive: true, subscriptionActive: true, subscriptionExpiry: expiry}],
+  [shopId, {_id: shopId, name: 'First', address: 'First Market', contactNo: '03001111111', subscriptionActive: true, subscriptionExpiry: expiry}],
+  [otherId, {_id: otherId, name: 'Second', address: 'Second Market', contactNo: '03002222222', isActive: true, subscriptionActive: true, subscriptionExpiry: expiry}],
 ]);
 const hash = await bcrypt.hash('test-password', 4);
 const users = new Map();
@@ -81,7 +81,7 @@ await test('new and legacy shops default to active without migration', async () 
   assert.equal(Shop.hydrate({_id:shopId}).isActive,true);
   assert.equal((await request('GET','/products/search-product',id(3))).status,200);
 });
-await test('OWNER/CASHIER session shopName is their own registered name; supplied shop IDs are ignored and ADMIN shape stays unchanged', async () => {
+await test('OWNER/CASHIER receipt identity comes only from their own shop; supplied shop IDs are ignored and ADMIN shape stays unchanged', async () => {
   const before=structuredClone([...shops]);
   for(const [userId,expectedName] of [[id(3),'First'],[id(4),'First'],[id(6),'Second']]) {
     const user=users.get(userId);
@@ -90,7 +90,12 @@ await test('OWNER/CASHIER session shopName is their own registered name; supplie
     const cookie=login.cookies.map(c=>c.split(';')[0]).join('; ');
     const current=await request('POST',`/users/current-user?shopId=${otherId}`,userId,{shopId:otherId},cookie);
     assert.equal(current.status,200);assert.equal(current.body.data.shopName,expectedName);
-    assert.deepEqual(Object.keys(current.body.data).sort(),userId===id(4)?['shopActive','shopName','user']:['shopActive','shopName','subscriptionExpiry','user']);
+    const ownShop = shops.get(String(user.shopId));
+    for (const session of [login.body.data, current.body.data]) {
+      assert.equal(session.shopAddress, ownShop.address);
+      assert.equal(session.shopContactNo, ownShop.contactNo);
+    }
+    assert.deepEqual(Object.keys(current.body.data).sort(),userId===id(4)?['shopActive','shopAddress','shopContactNo','shopName','user']:['shopActive','shopAddress','shopContactNo','shopName','subscriptionExpiry','user']);
   }
   const admin=await request('POST','/users/current-user',id(5),{shopId});
   assert.deepEqual(Object.keys(admin.body.data).sort(),['shopActive','user']);

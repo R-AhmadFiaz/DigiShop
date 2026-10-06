@@ -14,6 +14,8 @@ export const getShopSession = async (user: IUser) => {
     return {
         shopActive: shop.isActive !== false,
         shopName: shop.name,
+        shopAddress: shop.address,
+        shopContactNo: shop.contactNo,
         ...(user.role === "OWNER" ? {subscriptionExpiry: shop.subscriptionExpiry ?? null} : {})
     };
 };

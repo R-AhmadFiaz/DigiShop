@@ -235,7 +235,7 @@ export const registerUser = withAvatarCleanup( async(req: Request, res: Response
         .json(
             new apiResponse(
                 201,
-                {...createdUser.toObject(), shopName: shop.name},
+                {...createdUser.toObject(), shopName: shop.name, shopAddress: shop.address, shopContactNo: shop.contactNo},
                 'User Created Successfully'
             )
     
