@@ -2,7 +2,46 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { Shop } from "../models/shop.model.js";
 import { apiError } from "../utils/apiError.js";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
+import { User } from "../models/user.model.js";
+import { Category } from "../models/category.model.js";
+import { Product } from "../models/product.model.js";
+import { Order } from "../models/order.model.js";
+import { Customer } from "../models/customer.model.js";
+import { StockLog } from "../models/stockLog.model.js";
+import { CustomerLedger } from "../models/customerLedger.model.js";
+
+export const deleteShop = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) throw new apiError(400, "Invalid shop selection");
+    const shopId = String(id);
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+        const shop = await Shop.findById(id).session(session);
+        if (!shop) throw new apiError(404, "Shop not found");
+        if (shop.isActive !== false) throw new apiError(403, "Deactivate the shop before deleting it");
+
+        // Acquire a write on the shop first. Concurrent reactivation conflicts
+        // with this transaction rather than allowing an active shop to be deleted.
+        const deleted = await Shop.deleteOne({_id: id, isActive: false}, {session});
+        if (deleted.deletedCount !== 1) throw new apiError(409, "Shop access changed. Refresh and try again");
+        await CustomerLedger.deleteMany({shopId}, {session});
+        await StockLog.deleteMany({shopId}, {session});
+        await Order.deleteMany({shopId}, {session});
+        await Customer.deleteMany({shopId}, {session});
+        await Product.deleteMany({shopId}, {session});
+        await Category.deleteMany({shopId}, {session});
+        await User.deleteMany({shopId, role: {$in: ["OWNER", "CASHIER"]}}, {session});
+        await session.commitTransaction();
+        return res.status(200).json(new apiResponse(200, {}, "Shop permanently deleted"));
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        await session.endSession();
+    }
+});
 
 const setShopAccess = (isActive: boolean) => asyncHandler(async (req, res) => {
     const { id } = req.params;
