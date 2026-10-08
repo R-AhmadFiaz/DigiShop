@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useLoad } from "../../api/hooks";
 import { adminShopRows, shopSubscription } from "../../api/subscription";
-import { dateText, Empty, Notice, PageTitle } from "../../components/Common";
+import { dateText, Empty, Modal, Notice, PageTitle } from "../../components/Common";
 
 export default function Shops() {
   const shops = useLoad("/admin/shops");
@@ -12,6 +12,8 @@ export default function Shops() {
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
+  const [deleting, setDeleting] = useState(null),
+    [confirmation, setConfirmation] = useState("");
   useEffect(() => {
     const update = () => setNow(Date.now());
     const timer = window.setInterval(update, 60000);
@@ -80,8 +82,28 @@ export default function Shops() {
       setBusy("");
     }
   }
+  async function removeShop(event) {
+    event.preventDefault();
+    if (busy || confirmation !== "DELETE" || deleting?.isActive !== false) return;
+    setBusy(deleting._id);
+    setError("");
+    setSuccess("");
+    try {
+      await api("/admin/shops/" + deleting._id, { method: "DELETE" });
+      setUpdates((current) => ({ ...current, [deleting._id]: null }));
+      setSuccess(deleting.name + " permanently deleted.");
+      setDeleting(null);
+      setConfirmation("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  }
   const rows = adminShopRows(
-    (shops.data?.shops || []).map((shop) => updates[shop._id] || shop),
+    (shops.data?.shops || [])
+      .filter((shop) => updates[shop._id] !== null)
+      .map((shop) => updates[shop._id] || shop),
     search,
     now,
   );
@@ -206,6 +228,19 @@ export default function Shops() {
                             ? "Reactivate"
                             : "Deactivate"}
                         </button>
+                        {shop.isActive === false && (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            disabled={Boolean(busy) || shops.loading}
+                            onClick={() => {
+                              setDeleting(shop);
+                              setConfirmation("");
+                              setError("");
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -217,6 +252,20 @@ export default function Shops() {
           !shops.loading && !shops.error && <Empty>No shops found.</Empty>
         )}
       </section>
+      {deleting && (
+        <Modal title="Permanently delete shop" busy={Boolean(busy)} onClose={() => setDeleting(null)}>
+          <p>Delete <strong>{deleting.name}</strong>? This permanently removes the shop, owner/cashier accounts and all shop data. This action is irreversible.</p>
+          <Notice error={error} />
+          <form onSubmit={removeShop}>
+            <label className="form-label" htmlFor="delete-confirmation">Type DELETE to confirm</label>
+            <input id="delete-confirmation" className="form-control mb-3" value={confirmation} disabled={Boolean(busy)} onChange={(e) => setConfirmation(e.target.value)} autoComplete="off" />
+            <div className="d-flex gap-2">
+              <button className="btn btn-outline-secondary" type="button" disabled={Boolean(busy)} onClick={() => setDeleting(null)}>Cancel</button>
+              <button className="btn btn-danger" type="submit" disabled={confirmation !== "DELETE" || Boolean(busy)}>{busy ? "Deleting..." : "Permanently delete"}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }

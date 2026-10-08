@@ -299,6 +299,12 @@ async function mock(event) {
   }
   else if (endpoint === "/users/change-password") data = {};
   else if (endpoint === "/admin/shops") data = { shops };
+  else if (request.method === "DELETE" && /^\/admin\/shops\/[^/]+$/.test(endpoint)) {
+    const index = shops.findIndex(shop => shop._id === endpoint.split("/")[3]);
+    if (index < 0) { status = 404; message = "Shop not found"; }
+    else if (shops[index].isActive !== false) { status = 403; message = "Deactivate the shop before deleting it"; }
+    else shops.splice(index, 1);
+  }
   else if (
     /^\/admin\/shops\/[^/]+\/(activate|extend|deactivate|reactivate)$/.test(
       endpoint,
@@ -333,7 +339,7 @@ async function mock(event) {
       { name: "Access-Control-Allow-Origin", value: "http://localhost:5173" },
       { name: "Access-Control-Allow-Credentials", value: "true" },
       { name: "Access-Control-Allow-Headers", value: "Content-Type" },
-      { name: "Access-Control-Allow-Methods", value: "GET,POST,PATCH,OPTIONS" },
+      { name: "Access-Control-Allow-Methods", value: "GET,POST,PATCH,DELETE,OPTIONS" },
     ],
     body:
       status === 204
@@ -1295,6 +1301,35 @@ try {
   await fill('[aria-label="Search shops"]', "");
   await wait('document.querySelectorAll("tbody tr").length===4');
   await screenshot("admin-shops");
+  // Use a disposable isolated shop; later subscription/role tests keep their records.
+  const deletionShop = { ...shops[0], _id: "delete-shop", name: "Delete Test Shop", isActive: true };
+  shops.push(deletionShop);
+  await click("Refresh");
+  await wait('document.querySelectorAll("tbody tr").length===5');
+  assert.equal(await evaluate('[...document.querySelectorAll("tbody tr")].find(r=>r.textContent.includes("Delete Test Shop")).textContent.includes("Delete\\n")'), false);
+  deletionShop.isActive = false;
+  await click("Refresh");
+  await wait('[...document.querySelectorAll("tbody tr")].find(r=>r.textContent.includes("Delete Test Shop"))?.textContent.includes("Reactivate")');
+  await evaluate('[...document.querySelectorAll("tbody tr")].find(r=>r.textContent.includes("Delete Test Shop")).querySelector(".btn-danger").click()');
+  await wait('!!document.querySelector("#delete-confirmation")');
+  assert.ok(await evaluate('document.querySelector("dialog").textContent.includes("Delete Test Shop") && document.querySelector("dialog").textContent.includes("irreversible")'));
+  assert.equal(await evaluate('document.querySelector("dialog button[type=submit]").disabled'), true);
+  await fill("#delete-confirmation", "delete");
+  assert.equal(await evaluate('document.querySelector("dialog button[type=submit]").disabled'), true);
+  const beforeDelete = calls.filter(c=>c.method==="DELETE").length;
+  await click("Cancel");
+  assert.equal(calls.filter(c=>c.method==="DELETE").length, beforeDelete);
+  await evaluate('[...document.querySelectorAll("tbody tr")].find(r=>r.textContent.includes("Delete Test Shop")).querySelector(".btn-danger").click()');
+  await fill("#delete-confirmation", "DELETE");
+  assert.equal(await evaluate('document.querySelector("dialog button[type=submit]").disabled'), false);
+  nextFailure = "/admin/shops/delete-shop";
+  await click("Permanently delete");
+  await wait('!!document.querySelector("dialog .alert-danger")');
+  assert.ok(shops.includes(deletionShop));
+  await click("Permanently delete");
+  await wait('!document.querySelector("dialog") && document.querySelectorAll("tbody tr").length===4');
+  assert.equal(shops.includes(deletionShop), false);
+  assert.ok(await evaluate('document.body.innerText.includes("Delete Test Shop permanently deleted.")'));
   assert.equal(
     await evaluate('document.querySelector(".brand-name").textContent'),
     "DigiShop",
