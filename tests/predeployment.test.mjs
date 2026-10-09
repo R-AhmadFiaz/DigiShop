@@ -192,6 +192,32 @@ try {
     assert.equal(staff.status, 201); assertSafeJSON(staff); assert.equal(staff.body.data.cashier.avatar, 'https://images.example.test/avatar.png');
     assert.equal(staff.body.data.cashier.role, 'CASHIER'); await assertNoAvatars();
   });
+  await test('owner registration and cashier creation work without pictures or Cloudinary calls', async () => {
+    reset(); failure = 'cloudinary';
+    const owner = await request('register', ownerFields);
+    assert.equal(owner.status, 201); assertSafeJSON(owner);
+    assert.equal(owner.body.data.avatar, undefined);
+    assert.equal(commits, 1); assert.equal(owner.cookies.length, 2);
+    const form = new FormData();
+    for (const [key, value] of Object.entries(staffFields)) form.append(key, value);
+    const staff = await request('register-staff', form, {authenticated: true});
+    assert.equal(staff.status, 201); assertSafeJSON(staff);
+    assert.equal(staff.body.data.cashier.avatar, undefined);
+    assert.equal(providerCalls, 0); await assertNoAvatars();
+  });
+  await test('supplied pictures still enforce image MIME and 5 MB limits', async () => {
+    for (const route of ['register', 'register-staff']) {
+      for (const oversized of [false, true]) {
+        reset();
+        const form = new FormData();
+        for (const [key, value] of Object.entries(route === 'register' ? ownerFields : staffFields)) form.append(key, value);
+        form.append('avatar', new Blob([oversized ? Buffer.alloc(5 * 1024 * 1024 + 1) : 'invalid'], {type: oversized ? 'image/png' : 'text/plain'}), 'picture.png');
+        const result = await request(route, form, {authenticated: route === 'register-staff'});
+        assert.equal(result.status, oversized ? 500 : 400);
+        assert.equal(providerCalls, 0); await assertNoAvatars();
+      }
+    }
+  });
 } finally {
   await new Promise(resolve => server.close(resolve));
   process.chdir(originalDirectory);

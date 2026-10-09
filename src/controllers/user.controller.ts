@@ -179,13 +179,9 @@ export const registerUser = withAvatarCleanup( async(req: Request, res: Response
 
         const file = req.file as Express.Multer.File 
     
-        if (!file) {
-            throw new apiError(500, 'Cant access path in file of avatar')
-        }
+        const avatar = file ? await uploadOnCloudinary(file.path) : null
     
-        const avatar = await uploadOnCloudinary(file.path)
-    
-       if (!avatar) {
+       if (file && !avatar) {
         throw new apiError(500, 'Failed to Upload on Cloudinary')
        }
     
@@ -194,7 +190,7 @@ export const registerUser = withAvatarCleanup( async(req: Request, res: Response
             email,
             password,
             role: 'OWNER',
-            avatar: avatar.url, 
+            avatar: avatar?.url, 
             shopId: shop._id
             
     
@@ -284,11 +280,7 @@ export const createStaff =  withAvatarCleanup( async(req: Request, res: Response
 
     const file = req.file as Express.Multer.File
 
-    if (!file) {
-        throw new apiError(400, 'No File Uploaded')
-    }
-
-    const avatar = await uploadOnCloudinary(file?.path)
+    const avatar = file ? await uploadOnCloudinary(file.path) : null
 
     const userCreate = await User.create({
         username, 
