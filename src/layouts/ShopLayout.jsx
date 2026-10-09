@@ -55,7 +55,10 @@ export default function ShopLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar no-print">
-        <div className="brand-name">DigiShop</div>
+        <div className="sidebar-brand">
+          <img src="/digishop-logo.png" alt="" width="38" height="38" />
+          <span className="brand-name">DigiShop</span>
+        </div>
         <div className="role-label">
           {user.role === "ADMIN"
             ? "Platform administration"

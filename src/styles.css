@@ -144,6 +144,24 @@ fieldset {
   font-size: 12px;
   margin-bottom: 24px;
 }
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.sidebar-brand img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.sidebar-brand .brand-name {
+  font-size: 26px;
+  font-weight: 750;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
 .app-shell {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
