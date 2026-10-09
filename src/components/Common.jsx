@@ -111,18 +111,18 @@ export function PageTitle({ title, children }) {
 }
 export function AvatarInput() {
   return (
-    <Field label="Photo" hint="Choose an image, up to 5 MB.">
+    <Field label="Profile picture (optional)" hint="Choose an image, up to 5 MB.">
       <input
         className="form-control"
         type="file"
         name="avatar"
         accept="image/*"
-        required
       />
     </Field>
   );
 }
 export function validateAvatar(file) {
-  if (!file || !file.type.startsWith("image/") || file.size > 5 * 1024 * 1024)
+  if (!file || (file.size === 0 && !file.name)) return;
+  if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024)
     throw new Error("Choose an image smaller than 5 MB.");
 }

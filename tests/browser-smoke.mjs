@@ -1181,6 +1181,7 @@ try {
   assert.equal(product.brand, "Corrected Brand");
   assert.equal(product.unit, "box");
   assert.equal(product.description, "Electrical cable specification");
+  await wait('document.querySelector("tbody")?.textContent.includes("Corrected Brand")');
   await click("Edit");
   await wait('!!document.querySelector("dialog[open]")');
   assert.equal(await evaluate('document.querySelector("dialog [name=description]").value'), product.description);
@@ -1286,9 +1287,8 @@ try {
   await fill("[name=username]", "newcounter");
   await fill("[name=email]", "newcounter@example.test");
   await fill("[name=password]", "new-password");
-  await evaluate(
-    '(()=>{const input=document.querySelector("input[type=file]");const dt=new DataTransfer();dt.items.add(new File(["image"],"avatar.png",{type:"image/png"}));input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()',
-  );
+  assert.ok(await evaluate('document.body.innerText.includes("Profile picture (optional)")'));
+  assert.equal(await evaluate('document.querySelector("input[name=avatar]").required'), false);
   await click("Create cashier account");
   await wait('document.body.innerText.includes("Cashier account created")');
   await wait('document.querySelector("tbody")?.textContent.includes("newcounter@example.test")');
@@ -1319,6 +1319,15 @@ try {
   await wait('document.body.innerText.includes("No cashier accounts yet.")');
   assert.equal(cashiers.length, 0);
   assert.ok(await evaluate('window.cashierConfirmation.includes("updatedcounter") && window.cashierConfirmation.includes("Historical sales")'));
+  await fill("[name=username]", "picturecounter");
+  await fill("[name=email]", "picturecounter@example.test");
+  await fill("[name=password]", "new-password");
+  await evaluate(
+    '(()=>{const input=document.querySelector("input[type=file]");const dt=new DataTransfer();dt.items.add(new File(["image"],"avatar.png",{type:"image/png"}));input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()',
+  );
+  await click("Create cashier account");
+  await wait('document.querySelector("tbody")?.textContent.includes("newcounter@example.test")');
+  assert.ok(calls.some(c => c.endpoint === "/users/register-staff" && c.body?.includes('filename="avatar.png"')));
   await click("Stock");
   await click("Stock history");
   await wait('document.body.innerText.includes("Damaged goods")');
@@ -1666,9 +1675,15 @@ try {
   await fill("[name=username]", "registered");
   await fill("[name=email]", "registered@example.test");
   await fill("[name=password]", "test-password");
+  assert.equal(await evaluate('document.querySelector("input[name=avatar]").required'), false);
   await evaluate(
-    '(()=>{const input=document.querySelector("input[type=file]");const dt=new DataTransfer();dt.items.add(new File(["image"],"avatar.png",{type:"image/png"}));input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()',
+    '(()=>{const input=document.querySelector("input[type=file]");const dt=new DataTransfer();dt.items.add(new File(["invalid"],"photo.txt",{type:"text/plain"}));input.files=dt.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()',
   );
+  const beforeInvalidPicture = calls.filter(c => c.endpoint === "/users/register").length;
+  await click("Create shop");
+  await wait('document.body.innerText.includes("Choose an image smaller than 5 MB.")');
+  assert.equal(calls.filter(c => c.endpoint === "/users/register").length, beforeInvalidPicture);
+  await evaluate('document.querySelector("input[name=avatar]").value = ""');
   await click("Create shop");
   await wait('location.pathname === "/owner"');
   await wait(
