@@ -8,6 +8,7 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js"
 import type {IUser} from "../models/user.model.js"
 import Jwt, { type JwtPayload }  from "jsonwebtoken"
 import { Shop } from "../models/shop.model.js"
+import { Order } from "../models/order.model.js"
 import { getShopSession } from "../middleware/role.middleware.js"
 import { unlink } from "node:fs/promises"
 
@@ -428,6 +429,126 @@ export const currentUser = asyncHandler(async(req: Request, res: Response, next:
         'View User Detail'
 
     )) 
+})
+
+export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
+    const {username, email} = req.body
+    if (typeof username !== 'string' || username.trim() === '' ||
+        typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        throw new apiError(400, 'Required valid username and email')
+    }
+    const normalizedUsername = username.trim().toLowerCase()
+    const normalizedEmail = email.trim().toLowerCase()
+    const existing = await User.findOne({
+        _id: {$ne: req.user._id}, $or: [{username: normalizedUsername}, {email: normalizedEmail}]
+    })
+    if (existing) throw new apiError(409, 'Username or email already exists')
+    let user
+    try {
+        user = await User.findByIdAndUpdate(req.user._id,
+            {$set: {username: normalizedUsername, email: normalizedEmail}},
+            {new: true, runValidators: true}).select('-password -refreshToken')
+    } catch (error) {
+        if ((error as {code?: number}).code === 11000) throw new apiError(409, 'Username or email already exists')
+        throw error
+    }
+    if (!user) throw new apiError(404, 'User not found')
+    return res.status(200).json(new apiResponse(200,
+        {user, ...await getShopSession(user)}, 'Account updated successfully'))
+})
+
+export const listCashiers = asyncHandler(async (req: Request, res: Response) => {
+    const cashiers = await User.find({shopId: req.user.shopId, role: 'CASHIER'}).select('username email').sort({username: 1})
+    return res.status(200).json(new apiResponse(200, {cashiers}, 'Cashiers fetched successfully'))
+})
+
+export const updateCashier = asyncHandler(async (req: Request, res: Response) => {
+    const {id} = req.params
+    if (!mongoose.isValidObjectId(id)) throw new apiError(400, 'Invalid cashier selection')
+    const {username, email} = req.body
+    if (typeof username !== 'string' || username.trim() === '' ||
+        typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        throw new apiError(400, 'Required valid username and email')
+    }
+    const cashier = await User.findOne({_id: String(id), shopId: req.user.shopId, role: 'CASHIER'})
+    if (!cashier) throw new apiError(404, 'Cashier not found')
+    const normalizedUsername = username.trim().toLowerCase()
+    const normalizedEmail = email.trim().toLowerCase()
+    const existing = await User.findOne({_id: {$ne: cashier._id}, $or: [{username: normalizedUsername}, {email: normalizedEmail}]})
+    if (existing) throw new apiError(409, 'Username or email already exists')
+    cashier.username = normalizedUsername
+    cashier.email = normalizedEmail
+    try {
+        await cashier.save()
+    } catch (error) {
+        if ((error as {code?: number}).code === 11000) throw new apiError(409, 'Username or email already exists')
+        throw error
+    }
+    return res.status(200).json(new apiResponse(200,
+        {cashier: {_id: cashier._id, username: cashier.username, email: cashier.email}}, 'Cashier updated successfully'))
+})
+
+export const resetCashierPassword = asyncHandler(async (req: Request, res: Response) => {
+    const {id} = req.params
+    if (!mongoose.isValidObjectId(id)) throw new apiError(400, 'Invalid cashier selection')
+    const {newPassword} = req.body
+    if (typeof newPassword !== 'string' || newPassword.trim() === '') throw new apiError(400, 'Required valid new password')
+    const cashier = await User.findOne({_id: String(id), shopId: req.user.shopId, role: 'CASHIER'})
+    if (!cashier) throw new apiError(404, 'Cashier not found')
+    cashier.password = newPassword
+    cashier.refreshToken = undefined
+    await cashier.save({validateBeforeSave: true})
+    return res.status(200).json(new apiResponse(200, {}, 'Cashier password reset successfully'))
+})
+
+export const deleteCashier = asyncHandler(async (req: Request, res: Response) => {
+    const {id} = req.params
+    if (!mongoose.isValidObjectId(id)) throw new apiError(400, 'Invalid cashier selection')
+    const shopId = req.user.shopId
+    const session = await mongoose.startSession()
+    session.startTransaction()
+    try {
+        const cashier = await User.findOne({_id: String(id), shopId, role: 'CASHIER'}).session(session)
+        if (!cashier) throw new apiError(404, 'Cashier not found')
+        // Delete first to acquire a write on the user, protecting the snapshot
+        // against a concurrent username update. All writes roll back on failure.
+        const deleted = await User.deleteOne({_id: cashier._id, shopId, role: 'CASHIER'}, {session})
+        if (deleted.deletedCount !== 1) throw new apiError(409, 'Cashier changed. Refresh and try again')
+        await Order.updateMany({shopId, createdBy: cashier._id,
+            $or: [{createdByName: {$exists: false}}, {createdByName: null}, {createdByName: /^\s*$/}]},
+            {$set: {createdByName: cashier.username}}, {session})
+        await session.commitTransaction()
+        return res.status(200).json(new apiResponse(200, {}, 'Cashier deleted successfully'))
+    } catch (error) {
+        await session.abortTransaction()
+        throw error
+    } finally {
+        await session.endSession()
+    }
+})
+
+export const updateShopDetails = asyncHandler(async (req: Request, res: Response) => {
+    const {shopName, address, contactNo} = req.body
+    if (typeof shopName !== 'string' || shopName.trim() === '' ||
+        typeof address !== 'string' || address.trim() === '' ||
+        typeof contactNo !== 'string' || !/^[0-9]{11}$/.test(contactNo)) {
+        throw new apiError(400, 'Required valid shop name, address and 11-digit contact number')
+    }
+    const shop = await Shop.findOne({_id: req.user.shopId, ownerId: req.user._id})
+    if (!shop) throw new apiError(404, 'Shop not found')
+    const existing = await Shop.findOne({contactNo, _id: {$ne: shop._id}})
+    if (existing) throw new apiError(409, 'Contact number already exists')
+    shop.name = shopName.trim()
+    shop.address = address.trim()
+    shop.contactNo = contactNo
+    try {
+        await shop.save()
+    } catch (error) {
+        if ((error as {code?: number}).code === 11000) throw new apiError(409, 'Contact number already exists')
+        throw error
+    }
+    return res.status(200).json(new apiResponse(200,
+        {user: req.user, ...await getShopSession(req.user)}, 'Shop details updated successfully'))
 })
 
 

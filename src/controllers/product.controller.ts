@@ -123,7 +123,7 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
     throw new apiError(400, 'Required Proper Id')
   }
 
-  const {retailPrice, stockQuantity, minStockThreshold, costPrice, wholesalePrice} = req.body
+  const {name, brand, category, unit, description, retailPrice, stockQuantity, minStockThreshold, costPrice, wholesalePrice} = req.body
 
   const {shopId} = req.user
 
@@ -132,6 +132,33 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
   if (!product) {
     throw new apiError(404, 'Product not Found')
   }
+
+  for (const value of [name, brand, unit]) {
+    if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
+      throw new apiError(400, 'Required valid name, brand and unit')
+    }
+  }
+  if (description !== undefined && typeof description !== 'string') {
+    throw new apiError(400, 'Required valid description')
+  }
+  if (category !== undefined) {
+    if (typeof category !== 'string' || !mongoose.isValidObjectId(category)) {
+      throw new apiError(400, 'Required valid category')
+    }
+    const catExist = await Category.findOne({_id: category, shopId})
+    if (!catExist) throw new apiError(404, 'Category not Found')
+  }
+  if (name !== undefined || brand !== undefined) {
+    const slug = generateSlug(`${name !== undefined ? name.trim() : product.name} ${brand !== undefined ? brand.trim() : product.brand}`)
+    const productExist = await Product.findOne({slug, shopId, _id: {$ne: product._id}})
+    if (productExist) throw new apiError(409, 'Prouct of this name already Exist')
+    product.slug = slug
+  }
+  if (name !== undefined) product.name = name.trim()
+  if (brand !== undefined) product.brand = brand.trim()
+  if (category !== undefined) product.category = new mongoose.Types.ObjectId(category)
+  if (unit !== undefined) product.unit = unit.trim()
+  if (description !== undefined) product.description = description
 
   if (retailPrice !== undefined) {
     product.retailPrice = retailPrice
@@ -153,7 +180,15 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
     product.wholesalePrice = wholesalePrice
   }
 
-  const updatedProduct = await product.save()
+  let updatedProduct
+  try {
+    updatedProduct = await product.save()
+  } catch (error) {
+    if ((error as {code?: number}).code === 11000) {
+      throw new apiError(409, 'Prouct of this name already Exist')
+    }
+    throw error
+  }
 
   await updatedProduct.populate("category")
 

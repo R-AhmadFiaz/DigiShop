@@ -2,7 +2,7 @@
 
 import { registerUser, loginUser, refreshAccessToken,
          loggedOutUser, currentUser, changePassword, 
-         createStaff}
+         createStaff, updateProfile, updateShopDetails, listCashiers, updateCashier, resetCashierPassword, deleteCashier}
           from "../controllers/user.controller.js";
 import  express  from "express";
 import { upload } from "../middleware/multer.middleware.js";
@@ -27,5 +27,8 @@ userRouter.route('/refresh-token').post(refreshLimiter, refreshAccessToken)
 userRouter.route('/current-user').post(verifyJWT, currentUser) 
 
 userRouter.route('/change-password').post(verifyJWT, changePassword) 
-
-
+userRouter.route('/profile').patch(verifyJWT, updateProfile)
+userRouter.route('/shop-details').patch(verifyJWT, verifyShopUser, verifyOwner, updateShopDetails)
+userRouter.route('/cashiers').get(verifyJWT, verifyShopUser, verifyOwner, listCashiers)
+userRouter.route('/cashiers/:id').patch(verifyJWT, verifyShopUser, verifyOwner, updateCashier).delete(verifyJWT, verifyShopUser, verifyOwner, deleteCashier)
+userRouter.route('/cashiers/:id/reset-password').patch(verifyJWT, verifyShopUser, verifyOwner, resetCashierPassword)

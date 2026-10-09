@@ -17,6 +17,7 @@ const {Customer} = await import('../dist/models/customer.model.js');
 const {CustomerLedger} = await import('../dist/models/customerLedger.model.js');
 const {Order} = await import('../dist/models/order.model.js');
 const {Shop} = await import('../dist/models/shop.model.js');
+const {Category} = await import('../dist/models/category.model.js');
 const {listQuery} = await import('../dist/utils/listQuery.js');
 const {createOrder} = await import('../dist/controllers/order.controller.js');
 const id = n => n.toString(16).padStart(24, '0');
@@ -25,7 +26,7 @@ let db, commits, aborts;
 const clone=x=>structuredClone(x);
 function reset({due=0, legacy=false, balance=due}={}) {
     commits=0; aborts=0;
-    db={products:[{_id:productId,shopId,name:'Cable',brand:'Wire',unit:'m',costPrice:30,retailPrice:50,wholesalePrice:40,stockQuantity:10,minStockThreshold:10}],
+    db={products:[{_id:productId,shopId,name:'Cable',brand:'Wire',slug:'cable-wire',category:id(30),unit:'m',costPrice:30,retailPrice:50,wholesalePrice:40,stockQuantity:10,minStockThreshold:10}],
         customers:[{_id:customerId,shopId,name:'Ahmad',phoneNo:'03001234567',address:'Shop road',remainingMoney:balance},{_id:id(7),shopId:otherShop,name:'Ahmad',phoneNo:'03001234567',remainingMoney:99}],
         orders:[{_id:orderId,shopId,type:'INVOICE',status:'PENDING',invoiceNo:'INV-1',saleType:'RETAIL',items:[{productId,quantity:2,unitPrice:50}],totalPrice:100,paidAmount:100-due,amountDue:due,...(!legacy?{customerId}:{})}],
         logs:[],ledgers:due?[{_id:id(8),shopId,customerId,referenceId:orderId,description:'PURCHASE',amount:due,invoiceNo:'INV-1'}]:[]};
@@ -36,6 +37,7 @@ function matches(doc, filter) {
         if(key==='$expr')return doc.stockQuantity<=doc.minStockThreshold;
         if(value&&typeof value==='object') {
             if('$gte' in value)return doc[key]>=value.$gte;
+            if('$ne' in value)return String(doc[key])!==String(value.$ne);
             if('$regex' in value)return new RegExp(value.$regex,value.$options).test(doc[key]);
         }
         return String(doc[key])===String(value);
@@ -61,6 +63,24 @@ for(const [Model,key] of [[Product,'products'],[Customer,'customers'],[Order,'or
     };
     Model.create=async docs=>{const array=Array.isArray(docs); const entries=(array?docs:[docs]).map(d=>({_id:id(20+db[key].length),...d}));db[key].push(...clone(entries));return array?entries:entries[0];};
 }
+Product.findOne = filter => {
+    const saved = db.products.find(doc => matches(doc, filter));
+    if (!saved) return query(null);
+    const product = clone(saved);
+    product.save = async () => {
+        const {save, populate, ...fields} = product;
+        if (fields.category) fields.category = String(fields.category);
+        fields.unit = fields.unit.trim().toLowerCase();
+        await new Product(fields).validate();
+        Object.assign(saved, fields);
+        return product;
+    };
+    product.populate = async () => product;
+    return Promise.resolve(product);
+};
+Category.findOne = filter => query([
+    {_id: id(30), shopId}, {_id: id(31), shopId: otherShop},
+].find(doc => matches(doc, filter)) ?? null);
 StockLog.create=async docs=>{for(const doc of docs)await new StockLog(doc).validate();db.logs.push(...clone(docs));return docs;};
 const ledgerCreate=CustomerLedger.create;
 CustomerLedger.create=async docs=>{for(const doc of docs)await new CustomerLedger(doc).validate();return ledgerCreate(docs);};
@@ -84,6 +104,42 @@ async function request(method,path,body,as='OWNER') {
     return {status:response.status,body:await response.json()};
 }
 try {
+await test('OWNER corrects product details and clears optional description without changing prices or stock', async () => {
+    reset(); const before = clone(db.products[0]);
+    const result = await request('PATCH', '/products/'+productId, {
+        name: ' LED & Bulb ', brand: ' Philips ', category: id(30), unit: ' BOX ', description: '12W warm white',
+    });
+    assert.equal(result.status, 200);
+    assert.equal(db.products[0].name, 'LED & Bulb'); assert.equal(db.products[0].brand, 'Philips');
+    assert.equal(db.products[0].slug, 'led-and-bulb-philips');
+    assert.equal(db.products[0].unit, 'box'); assert.equal(db.products[0].category, id(30));
+    assert.equal(db.products[0].description, '12W warm white');
+    for(const field of ['costPrice','retailPrice','wholesalePrice','stockQuantity','minStockThreshold']) assert.equal(db.products[0][field],before[field]);
+    assert.equal((await request('PATCH','/products/'+productId,{description:''})).status,200);
+    assert.equal(db.products[0].description,'');
+    assert.equal((await request('PATCH','/products/'+productId,{name:'LED & Bulb',brand:'Philips'})).status,200);
+});
+await test('invalid details and foreign/missing category cannot mutate a product', async () => {
+    for(const body of [{name:''},{brand:'  '},{unit:null},{name:12},{description:null},{category:id(31)},{category:id(99)},{category:'invalid'}]) {
+        reset(); const before=clone(db);
+        const result=await request('PATCH','/products/'+productId,body);
+        assert.ok([400,404].includes(result.status)); assert.deepEqual(db,before);
+    }
+    reset(); db.products[0].shopId=otherShop; const before=clone(db);
+    assert.equal((await request('PATCH','/products/'+productId,{name:'Foreign edit'})).status,404);
+    assert.deepEqual(db,before);
+});
+await test('name/brand slug uniqueness excludes the current product and stays shop scoped', async () => {
+    reset(); db.products.push({_id:id(32),shopId,name:'Bulb',brand:'Philips',slug:'bulb-philips'});
+    const before=clone(db);
+    assert.equal((await request('PATCH','/products/'+productId,{name:'Bulb',brand:'Philips'})).status,409);
+    assert.deepEqual(db,before);
+    db.products[1].shopId=otherShop;
+    assert.equal((await request('PATCH','/products/'+productId,{name:'Bulb',brand:'Philips'})).status,200);
+    assert.equal(db.products[0].slug,'bulb-philips');
+    assert.equal((await request('PATCH','/products/'+productId,{brand:'Osram'})).status,200);
+    assert.equal(db.products[0].slug,'bulb-osram');
+});
 await test('OWNER/CASHIER/ADMIN permissions are enforced through mounted routes',async()=>{
     reset();
     for(const [method,path]of [['POST','/products/create-product'],['PATCH','/products/'+productId],['PATCH','/products/'+productId+'/adjust-stock'],['POST','/categories/create-category'],['POST','/users/register-staff'],['PATCH','/orders/'+orderId+'/cancel'],['GET','/orders/stocklogs'],['GET','/orders/'],['GET','/orders/'+orderId]]) {

@@ -306,15 +306,15 @@ async function assertBlocked(route, userId, message = SUB) {
   assert.deepEqual({ shops: [...shops], businessData }, before);
 }
 try {
-  await test('all 19 paid routes use the centralized gate; auth/account/Admin routes remain outside it', () => {
-    assert.equal(mounted.length, 30);
-    assert.equal(businessRoutes.length, 19);
+  await test('all 24 paid routes use the centralized gate; auth/profile/account/Admin routes remain outside it', () => {
+    assert.equal(mounted.length, 37);
+    assert.equal(businessRoutes.length, 24);
     for (const route of mounted)
       assert.equal(
         route.shop,
         !route.path.startsWith('/admin/') &&
           (!route.path.startsWith('/users/') ||
-            route.path === '/users/register-staff'),
+            route.path === '/users/register-staff' || route.path === '/users/shop-details' || route.path.startsWith('/users/cashiers')),
         route.path
       );
   });
