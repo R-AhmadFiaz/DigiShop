@@ -104,6 +104,11 @@ export function AuthProvider({ children }) {
     setSubscriptionExpiry(null);
     setSubscriptionBlocked(false);
   };
+  const updateSession = (data) => {
+    setUser(safeUser(data.user, data));
+    setShopActive(data.shopActive !== false);
+    setSubscriptionExpiry(data.subscriptionExpiry ?? null);
+  };
   return (
     <AuthContext.Provider
       value={{
@@ -116,6 +121,7 @@ export function AuthProvider({ children }) {
         login,
         register,
         logout,
+        updateSession,
       }}
     >
       {children}

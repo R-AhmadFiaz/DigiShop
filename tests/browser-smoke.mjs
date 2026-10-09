@@ -67,6 +67,8 @@ let invoice = {
   createdAt: new Date().toISOString(),
 };
 let quotation;
+let slowCategorySearch = false;
+const cashiers = [];
 const stockLogs = [];
 const shops = [
   {
@@ -88,6 +90,17 @@ async function mock(event) {
   const request = event.request,
     url = new URL(request.url),
     endpoint = url.pathname.replace("/api/v2", "");
+  // Keep isolated browser workflows on the test API even when the developer's
+  // running Vite server is configured for a different local backend port.
+  if (url.pathname === "/src/api/client.js") {
+    const source = await (await fetch(request.url)).text();
+    await send("Fetch.fulfillRequest", {
+      requestId: event.requestId, responseCode: 200,
+      responseHeaders: [{ name: "Content-Type", value: "text/javascript" }],
+      body: Buffer.from(source.replace(/"VITE_API_BASE_URL":\s*"[^"]*"/, '"VITE_API_BASE_URL":"http://localhost:3000/api/v2"')).toString("base64"),
+    });
+    return;
+  }
   calls.push({
     role,
     method: request.method,
@@ -174,15 +187,19 @@ async function mock(event) {
   } else if (endpoint === "/users/logout") {
     role = null;
   } else if (endpoint === "/products/search-product") {
+    const category = url.searchParams.get("category");
+    const search = url.searchParams.get("search");
     data = {
-      product: [
+      product: (!category || category === product.category._id) &&
+        (!search || new RegExp(search, "i").test(product.name) || new RegExp(search, "i").test(product.brand)) ? [
         role === "CASHIER"
           ? Object.fromEntries(
               Object.entries(product).filter(([k]) => k !== "costPrice"),
             )
           : product,
-      ],
+      ] : [],
     };
+    if (slowCategorySearch && category === "category-one") await sleep(450);
   } else if (endpoint === "/products/low-stock")
     data = {
       counts: product.stockQuantity <= product.minStockThreshold ? 1 : 0,
@@ -190,7 +207,7 @@ async function mock(event) {
         product.stockQuantity <= product.minStockThreshold ? [product] : [],
     };
   else if (endpoint === "/categories/")
-    data = { categories: [product.category] };
+    data = { categories: [product.category, { _id: "category-two", name: "Lighting" }] };
   else if (endpoint === "/customers/")
     data = {
       customers: [customer],
@@ -287,17 +304,43 @@ async function mock(event) {
   } else if (endpoint === "/products/create-product") {
     data = { product: { ...product, ...body, _id: "new-product" } };
   } else if (endpoint === "/products/product-one") {
-    Object.assign(product, body);
+    Object.assign(product, { ...body, category: body.category ? { ...product.category, _id: body.category } : product.category });
     data = { updatedProduct: product };
   } else if (endpoint === "/categories/create-category")
     data = { category: { ...body, _id: "new-category" } };
-  else if (endpoint === "/users/register-staff")
-    data = { cashier: { username: "newcounter" } };
+  else if (endpoint === "/users/register-staff") {
+    const cashier = { _id: "cashier-one", username: "newcounter", email: "newcounter@example.test" };
+    cashiers.push(cashier);
+    data = { cashier };
+  }
+  else if (endpoint === "/users/cashiers") data = { cashiers };
+  else if (endpoint.startsWith("/users/cashiers/")) {
+    const target = cashiers.find(cashier => cashier._id === endpoint.split("/")[3]);
+    if (!target) { status = 404; message = "Cashier not found"; }
+    else if (request.method === "DELETE") cashiers.splice(cashiers.indexOf(target), 1);
+    else if (!endpoint.endsWith("/reset-password")) {
+      Object.assign(target, body);
+      data = { cashier: target };
+    }
+  }
   else if (endpoint === "/ai/query") {
     await sleep(300);
     data = { action: "checkStock", question: body.text || "Copper cable stock", answer: "Copper Cable has 20 meters in stock.", data: [] };
   }
   else if (endpoint === "/users/change-password") data = {};
+  else if (endpoint === "/users/profile" || endpoint === "/users/shop-details") {
+    if (endpoint === "/users/shop-details") {
+      shops[0].name = body.shopName;
+      shops[0].address = body.address;
+      shops[0].contactNo = body.contactNo;
+    }
+    data = {
+      user: { username: body.username || (role === "OWNER" ? ownerDisplayName : role === "CASHIER" ? "ali" : "admin"), email: body.email || "counter@example.test", role },
+      shopActive: true,
+      ...(role !== "ADMIN" ? { shopName: shops[0].name, shopAddress: shops[0].address, shopContactNo: shops[0].contactNo } : {}),
+      ...(role === "OWNER" ? { subscriptionExpiry: shops[0].subscriptionExpiry } : {}),
+    };
+  }
   else if (endpoint === "/admin/shops") data = { shops };
   else if (request.method === "DELETE" && /^\/admin\/shops\/[^/]+$/.test(endpoint)) {
     const index = shops.findIndex(shop => shop._id === endpoint.split("/")[3]);
@@ -498,7 +541,7 @@ try {
   await send("Runtime.enable");
   await send("Network.enable");
   await send("Fetch.enable", {
-    patterns: [{ urlPattern: "http://localhost:3000/api/v2/*" }],
+    patterns: [{ urlPattern: "http://localhost:3000/api/v2/*" }, { urlPattern: "http://localhost:5173/src/api/client.js*" }],
   });
   await send("Emulation.setDeviceMetricsOverride", {
     width: 1440,
@@ -627,6 +670,47 @@ try {
     "Sale must wait for customer creation",
   );
   await wait('document.body.innerText.includes("New buyer")');
+  await fill('[aria-label="Search products by name or brand"]', "Cable");
+  await sleep(350);
+  const saleBeforeCategory = await evaluate(`JSON.stringify({
+    cart: document.querySelector(".cart-table").innerText,
+    quantity: document.querySelector(".cart-table .quantity").value,
+    paid: ${paymentInput}.value,
+    saleType: document.querySelector('[aria-label="Sale type"]').value,
+    discount: document.querySelector(".row select").value,
+    total: document.querySelector(".sale-total").innerText,
+    customer: document.querySelector(".customer-picker").innerText
+  })`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="POS category filter"]').value`), "");
+  await fill('[aria-label="POS category filter"]', "category-two");
+  await wait('document.body.innerText.includes("No matching products.")');
+  const saleAfterCategory = await evaluate(`JSON.stringify({
+    cart: document.querySelector(".cart-table").innerText,
+    quantity: document.querySelector(".cart-table .quantity").value,
+    paid: ${paymentInput}.value,
+    saleType: document.querySelector('[aria-label="Sale type"]').value,
+    discount: document.querySelector(".row select").value,
+    total: document.querySelector(".sale-total").innerText,
+    customer: document.querySelector(".customer-picker").innerText
+  })`);
+  assert.equal(saleAfterCategory, saleBeforeCategory);
+  await click("Customers");
+  await click("POS");
+  await wait('!!document.querySelector(".cart-table .quantity")');
+  await wait(`!!document.querySelector('[aria-label="POS category filter"] option[value="category-two"]')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="POS category filter"]').value`), "category-two");
+  slowCategorySearch = true;
+  await fill('[aria-label="POS category filter"]', "category-one");
+  await sleep(30);
+  await fill('[aria-label="POS category filter"]', "category-two");
+  await sleep(550);
+  assert.equal(await evaluate('document.querySelectorAll(".product-result").length'), 0, "An older category response cannot replace the current result");
+  slowCategorySearch = false;
+  await fill('[aria-label="POS category filter"]', "category-one");
+  await wait('!!document.querySelector(".product-result")');
+  assert.ok(calls.some(c => c.role === "CASHIER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one") && c.query.includes("search=Cable")));
+  await fill('[aria-label="POS category filter"]', "");
+  await wait('!!document.querySelector(".product-result")');
   assert.equal(
     calls.filter((c) => c.endpoint === "/orders/create-order").length,
     0,
@@ -676,7 +760,7 @@ try {
     ["RETAIL", "PERCENTAGE", 10, 45],
   ]) {
     await click("Next sale");
-    await wait('!!document.querySelector(".product-result")');
+    await wait('!!document.querySelector(".product-result:not(:disabled)")');
     await fill('[aria-label="Sale type"]', saleType);
     await evaluate('document.querySelector(".product-result").click()');
     await evaluate(
@@ -695,6 +779,7 @@ try {
     assert.equal(invoice.amountDue, 0);
   }
   await click("Next sale");
+  await wait('!!document.querySelector(".product-result:not(:disabled)")');
   await evaluate('document.querySelector(".product-result").click()');
   await fillLabel("Amount paid", "0");
   const writesBefore = calls.filter(
@@ -765,6 +850,12 @@ try {
   await click("Quotations");
   await wait('!!document.querySelector(".product-result")');
   await evaluate('document.querySelector(".product-result").click()');
+  const quotationCartBefore = await evaluate('document.querySelector(".cart-table").innerText');
+  await fill('[aria-label="POS category filter"]', "category-two");
+  await wait('document.body.innerText.includes("No matching products.")');
+  assert.equal(await evaluate('document.querySelector(".cart-table").innerText'), quotationCartBefore);
+  await fill('[aria-label="POS category filter"]', "category-one");
+  await wait('!!document.querySelector(".product-result")');
   await click("Create quotation");
   await wait('document.body.innerText.includes("Quotation saved")');
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Created by: Ali")'));
@@ -791,6 +882,19 @@ try {
   );
   await click("Account");
   await wait('!!document.querySelector("[name=oldPassword]")');
+  assert.equal(await evaluate('document.querySelector("[name=shopName]")'), null);
+  await fill("[name=username]", "ali updated");
+  await fill("[name=email]", "ali.updated@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("Account updated.")');
+  assert.ok(await evaluate('document.body.innerText.includes("ali updated | ali.updated@example.test")'));
+  await click("POS");
+  await wait('document.querySelector(".cashier-welcome")?.textContent.includes("Ali Updated")');
+  await click("Account");
+  await fill("[name=username]", "ali");
+  await fill("[name=email]", "counter@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("ali | counter@example.test")');
   await click("Sign out");
   await login("OWNER");
   await wait('!!document.querySelector(".owner-welcome")');
@@ -1058,10 +1162,36 @@ try {
   assert.ok(calls.some((c) => c.endpoint === "/products/create-product"));
   await click("Edit");
   await wait('!!document.querySelector("dialog[open]")');
+  assert.equal(await evaluate('document.querySelector("dialog [name=name]").value'), product.name);
+  assert.equal(await evaluate('document.querySelector("dialog [name=brand]").value'), product.brand);
+  assert.equal(await evaluate('document.querySelector("dialog [name=category]").value'), product.category._id);
+  assert.equal(await evaluate('document.querySelector("dialog [name=unit]").value'), product.unit);
+  assert.equal(await evaluate('document.querySelector("dialog [name=description]").value'), product.description || "");
+  assert.equal(await evaluate('document.querySelector("dialog [name=stockQuantity]")'), null);
+  const originalDetails = { name: product.name, brand: product.brand, unit: product.unit };
+  await fill("dialog [name=name]", "Corrected Cable");
+  await fill("dialog [name=brand]", "Corrected Brand");
+  await fill("dialog [name=unit]", "box");
+  await fill("dialog [name=description]", "Electrical cable specification");
   await fill("[name=retailPrice]", "55");
   await click("Save product");
   await wait('!document.querySelector("dialog[open]")');
   assert.equal(product.retailPrice, 55);
+  assert.equal(product.name, "Corrected Cable");
+  assert.equal(product.brand, "Corrected Brand");
+  assert.equal(product.unit, "box");
+  assert.equal(product.description, "Electrical cable specification");
+  await click("Edit");
+  await wait('!!document.querySelector("dialog[open]")');
+  assert.equal(await evaluate('document.querySelector("dialog [name=description]").value'), product.description);
+  await fill("dialog [name=description]", "");
+  // Restore test labels used by the existing inventory/receipt checks.
+  await fill("dialog [name=name]", originalDetails.name);
+  await fill("dialog [name=brand]", originalDetails.brand);
+  await fill("dialog [name=unit]", originalDetails.unit);
+  await click("Save product");
+  await wait('!document.querySelector("dialog[open]")');
+  assert.equal(product.description, "");
   await click("Stock");
   await wait('document.body.innerText.includes("Copper Cable")');
   await click("Adjust");
@@ -1078,8 +1208,35 @@ try {
   await wait('document.body.innerText.includes("Low stock")');
   await evaluate('document.querySelector("input[type=checkbox]").click()');
   await wait('document.body.innerText.includes("Copper Cable")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Stock category filter"]').value`), "");
+  const beforeStockCategoryCalls = calls.filter(c=>c.endpoint === "/products/search-product").length;
+  await fill('[aria-label="Search stock"]', "Copper");
+  await fill('[aria-label="Stock category filter"]', "category-two");
+  await wait('document.body.innerText.includes("No matching stock.")');
+  await click("Stock history");
+  await wait('!!document.querySelector("[name=productId]")');
+  assert.ok(await evaluate('document.querySelector("[name=productId]").textContent.includes("Copper Cable")'), "Stock history retains the complete product list");
+  await click("Stock levels");
+  await fill('[aria-label="Stock category filter"]', "category-one");
+  await wait('!!document.querySelector("tbody")');
+  assert.ok(await evaluate('document.querySelector("tbody").textContent.includes("Copper Cable")'));
+  assert.equal(await evaluate('document.querySelector("input[type=checkbox]").checked'), true);
+  await fill('[aria-label="Search stock"]', "No matching name");
+  await wait('document.body.innerText.includes("No matching stock.")');
+  await fill('[aria-label="Search stock"]', "");
+  await fill('[aria-label="Stock category filter"]', "");
+  await wait('!!document.querySelector("tbody")');
+  assert.equal(calls.filter(c=>c.endpoint === "/products/search-product").length, beforeStockCategoryCalls, "Stock filters use already loaded products");
   await screenshot("owner-stock");
   await click("Sales");
+  await wait(`!!document.querySelector('[aria-label="POS category filter"]')`);
+  await fill('[aria-label="Search products by name or brand"]', "Cable");
+  await fill('[aria-label="POS category filter"]', "category-two");
+  await sleep(350);
+  await wait('document.body.innerText.includes("No matching products.")');
+  await fill('[aria-label="POS category filter"]', "category-one");
+  await wait('!!document.querySelector(".product-result")');
+  assert.ok(calls.some(c => c.role === "OWNER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one") && c.query.includes("search=Cable")));
   await click("Invoice history");
   await wait('document.body.innerText.includes("INV-2")');
   await fill('[aria-label="Search invoice number"]', "INV-2");
@@ -1134,6 +1291,34 @@ try {
   );
   await click("Create cashier account");
   await wait('document.body.innerText.includes("Cashier account created")');
+  await wait('document.querySelector("tbody")?.textContent.includes("newcounter@example.test")');
+  assert.ok(await evaluate('document.body.innerText.includes("Your Cashiers")'));
+  await click("Edit");
+  await wait('!!document.querySelector("dialog[open]")');
+  assert.equal(await evaluate('document.querySelector("dialog [name=username]").value'), "newcounter");
+  await fill("dialog [name=username]", "updatedcounter");
+  await fill("dialog [name=email]", "updatedcounter@example.test");
+  await click("Save cashier");
+  await wait('!document.querySelector("dialog[open]") && document.querySelector("tbody")?.textContent.includes("updatedcounter@example.test")');
+  await click("Reset password");
+  await wait('!!document.querySelector("dialog [name=newPassword]")');
+  assert.equal(await evaluate('document.querySelector("dialog [name=newPassword]").value'), "");
+  await fill("dialog [name=newPassword]", "reset-password");
+  await click("Set new password");
+  await wait('document.body.innerText.includes("Cashier password reset.")');
+  await evaluate("window.confirm = () => false");
+  const beforeCashierDeletion = calls.filter(c => c.method === "DELETE" && c.endpoint.startsWith("/users/cashiers/")).length;
+  await click("Delete");
+  assert.equal(calls.filter(c => c.method === "DELETE" && c.endpoint.startsWith("/users/cashiers/")).length, beforeCashierDeletion);
+  await evaluate("window.confirm = text => { window.cashierConfirmation = text; return true; }");
+  nextFailure = "/users/cashiers/cashier-one";
+  await click("Delete");
+  await wait('!!document.querySelector(".alert-danger")');
+  assert.equal(cashiers.length, 1);
+  await click("Delete");
+  await wait('document.body.innerText.includes("No cashier accounts yet.")');
+  assert.equal(cashiers.length, 0);
+  assert.ok(await evaluate('window.cashierConfirmation.includes("updatedcounter") && window.cashierConfirmation.includes("Historical sales")'));
   await click("Stock");
   await click("Stock history");
   await wait('document.body.innerText.includes("Damaged goods")');
@@ -1170,6 +1355,30 @@ try {
   await click("Quotations");
   await wait('document.body.innerText.includes("New quotation")');
   await click("Account");
+  const shopBeforeAccount = { ...shops[0] };
+  await fill("[name=username]", "updated owner");
+  await fill("[name=email]", "updated.owner@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("updated owner | updated.owner@example.test")');
+  await fill("[name=shopName]", "Updated Electrical Store");
+  await fill("[name=address]", "Updated Market");
+  await fill("[name=contactNo]", "03009999999");
+  await click("Save shop details");
+  await wait('document.body.innerText.includes("Shop details updated.")');
+  await click("Dashboard");
+  await wait('document.querySelector(".owner-welcome h1")?.textContent==="Updated Electrical Store"');
+  await click("Account");
+  assert.equal(await evaluate('document.querySelector("[name=address]").value'), "Updated Market");
+  assert.equal(await evaluate('document.querySelector("[name=contactNo]").value'), "03009999999");
+  await fill("[name=shopName]", shopBeforeAccount.name);
+  await fill("[name=address]", shopBeforeAccount.address);
+  await fill("[name=contactNo]", shopBeforeAccount.contactNo);
+  await click("Save shop details");
+  await wait('document.body.innerText.includes("Shop details updated.")');
+  await fill("[name=username]", "owner");
+  await fill("[name=email]", "counter@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("owner | counter@example.test")');
   await fill("[name=oldPassword]", "test-password");
   await fill("[name=newPassword]", "changed-password");
   await fill("[name=confirm]", "changed-password");
@@ -1350,6 +1559,15 @@ try {
   );
   await click("Account");
   await wait('!!document.querySelector("[name=oldPassword]")');
+  assert.equal(await evaluate('document.querySelector("[name=shopName]")'), null);
+  await fill("[name=username]", "updated admin");
+  await fill("[name=email]", "updated.admin@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("updated admin | updated.admin@example.test")');
+  await fill("[name=username]", "admin");
+  await fill("[name=email]", "counter@example.test");
+  await click("Save account");
+  await wait('document.body.innerText.includes("admin | counter@example.test")');
   await send("Page.navigate", { url: "http://localhost:5173/cashier/pos" });
   await wait('location.pathname === "/admin/shops"');
   assert.ok(
@@ -1462,9 +1680,9 @@ try {
   await sleep(300);
   await wait('location.pathname === "/login"');
   assert.deepEqual(errors, []);
-  // Read-only live check: no intercepted response and no real account or shop mutation.
+  // Read-only live API check; keep only the test API URL override, with no mocked API responses.
   liveResponses.length = 0;
-  await send("Fetch.disable");
+  await send("Fetch.enable", { patterns: [{ urlPattern: "http://localhost:5173/src/api/client.js*" }] });
   await send("Page.reload");
   await sleep(300);
   await wait('!!document.querySelector("[name=identity]")');

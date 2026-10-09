@@ -248,14 +248,14 @@ function ProductForm({ product, categories, onClose, onSaved }) {
       <Notice error={error} />
       <form onSubmit={submit}>
         <fieldset disabled={busy}>
-          {!edit && (
-            <>
+          <>
               <div className="row g-2">
                 <div className="col-7">
                   <Field label="Product name">
                     <input
                       className="form-control"
                       name="name"
+                      defaultValue={product.name ?? ""}
                       required
                       maxLength={120}
                     />
@@ -266,6 +266,7 @@ function ProductForm({ product, categories, onClose, onSaved }) {
                     <input
                       className="form-control"
                       name="brand"
+                      defaultValue={product.brand ?? ""}
                       required
                       maxLength={80}
                     />
@@ -279,7 +280,7 @@ function ProductForm({ product, categories, onClose, onSaved }) {
                       className="form-select"
                       name="category"
                       required
-                      defaultValue=""
+                      defaultValue={product.category?._id ?? product.category ?? ""}
                     >
                       <option value="" disabled>
                         Select category
@@ -303,7 +304,7 @@ function ProductForm({ product, categories, onClose, onSaved }) {
                       className="form-control"
                       list="shop-units"
                       name="unit"
-                      defaultValue="pcs"
+                      defaultValue={product.unit ?? "pcs"}
                       required
                     />
                     <datalist id="shop-units">
@@ -318,11 +319,11 @@ function ProductForm({ product, categories, onClose, onSaved }) {
                 <input
                   className="form-control"
                   name="description"
+                  defaultValue={product.description ?? ""}
                   maxLength={300}
                 />
               </Field>
-            </>
-          )}
+          </>
           <div className="row g-2">
             {[
               ["costPrice", "Cost price"],

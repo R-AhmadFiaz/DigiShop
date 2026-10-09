@@ -12,14 +12,17 @@ import {
 } from "../../components/Common";
 export default function Stock() {
   const products = useLoad("/products/search-product"),
+    categories = useLoad("/categories/"),
     [tab, setTab] = useState("overview"),
     [search, setSearch] = useState(""),
+    [category, setCategory] = useState(""),
     [lowOnly, setLowOnly] = useState(false),
     [adjusting, setAdjusting] = useState(null),
     [success, setSuccess] = useState("");
   const all = products.data?.product || [],
     filtered = all.filter(
       (p) =>
+        (!category || (p.category?._id ?? p.category) === category) &&
         (!lowOnly || p.stockQuantity <= p.minStockThreshold) &&
         (p.name + " " + p.brand).toLowerCase().includes(search.toLowerCase()),
     );
@@ -51,6 +54,10 @@ export default function Stock() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <select className="form-select w-auto" aria-label="Stock category filter" value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="">All categories</option>
+              {categories.data?.categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+            </select>
             <label className="form-check-label">
               <input
                 className="form-check-input me-2"
@@ -69,6 +76,7 @@ export default function Stock() {
             </button>
           </div>
           <section className="panel">
+            <Notice error={categories.error} />
             <Notice error={products.error} loading={products.loading} />
             {filtered.length > 0 ? (
               <div className="table-responsive">

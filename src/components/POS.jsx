@@ -11,6 +11,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   const draftKey = quotation ? "quotation" : "sale";
   const savedDraft = drafts.current[draftKey] || {};
   const [search, setSearch] = useState(savedDraft.search ?? ""),
+    [category, setCategory] = useState(savedDraft.category ?? ""),
     [cart, setCart] = useState(savedDraft.cart ?? []),
     [saleType, setSaleType] = useState(savedDraft.saleType ?? "RETAIL"),
     [discountType, setDiscountType] = useState(
@@ -28,8 +29,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   const lock = useRef(false),
     term = useDebounce(search);
   const products = useLoad(
-    "/products/search-product" + query({ search: literalSearch(term) }),
+    "/products/search-product" + query({ search: literalSearch(term), category }),
   );
+  const categories = useLoad("/categories/");
   const totals = saleTotals(cart, saleType, discountType, discountValue),
     payment = salePayment(paid, totals.total),
     paidAmount = payment.amount,
@@ -48,6 +50,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   useEffect(() => {
     drafts.current[draftKey] = {
       search,
+      category,
       cart,
       saleType,
       discountType,
@@ -60,6 +63,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     drafts,
     draftKey,
     search,
+    category,
     cart,
     saleType,
     discountType,
@@ -200,8 +204,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     <div className="pos-grid">
       <section className="panel">
         <h2 className="h6">Find a product</h2>
+        <div className="d-flex flex-wrap gap-2 mb-3">
         <input
-          className="form-control mb-3"
+          className="form-control w-auto flex-grow-1"
           aria-label="Search products by name or brand"
           placeholder="Search name or brand"
           autoFocus
@@ -213,6 +218,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               search === term &&
               !products.loading &&
               products.data?.product[0] &&
+              (!category || (products.data.product[0].category?._id ?? products.data.product[0].category) === category) &&
               !busy
             ) {
               e.preventDefault();
@@ -225,9 +231,15 @@ export default function POS({ quotation = false, onConvertQuotation }) {
             }
           }}
         />
+        <select className="form-select w-auto" aria-label="POS category filter" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">All categories</option>
+          {categories.data?.categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+        </select>
+        </div>
+        <Notice error={categories.error} />
         <Notice error={products.error} loading={products.loading} />
         <div className="product-results">
-          {products.data?.product.map((product) => {
+          {products.data?.product.filter((p) => !category || (p.category?._id ?? p.category) === category).map((product) => {
             const price =
               saleType === "WHOLESALE"
                 ? product.wholesalePrice
