@@ -1,6 +1,9 @@
 import { Schema, Types, model } from "mongoose";
 
 interface ICustomerLedger {
+    balanceType?: 'DEBT' | 'CREDIT',
+    amountMinor?: number,
+    adjustmentId?: Types.ObjectId,
     customerId: Types.ObjectId,
     amount: number,
     description: string,
@@ -17,6 +20,9 @@ interface ICustomerLedger {
 
 const customerLedgerSchema = new Schema<ICustomerLedger>(
     {
+        balanceType: {type: String, enum: ['DEBT', 'CREDIT'], default: 'DEBT'},
+        amountMinor: {type: Number, validate: Number.isSafeInteger},
+        adjustmentId: {type: Schema.Types.ObjectId, ref: 'InvoiceAdjustment'},
         customerId: {
             type: Schema.Types.ObjectId,
             ref: 'Customer',

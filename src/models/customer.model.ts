@@ -1,10 +1,11 @@
 import { Schema, Types, model } from "mongoose";
 
-interface ICustomer {
+export interface ICustomer {
     name: string,
     phoneNo: string,
     address?: string,
     remainingMoney: number,
+    storeCreditBalanceMinor: number,
     shopId: Types.ObjectId
 }
 
@@ -28,6 +29,7 @@ const customerSchema = new Schema<ICustomer>(
             required: true,
             default: 0
         },
+        storeCreditBalanceMinor: {type: Number, default: 0, min: 0, validate: Number.isSafeInteger},
         shopId: {
             type: Schema.Types.ObjectId,
             ref: 'Shop',

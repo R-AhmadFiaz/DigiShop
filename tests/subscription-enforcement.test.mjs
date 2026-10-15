@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+mongoose.startSession = async () => ({startTransaction() {}, async abortTransaction() {}, async endSession() {}});
 
 // Real mounted routes and JWT/password handling; isolated persistence only.
 process.env.ACCESS_TOKEN_SECRET = 'subscription-test-access';
@@ -116,6 +118,7 @@ function resetShop(fields = {}) {
 }
 function query(value) {
   const q = {
+    session() { return q; },
     populate() {
       return q;
     },
@@ -306,9 +309,9 @@ async function assertBlocked(route, userId, message = SUB) {
   assert.deepEqual({ shops: [...shops], businessData }, before);
 }
 try {
-  await test('all 24 paid routes use the centralized gate; auth/profile/account/Admin routes remain outside it', () => {
-    assert.equal(mounted.length, 37);
-    assert.equal(businessRoutes.length, 24);
+  await test('all 32 paid routes use the centralized gate; auth/profile/account/Admin routes remain outside it', () => {
+    assert.equal(mounted.length, 45);
+    assert.equal(businessRoutes.length, 32);
     for (const route of mounted)
       assert.equal(
         route.shop,

@@ -12,6 +12,11 @@ import { CustomerLedger } from "../models/customerLedger.model.js";
 import { Customer } from "../models/customer.model.js";
 import { User } from "../models/user.model.js";
 import { Shop } from "../models/shop.model.js";
+import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
+import {createHash} from 'node:crypto';
+import {invoiceTotals, moneyMinor, moneyMajor, safeMinor} from '../utils/invoiceAccounting.js';
+import {changeStoreCredit} from '../utils/invoiceSettlement.js';
+import {invoiceEligibility} from './invoiceAdjustment.controller.js';
 
 
 
@@ -28,6 +33,15 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
 
     const { items, saleType, discountType = 'NONE', discountValue = 0, paidAmount = 0, customerId} = req.body
     const {_id: userID, shopId} = req.user
+    const creditAmount = req.body.creditAmount === undefined ? 0 : req.body.creditAmount
+    const creditMinor = moneyMinor(creditAmount)
+    const requestKey = req.body.requestKey
+    if (creditMinor && (!['OWNER', 'CASHIER'].includes(req.user.role) || !mongoose.isValidObjectId(customerId) ||
+        typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey))) {
+        throw new apiError(400, 'Store credit requires a customer and valid request key')
+    }
+    const creditHash = creditMinor ? createHash('sha256').update(JSON.stringify({userID: String(userID),
+        items, saleType, discountType, discountValue, paidAmount, customerId, creditAmount})).digest('hex') : ''
 
     if (!items || !Array.isArray(items) || items.length === 0) {
         throw new apiError(400, 'Array of items required!')
@@ -78,6 +92,16 @@ const session = await mongoose.startSession()
 session.startTransaction()
 
 try {
+    if (creditMinor) {
+        const replay = await InvoiceAdjustment.findOne({shopId, kind: 'SALE', requestKey}).session(session)
+        if (replay) {
+            if (replay.requestHash !== creditHash || String(replay.createdBy) !== String(userID)) throw new apiError(409, 'Request key already used')
+            const saved = await Order.findOne({_id: replay.orderId, shopId}).session(session)
+            if (!saved) throw new apiError(409, 'Recorded sale requires reconciliation')
+            await session.abortTransaction()
+            return res.status(200).json(new apiResponse(200, saved, 'Sale already recorded'))
+        }
+    }
 
     let discountAmount = 0
     
@@ -140,6 +164,9 @@ try {
 
     processedItems.push({
 
+        name: updatedproduct.name,
+        brand: updatedproduct.brand,
+        unit: updatedproduct.unit,
         productId: updatedproduct._id,
         quantity: item.quantity,
         unitPrice: saleType == 'WHOLESALE' ? updatedproduct.wholesalePrice! : updatedproduct.retailPrice
@@ -170,7 +197,20 @@ try {
         throw new apiError(400, 'Paid amount cannot exceed final total')
     }
 
-    let amountDue = totalPrice - paidAmount
+    let recordedPaidAmount = paidAmount
+    let creditFunding: any
+    if (creditMinor) {
+        const totals = invoiceTotals(processedItems, discountType, discountValue)
+        subtotal = moneyMajor(totals.subtotalMinor)
+        discountAmount = moneyMajor(totals.discountMinor)
+        totalPrice = moneyMajor(totals.totalMinor)
+        const cashMinor = moneyMinor(paidAmount)
+        const settledMinor = safeMinor(cashMinor + creditMinor)
+        if (settledMinor > totals.totalMinor) throw new apiError(400, 'Cash and credit cannot exceed invoice total')
+        recordedPaidAmount = moneyMajor(settledMinor)
+        creditFunding = {cashNetMinor: cashMinor, creditNetMinor: creditMinor, openingCashMinor: cashMinor, openingCreditMinor: creditMinor}
+    }
+    let amountDue = creditMinor ? moneyMajor(moneyMinor(totalPrice) - moneyMinor(recordedPaidAmount)) : totalPrice - paidAmount
 
     if (amountDue > 0 && !customerId) {
         throw new apiError(400, 'Required customer Id')
@@ -212,7 +252,8 @@ const [createOrder] = await Order.create([{
     subtotal,
     totalPrice,
     amountDue,
-    paidAmount,
+    paidAmount: recordedPaidAmount,
+    ...(creditMinor ? {settlementState: creditFunding} : {}),
     customerId,
     shopId,
     invoiceNo
@@ -224,6 +265,8 @@ const [createOrder] = await Order.create([{
 if (!createOrder) {
     throw new apiError(500, 'Could not create Order')
 }
+const paymentRecordId = new mongoose.Types.ObjectId()
+if (creditMinor) await changeStoreCredit(customerId, createOrder, -creditMinor, 'CREDIT_REDEEMED', req.user, paymentRecordId, session)
 
 
     
@@ -294,6 +337,18 @@ for (const item of processedItems) {
 
 
 
+if (creditMinor) {
+    const snapshot = {items: createOrder.items, subtotalMinor: moneyMinor(subtotal), discountMinor: moneyMinor(discountAmount),
+        totalMinor: moneyMinor(totalPrice), discountType, discountValue}
+    await InvoiceAdjustment.create([{_id: paymentRecordId, shopId, orderId: createOrder._id, invoiceNo, kind: 'SALE',
+        requestKey, requestHash: creditHash, revisionBefore: 0, revisionAfter: 0,
+        createdBy: userID, createdByName: req.user.username, reason: 'POS payment with store credit',
+        debtCustomerId: customerId, creditCustomerId: customerId,
+        before: {...snapshot, settledMinor: 0, dueMinor: moneyMinor(totalPrice)},
+        after: {...snapshot, settledMinor: moneyMinor(recordedPaidAmount), dueMinor: moneyMinor(amountDue)}, movements: [],
+        financial: {salesDeltaMinor: 0, debtDeltaMinor: moneyMinor(amountDue), cashReceivedMinor: creditFunding.cashNetMinor,
+            creditRedeemedMinor: creditMinor, cashRefundMinor: 0, creditIssuedMinor: 0, creditRestoredMinor: 0}}], {session})
+}
 await session.commitTransaction()
 
 return res.status(201)
@@ -309,6 +364,9 @@ return res.status(201)
 
 }catch (error) {
     await session.abortTransaction()
+    if (creditMinor && ((error as any)?.code === 11000 || (error as any)?.code === 112 || (error as any)?.hasErrorLabel?.('TransientTransactionError'))) {
+        throw new apiError(409, 'Concurrent credit sale; retry the same request key')
+    }
     if (error instanceof apiError) {
         throw error
 
@@ -356,12 +414,17 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
         
         const orderInDb = await Order.findOneAndUpdate(
             {_id: orderId, shopId, type: 'INVOICE', status: 'PENDING'},
-            {$set: {status: 'CANCELLED'}},
+            {$set: {status: 'CANCELLED', cancelledAt: new Date(), cancellationMode: 'LEGACY'}},
             {new: true, session}
         )
 
         if (!orderInDb) {
             throw new apiError(404, 'No Order of this id found')
+        }
+        // Preserve the legacy cash-only route. Financial-history invoices must use
+        // explicit, idempotent settlement-aware cancellation (still unmounted).
+        if (orderInDb.settlementState || (orderInDb.revision ?? 0) > 0) {
+            throw new apiError(409, 'Invoice has financial history; settlement-aware cancellation is required')
         }
         
         
@@ -737,7 +800,10 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
         processedItems.push({
             productId: item.productId,
             quantity: item.quantity,
-            unitPrice: item.unitPrice
+            unitPrice: item.unitPrice,
+            name: order.name,
+            brand: order.brand,
+            unit: order.unit
         })
         
     }
@@ -774,10 +840,12 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             items: processedItems,
             discountAmount: quotation.discountAmount,
             discountType: quotation.discountType,
+            discountValue: quotation.discountValue,
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
             paidAmount,
             amountDue: due,
+            customerId,
             status: 'PENDING',
             createdBy: userID,
             createdByName: req.user.username,
@@ -1008,6 +1076,7 @@ export const getInvoices = asyncHandler(async (req: Request, res: Response) => {
         Order.find(filter).sort({createdAt: -1, _id: -1}).skip(skip).limit(limit),
         Order.countDocuments(filter)
     ]);
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json(new apiResponse(200, {
         orders: await Promise.all(orders.map(withCreatorName)),
         pagination: {orderCount, totalPages: Math.ceil(orderCount / limit), currentPage: page, limit}
@@ -1018,9 +1087,17 @@ export const getInvoice = asyncHandler(async (req: Request, res: Response) => {
     if (typeof req.params.orderId !== 'string' || !mongoose.isValidObjectId(req.params.orderId)) {
         throw new apiError(400, 'Valid order ID required');
     }
-    const order = await Order.findOne({_id: req.params.orderId, shopId: req.user.shopId, type: 'INVOICE'})
+    const session = await mongoose.startSession(); session.startTransaction();
+    try {
+    const order = await Order.findOne({_id: req.params.orderId, shopId: req.user.shopId, type: 'INVOICE'}).session(session)
         .populate({path: 'items.productId', match: {shopId: req.user.shopId}, select: 'name brand unit'})
         .populate({path: 'customerId', match: {shopId: req.user.shopId}, select: 'name phoneNo address'});
     if (!order) throw new apiError(404, 'Invoice not found');
-    return res.status(200).json(new apiResponse(200, {order: await withCreatorName(order)}, 'Invoice fetched successfully'));
+    const raw = typeof order.toObject === 'function' ? order.toObject({depopulate: true}) : {...order};
+    const eligibility = await invoiceEligibility(raw, session);
+    const result = await withCreatorName(order);
+    result.items = result.items.map((item: any, index: number) => ({...item, lineId: item.lineId ?? `legacy-${index}`}));
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json(new apiResponse(200, {order: result, originalSnapshot: result.originalSnapshot ?? null, eligibility}, 'Invoice fetched successfully'));
+    } finally {await session.abortTransaction(); await session.endSession();}
 });

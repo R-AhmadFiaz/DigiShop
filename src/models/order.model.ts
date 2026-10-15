@@ -3,6 +3,10 @@ import {Schema, model, Document, Types} from 'mongoose'
 // sub order interface
 
 export interface IOrderItems {
+    lineId?: string,
+    name?: string,
+    brand?: string,
+    unit?: string,
     productId: Types.ObjectId,
     quantity: number,
     unitPrice: number,
@@ -14,6 +18,10 @@ export interface IOrderItems {
 // sub-Order schema
 
 const orderItemSchema = new Schema<IOrderItems>({
+    lineId: {type: String},
+    name: {type: String},
+    brand: {type: String},
+    unit: {type: String},
     productId: {
         type: Schema.Types.ObjectId,
         ref: 'Product',
@@ -35,6 +43,13 @@ const orderItemSchema = new Schema<IOrderItems>({
 // Order interface
 
 export interface IOrder extends Document{
+    revision?: number,
+    originalSnapshot?: Record<string, any>,
+    returnState?: 'NONE' | 'PARTIAL' | 'FULL',
+    settlementState?: {cashNetMinor: number, creditNetMinor: number, openingCashMinor: number, openingCreditMinor: number},
+    creditRecipientId?: Types.ObjectId,
+    cancelledAt?: Date,
+    cancellationMode?: 'LEGACY' | 'SETTLED',
     invoiceNo: string,
     type: 'INVOICE' | 'QUOTATION',
     items: IOrderItems[],
@@ -124,6 +139,19 @@ const orderSchema = new Schema<IOrder>(
             type: String,
             trim: true
         },
+        revision: {type: Number, default: 0, min: 0},
+        returnState: {type: String, enum: ['NONE', 'PARTIAL', 'FULL'], default: 'NONE'},
+        // Set once by the internal adjustment core; existing public writes are unchanged.
+        originalSnapshot: {type: Schema.Types.Mixed, immutable: true},
+        settlementState: {type: new Schema({
+            cashNetMinor: {type: Number, required: true, min: 0, validate: Number.isSafeInteger},
+            creditNetMinor: {type: Number, required: true, min: 0, validate: Number.isSafeInteger},
+            openingCashMinor: {type: Number, required: true, min: 0, validate: Number.isSafeInteger},
+            openingCreditMinor: {type: Number, required: true, min: 0, validate: Number.isSafeInteger}
+        }, {_id: false})},
+        creditRecipientId: {type: Schema.Types.ObjectId, ref: 'Customer'},
+        cancelledAt: {type: Date},
+        cancellationMode: {type: String, enum: ['LEGACY', 'SETTLED']},
         paidAmount: {
             type: Number,
             required: true
@@ -152,5 +180,27 @@ const orderSchema = new Schema<IOrder>(
     }, {timestamps: true})
 
     orderSchema.index({type: 1, status: 1})
+    orderSchema.index({shopId: 1, type: 1, createdAt: -1})
+    orderSchema.index({shopId: 1, cancelledAt: 1})
+
+    orderSchema.pre('validate', function () {
+        if (!this.isNew || this.type !== 'INVOICE') return;
+        for (const item of this.items) item.lineId ??= new Types.ObjectId().toString();
+        if (!this.originalSnapshot) {
+            this.createdAt ??= new Date();
+            const saved = this.toObject();
+            this.originalSnapshot = {
+                source: 'CREATION', capturedAt: new Date(),
+                createdAt: saved.createdAt,
+                invoiceNo: saved.invoiceNo, createdBy: saved.createdBy,
+                createdByName: saved.createdByName, customerId: saved.customerId,
+                saleType: saved.saleType, status: saved.status, items: saved.items,
+                subtotal: saved.subtotal, discountType: saved.discountType,
+                discountValue: saved.discountValue, discountAmount: saved.discountAmount,
+                totalPrice: saved.totalPrice, paidAmount: saved.paidAmount, amountDue: saved.amountDue,
+                openingFunding: saved.settlementState
+            };
+        }
+    });
 
 export const Order = model<IOrder>('Order', orderSchema)

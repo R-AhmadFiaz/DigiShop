@@ -10,6 +10,7 @@ import { Order } from "../models/order.model.js";
 import { Customer } from "../models/customer.model.js";
 import { StockLog } from "../models/stockLog.model.js";
 import { CustomerLedger } from "../models/customerLedger.model.js";
+import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
 
 export const deleteShop = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -27,6 +28,7 @@ export const deleteShop = asyncHandler(async (req, res) => {
         const deleted = await Shop.deleteOne({_id: id, isActive: false}, {session});
         if (deleted.deletedCount !== 1) throw new apiError(409, "Shop access changed. Refresh and try again");
         await CustomerLedger.deleteMany({shopId}, {session});
+        await InvoiceAdjustment.deleteMany({shopId}, {session});
         await StockLog.deleteMany({shopId}, {session});
         await Order.deleteMany({shopId}, {session});
         await Customer.deleteMany({shopId}, {session});

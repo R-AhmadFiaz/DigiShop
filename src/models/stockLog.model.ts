@@ -2,6 +2,9 @@ import { Schema, Types, model, Document } from "mongoose";
 import { timeStamp } from "node:console";
 
 export interface IStockLog extends Document{
+    adjustmentId?: Types.ObjectId,
+    disposition?: 'RESTOCK' | 'DAMAGED',
+    returnedQuantity?: number,
     productId: Types.ObjectId,
     quantityDelta: number,
     reason: string,
@@ -17,6 +20,9 @@ export interface IStockLog extends Document{
 
 const stockLogSchema = new Schema<IStockLog>(
     {
+        adjustmentId: {type: Schema.Types.ObjectId, ref: 'InvoiceAdjustment'},
+        disposition: {type: String, enum: ['RESTOCK', 'DAMAGED']},
+        returnedQuantity: {type: Number, min: 0},
         productId: {
         type: Schema.Types.ObjectId,
         ref: 'Product',
@@ -59,4 +65,3 @@ const stockLogSchema = new Schema<IStockLog>(
     stockLogSchema.index({productId: 1, createdAt: -1})
 
 export const StockLog = model<IStockLog>('StockLog', stockLogSchema)
-

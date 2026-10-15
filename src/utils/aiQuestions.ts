@@ -4,6 +4,7 @@ import { Product } from "../models/product.model.js";
 import { Customer } from "../models/customer.model.js";
 import { Order } from "../models/order.model.js";
 import { apiError } from "./apiError.js";
+import {salesSummary, productSales} from './salesReporting.js';
 
 const actions = new Set(["checkStock", "retailPrice", "wholesalePrice", "lowStock", "sales", "compareSales", "unitsSold", "topProducts", "productRevenue", "customerBalance", "invoiceStatus", "costPrice", "profit", "purchaseHistory", "readOnly", "unsupported"]);
 const cashierActions = new Set(["checkStock", "retailPrice", "wholesalePrice", "customerBalance", "readOnly", "unsupported"]);
@@ -55,14 +56,12 @@ export async function processQuestion(question: string, user: IUser, classify: (
     const period = intent.period ?? "thisMonth";
     if (typeof period !== "string" || !["today", "thisMonth", "lastMonth"].includes(period)) throw new apiError(400, "Unsupported time period. Ask about today, this month or last month.");
     const bounds = periodBounds(period, now);
-    const match = (range: ReturnType<typeof periodBounds>) => ({shopId: new mongoose.Types.ObjectId(String(shopId)), type: "INVOICE", status: {$in: ["PENDING", "DELIVERED"]}, createdAt: {$gte: range.start, $lt: range.end}});
     const total = async (range: ReturnType<typeof periodBounds>) => {
-        const rows = await Order.aggregate([{$match: match(range)}, {$group: {_id: null, total: {$sum: "$totalPrice"}, invoices: {$sum: 1}}}]).option({maxTimeMS: 5000});
-        return {total: rows[0]?.total ?? 0, invoices: rows[0]?.invoices ?? 0};
+        return salesSummary(shopId, range);
     };
     if (action === "sales") {
         const result = await total(bounds);
-        return response(`Recorded sales ${bounds.label}: ${money(result.total)} across ${result.invoices} invoices. Includes credit sales; this is not cash collected.`, result);
+        return response(`Recorded sales ${bounds.label}: ${money(result.total)}; ${result.invoices} original invoices and ${result.adjustmentCount} dated adjustments/cancellations. Includes credit sales; this is not cash collected.${result.legacyCancelledExcluded ? ' Legacy cancellations without a recorded date remain excluded.' : ''}`, result);
     }
     if (action === "compareSales") {
         const [current, previous] = await Promise.all([total(periodBounds("thisMonth", now)), total(periodBounds("lastMonth", now))]);
@@ -74,14 +73,7 @@ export async function processQuestion(question: string, user: IUser, classify: (
         const products = await Product.find({shopId, $or: [{name: {$regex: search, $options: "i"}}, {brand: {$regex: search, $options: "i"}}]}).select("_id").sort({_id: 1}).limit(20).maxTimeMS(5000).lean();
         productIds = products.map(product => product._id);
     }
-    const rows = await Order.aggregate([
-        {$match: match(bounds)}, {$unwind: "$items"},
-        ...(productIds ? [{$match: {"items.productId": {$in: productIds}}}] : []),
-        {$group: {_id: "$items.productId", quantity: {$sum: "$items.quantity"}, revenue: {$sum: {$multiply: ["$items.quantity", "$items.unitPrice"]}}}},
-        {$lookup: {from: "products", let: {product: "$_id"}, pipeline: [{$match: {$expr: {$and: [{$eq: ["$_id", "$$product"]}, {$eq: ["$shopId", new mongoose.Types.ObjectId(String(shopId))]}]}}}, {$project: {_id: 0, name: 1, unit: 1}}], as: "product"}},
-        {$project: {_id: 0, quantity: 1, revenue: 1, name: {$ifNull: [{$arrayElemAt: ["$product.name", 0]}, "Product unavailable"]}, unit: {$ifNull: [{$arrayElemAt: ["$product.unit", 0]}, "units"]}}},
-        {$sort: action === "productRevenue" ? {revenue: -1, name: 1} : {quantity: -1, name: 1}}, {$limit: action === "unitsSold" ? 20 : 10}
-    ]).option({maxTimeMS: 5000});
     const revenue = action === "productRevenue";
-    return response(rows.length ? `${revenue ? "Gross product revenue before order discounts" : "Units sold"} ${bounds.label} (${action === "unitsSold" ? "up to 20 matches" : "top 10; quantities may use different units"}):\n${rows.map(row => `${row.name}: ${revenue ? money(row.revenue) : `${row.quantity} ${row.unit}`}`).join("\n")}` : "No matching recorded sales in this period.", rows);
+    const rows = await productSales(shopId, bounds, productIds, revenue, action === 'unitsSold' ? 20 : 10);
+    return response(rows.length ? `${revenue ? "Gross product revenue before order discounts" : "Net units sold"} ${bounds.label} (${action === "unitsSold" ? "up to 20 matches" : "top 10; quantities may use different units"}; includes dated returns/additions):\n${rows.map(row => `${row.name}: ${revenue ? money(row.revenue) : `${row.quantity} ${row.unit}`}`).join("\n")}` : "No matching recorded sales in this period.", rows);
 }
