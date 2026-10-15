@@ -14,14 +14,14 @@ export function receiptFrom(order, products = [], customer = null) {
           : products.find((p) => p._id === item.productId);
       return {
         ...item,
-        name: product?.name || "Product unavailable",
-        brand: product?.brand || "",
-        unit: product?.unit || "",
+        name: item.name || product?.name || "Product unavailable",
+        brand: item.brand ?? product?.brand ?? "",
+        unit: item.unit ?? product?.unit ?? "",
       };
     }),
   };
 }
-export default function Receipt({ receipt }) {
+export default function Receipt({ receipt, documentTitle, children }) {
   const user = useAuth()?.user;
   return (
     <section
@@ -38,6 +38,7 @@ export default function Receipt({ receipt }) {
         </div>
       )}
       <div className="receipt-heading">
+        {documentTitle && <p><strong>{documentTitle}</strong></p>}
         <h2 className="h5">
           {receipt.type === "QUOTATION"
             ? "Quotation"
@@ -52,6 +53,7 @@ export default function Receipt({ receipt }) {
           {displayName(receipt.createdByName || "") || "Unavailable"}
         </p>
         {receipt.status && <p>Status: {receipt.status.toLowerCase()}</p>}
+        {receipt.revision > 0 && <p>Revision: {receipt.revision}{receipt.returnState === "FULL" ? " · Fully returned" : receipt.returnState === "PARTIAL" ? " · Partially returned" : ""}</p>}
         {receipt.customer && (
           <p>
             Customer: {receipt.customer.name}{" "}
@@ -99,17 +101,22 @@ export default function Receipt({ receipt }) {
         </dd>
         {receipt.type !== "QUOTATION" && (
           <>
-            <dt>Amount paid</dt>
+            <dt>{receipt.settlementState || receipt.revision > 0 ? "Net amount settled" : "Amount paid"}</dt>
             <dd>{money(receipt.paidAmount)}</dd>
             <dt>
-              {receipt.status === "CANCELLED"
+              {receipt.status === "CANCELLED" && receipt.cancellationMode !== "SETTLED"
                 ? "Original amount due"
                 : "Amount due"}
             </dt>
             <dd>{money(receipt.amountDue)}</dd>
+            {receipt.settlementState && <>
+              <dt>Net cash settlement</dt><dd>{money(receipt.settlementState.cashNetMinor / 100)}</dd>
+              <dt>Net store-credit settlement</dt><dd>{money(receipt.settlementState.creditNetMinor / 100)}</dd>
+            </>}
           </>
         )}
       </dl>
+      {children}
       <button
         className="btn btn-outline-secondary no-print"
         onClick={() => window.print()}

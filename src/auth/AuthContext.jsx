@@ -13,6 +13,7 @@ export const homeFor = (role) =>
 function safeUser(user, session = user) {
   if (!user || !["OWNER", "CASHIER", "ADMIN"].includes(user.role)) return null;
   return {
+    _id: user._id,
     username: user.username,
     email: user.email,
     avatar: user.avatar,

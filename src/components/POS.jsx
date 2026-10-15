@@ -3,11 +3,16 @@ import { useOutletContext } from "react-router-dom";
 import { api, query } from "../api/client";
 import { useDebounce, useLoad } from "../api/hooks";
 import { literalSearch, salePayment, saleTotals, validateSale } from "../api/sale";
+import { clearPending, journalKey, readPending, requestKey, savePending, uncertain } from "../api/invoice";
+import { useAuth } from "../auth/AuthContext";
 import { Empty, Field, money, Notice } from "./Common";
 import CustomerPicker from "./CustomerPicker";
 import Receipt, { receiptFrom } from "./Receipt";
 export default function POS({ quotation = false, onConvertQuotation }) {
   const { setQuotations, drafts } = useOutletContext();
+  const { user } = useAuth();
+  const storageKey = journalKey(user, "pos-credit");
+  const [pending, setPending] = useState(() => quotation ? null : readPending(storageKey));
   const draftKey = quotation ? "quotation" : "sale";
   const savedDraft = drafts.current[draftKey] || {};
   const [search, setSearch] = useState(savedDraft.search ?? ""),
@@ -21,6 +26,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       savedDraft.discountValue ?? "0",
     ),
     [paid, setPaid] = useState(savedDraft.paid ?? null),
+    [credit, setCredit] = useState(savedDraft.credit ?? "0"),
     [customer, setCustomer] = useState(savedDraft.customer ?? null),
     [busy, setBusy] = useState(false),
     [customerBusy, setCustomerBusy] = useState(false),
@@ -33,20 +39,21 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   );
   const categories = useLoad("/categories/");
   const totals = saleTotals(cart, saleType, discountType, discountValue),
-    payment = salePayment(paid, totals.total),
+    creditAmount = quotation ? 0 : Number(credit),
+    payment = salePayment(paid, creditAmount > 0 ? Math.max(0, Math.round((totals.total - creditAmount) * 100) / 100) : totals.total),
     paidAmount = payment.amount,
     due = Number.isFinite(paidAmount)
-      ? Math.max(0, totals.total - paidAmount)
+      ? creditAmount > 0 ? Math.max(0, Math.round((totals.total - paidAmount - creditAmount) * 100) / 100) : Math.max(0, totals.total - paidAmount)
       : 0;
   useEffect(() => {
-    if (!cart.length) return;
+    if (!cart.length || pending) return; // A submitted credit sale has a durable tab journal.
     const warn = (event) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [cart.length]);
+  }, [cart.length, pending]);
   useEffect(() => {
     drafts.current[draftKey] = {
       search,
@@ -56,6 +63,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       discountType,
       discountValue,
       paid,
+      credit,
       customer,
       receipt,
     };
@@ -69,6 +77,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     discountType,
     discountValue,
     paid,
+    credit,
     customer,
     receipt,
   ]);
@@ -104,11 +113,11 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         : [...current, { ...counterProduct, quantity: 1 }];
     });
   }
-  async function submit(event) {
+  async function submit(event, retry = false) {
     event.preventDefault();
     if (lock.current || customerBusy) return;
     setError("");
-    const validation = validateSale(
+    const validation = retry ? "" : validateSale(
       cart,
       saleType,
       discountType,
@@ -116,6 +125,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       paidAmount,
       customer,
       quotation,
+      creditAmount,
     );
     if (validation) {
       setError(validation);
@@ -124,7 +134,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     lock.current = true;
     setBusy(true);
     try {
-      const body = {
+      const body = retry ? pending.body : {
         items: cart.map((line) => ({
           productId: line._id,
           quantity: Number(line.quantity),
@@ -133,15 +143,23 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         discountType,
         discountValue: discountType === "NONE" ? 0 : Number(discountValue),
         ...(!quotation
-          ? { paidAmount, ...(customer ? { customerId: customer._id } : {}) }
+          ? { paidAmount, ...(customer ? { customerId: customer._id } : {}), ...(creditAmount > 0 ? { creditAmount, requestKey: requestKey() } : {}) }
           : {}),
       };
+      if (body.creditAmount > 0) {
+        savePending(storageKey, { body });
+        setPending({ body });
+      }
       const result = await api(
         quotation ? "/orders/quotation" : "/orders/create-order",
         { method: "POST", body },
       );
       const order = quotation ? result.quotation : result;
+      if (body.creditAmount > 0 && (!order?._id || order.type !== "INVOICE" || !Array.isArray(order.items) ||
+          [order.totalPrice, order.paidAmount, order.amountDue].some(value => !Number.isFinite(value))))
+        throw new Error("The sale response is incomplete. Retry the same sale to confirm it.");
       const saved = receiptFrom(order, cart, quotation ? null : customer);
+      if (body.creditAmount > 0) { clearPending(storageKey); setPending(null); }
       if (quotation)
         setQuotations((current) => [
           ...current,
@@ -160,17 +178,25 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       setReceipt(saved);
       setCart([]);
       setPaid(null);
+      setCredit("0");
       setCustomer(null);
       setDiscountType("NONE");
       setDiscountValue("0");
       products.reload();
     } catch (e) {
+      if (!uncertain(e) && !retry) { clearPending(storageKey); setPending(null); }
       setError(e.message);
     } finally {
       lock.current = false;
       setBusy(false);
     }
   }
+  if (pending && !receipt) return <section className="panel">
+    <h2 className="h5">Confirm store-credit sale</h2>
+    <Notice error={error} />
+    <p>The sale result is not yet confirmed. Do not collect cash again or start another sale. Retry the exact saved request to retrieve its result without redeeming credit twice.</p>
+    <button className="btn btn-primary" disabled={busy} onClick={event => submit(event, true)}>{busy ? "Checking..." : "Retry same sale"}</button>
+  </section>;
   if (receipt)
     return (
       <>
@@ -412,18 +438,21 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               <>
                 <Field
                   label="Amount paid"
-                  hint="Enter a smaller amount for a credit sale."
+                  hint={creditAmount > 0 ? "Cash received, excluding the store credit used below." : "Enter a smaller amount for a credit sale."}
                 >
                   <input
                     className="form-control"
                     type="number"
                     step="any"
                     min="0"
-                    max={totals.total}
+                    max={Math.max(0, totals.total - creditAmount)}
                     value={payment.value}
                     onChange={(e) => setPaid(e.target.value)}
                   />
                 </Field>
+                {customer && <Field label="Store credit to use" hint={`Available: ${money((customer.storeCreditBalanceMinor ?? 0) / 100)}. The server verifies the balance at checkout.`}>
+                  <input className="form-control" type="number" min="0" step="0.01" max={Math.min(totals.total, (customer.storeCreditBalanceMinor ?? 0) / 100)} value={credit} onChange={e => setCredit(e.target.value)} />
+                </Field>}
                 <div className="d-flex justify-content-between mb-3">
                   <span>Amount due</span>
                   <strong className={due > 0 ? "text-warning" : ""}>
@@ -444,7 +473,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               </p>
               <CustomerPicker
                 value={customer}
-                onChange={setCustomer}
+                onChange={value => { setCustomer(value); setCredit("0"); }}
                 required={due > 0}
                 onBusy={setCustomerBusy}
               />

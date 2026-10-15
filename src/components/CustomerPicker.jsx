@@ -85,7 +85,7 @@ export default function CustomerPicker({
           <span>
             <strong>{value.name}</strong> | {value.phoneNo}
             <small className="d-block text-body-secondary">
-              Existing balance: {money(value.remainingMoney)}
+              Outstanding debt: {money(value.remainingMoney)} · Store credit: {money((value.storeCreditBalanceMinor ?? 0) / 100)}
             </small>
           </span>
           <button
@@ -176,7 +176,7 @@ function CustomerResults({ term, page, setPage, onPick }) {
             {customer.name}
             <small>{customer.phoneNo}</small>
           </span>
-          <span>Balance {money(customer.remainingMoney)}</span>
+          <span>Debt {money(customer.remainingMoney)}<small>Store credit {money((customer.storeCreditBalanceMinor ?? 0) / 100)}</small></span>
         </button>
       ))}
       {data?.customers.length === 0 && <Empty>No matching customers.</Empty>}

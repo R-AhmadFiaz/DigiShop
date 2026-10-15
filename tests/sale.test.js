@@ -132,6 +132,16 @@ test("product search escapes regular expression characters", () => {
   assert.ok(new RegExp(literalSearch("a.*[b]")).test("a.*[b]"));
   assert.ok(!new RegExp(literalSearch("a.*[b]")).test("anythingb"));
 });
+test("POS store credit supplements cash, requires customer, and never overpays", () => {
+  const customer = { _id: "buyer", storeCreditBalanceMinor: 4000 };
+  assert.equal(validateSale(cart, "RETAIL", "NONE", 0, 60, customer, false, 40), "");
+  assert.equal(validateSale(cart, "RETAIL", "NONE", 0, 0, customer, false, 100), "");
+  assert.match(validateSale(cart, "RETAIL", "NONE", 0, 60, null, false, 40), /customer/);
+  assert.match(validateSale(cart, "RETAIL", "NONE", 0, 70, customer, false, 40), /Amount paid/);
+  assert.match(validateSale(cart, "RETAIL", "NONE", 0, 0, customer, false, -1), /store-credit/);
+  assert.equal(salePayment(null, 100 - 40).amount, 60);
+  assert.equal(salePayment("25", 100 - 40).amount, 25);
+});
 test("non-finite payments and invalid discounts cannot create sales", () => {
   for (const paid of [NaN, Infinity, -Infinity])
     assert.match(

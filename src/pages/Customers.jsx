@@ -52,7 +52,8 @@ export default function Customers() {
                   <th>Name</th>
                   <th>Phone</th>
                   <th>Address</th>
-                  <th className="text-end">Customer balance</th>
+                  <th className="text-end">Outstanding debt</th>
+                  <th className="text-end">Store credit</th>
                 </tr>
               </thead>
               <tbody>
@@ -62,6 +63,7 @@ export default function Customers() {
                     <td>{c.phoneNo}</td>
                     <td>{c.address || "-"}</td>
                     <td className="text-end">{money(c.remainingMoney)}</td>
+                    <td className="text-end">{money((c.storeCreditBalanceMinor ?? 0) / 100)}</td>
                   </tr>
                 ))}
               </tbody>

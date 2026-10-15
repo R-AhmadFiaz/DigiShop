@@ -20,4 +20,11 @@ try {
   await test("missing or empty creator name displays Unavailable", () => {
     for (const createdByName of [undefined, "", "   "]) assert.match(render({ ...order, createdByName }), /Sold by: Unavailable/);
   });
+  await test("revision receipt retains item snapshots and separate cash/credit settlement", () => {
+    const value = { ...order, revision: 2, returnState: "FULL", items: [{ name: "Original cable", brand: "Original brand", unit: "meter", quantity: 1, unitPrice: 50, productId: { name: "Renamed product", brand: "Changed", unit: "box" } }], settlementState: { cashNetMinor: 2000, creditNetMinor: 3000 } };
+    const html = render(value);
+    assert.match(html, /Original cable/); assert.doesNotMatch(html, /Renamed product/);
+    assert.match(html, /Fully returned/); assert.match(html, /Net cash settlement/);
+    assert.match(html, /Net store-credit settlement/); assert.match(html, /Sold by: Ali/);
+  });
 } finally { await server.close(); }

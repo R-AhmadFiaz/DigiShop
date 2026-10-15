@@ -50,6 +50,7 @@ const customer = {
   phoneNo: "03001234567",
   address: "Market",
   remainingMoney: 10,
+  storeCreditBalanceMinor: 4000,
 };
 let invoice = {
   _id: "invoice-one",
@@ -67,6 +68,9 @@ let invoice = {
   createdAt: new Date().toISOString(),
 };
 let quotation;
+let financialPreview = null, failFinancialResponse = false, incompleteFinancialResponse = false, staleFinancialPreview = false;
+const financialEvents = [];
+const posCreditRequests = new Map();
 let slowCategorySearch = false;
 const cashiers = [];
 const stockLogs = [];
@@ -217,6 +221,15 @@ async function mock(event) {
     await sleep(250);
     data = { customer: { ...customer, ...body } };
   } else if (endpoint === "/orders/create-order") {
+    if (body.creditAmount) {
+      assert.ok(body.customerId);
+      assert.match(body.requestKey, /^[\w-]{8,100}$/);
+      if (posCreditRequests.has(body.requestKey)) {
+        data = posCreditRequests.get(body.requestKey);
+        await send("Fetch.fulfillRequest", { requestId: event.requestId, responseCode: 200, responseHeaders: [{ name: "Access-Control-Allow-Origin", value: "http://localhost:5173" }, { name: "Access-Control-Allow-Credentials", value: "true" }, { name: "Content-Type", value: "application/json" }], body: Buffer.from(JSON.stringify({ data })).toString("base64") });
+        return;
+      }
+    }
     assert.ok(["NONE", "FIXED", "PERCENTAGE"].includes(body.discountType));
     assert.ok(Number.isFinite(body.paidAmount));
     invoice = {
@@ -232,7 +245,7 @@ async function mock(event) {
         0,
       ),
       createdByName: role === "CASHIER" ? "ali" : ownerDisplayName,
-      paidAmount: body.paidAmount,
+      paidAmount: body.paidAmount + (body.creditAmount || 0),
       customerId: body.customerId,
     };
     invoice.discountAmount =
@@ -243,17 +256,60 @@ async function mock(event) {
           : 0;
     invoice.totalPrice = invoice.subtotal - invoice.discountAmount;
     invoice.amountDue = invoice.totalPrice - invoice.paidAmount;
+    invoice.items = invoice.items.map((item, index) => ({ ...item, lineId: `line-${index}`, name: product.name, brand: product.brand, unit: product.unit }));
+    invoice.discountType = body.discountType;
+    invoice.discountValue = body.discountValue;
+    invoice.revision = 0;
+    invoice.status = "PENDING";
+    invoice.originalSnapshot = { ...invoice, originalSnapshot: undefined };
+    if (body.creditAmount) {
+      customer.storeCreditBalanceMinor -= body.creditAmount * 100;
+      invoice.settlementState = { cashNetMinor: body.paidAmount * 100, creditNetMinor: body.creditAmount * 100 };
+      posCreditRequests.set(body.requestKey, structuredClone(invoice));
+    }
     data = invoice;
+    if (body.creditAmount && failFinancialResponse) { failFinancialResponse = false; await send("Fetch.failRequest", { requestId: event.requestId, errorReason: "Failed" }); return; }
   } else if (endpoint === "/orders/")
     data = { orders: [invoice], pagination: { currentPage: 1, totalPages: 1 } };
   else if (endpoint === "/orders/" + invoice._id)
     data = {
       order: {
         ...invoice,
-        items: invoice.items.map((item) => ({ ...item, productId: product })),
+        items: invoice.items.map((item, index) => ({ ...item, lineId: item.lineId || `legacy-${index}`, productId: product })),
         customerId: invoice.customerId ? customer : null,
       },
+      originalSnapshot: invoice.originalSnapshot || null,
+      eligibility: { revision: invoice.revision || 0, adjustmentEligible: invoice.status !== "CANCELLED", paymentEligible: invoice.amountDue > 0 && !!invoice.customerId, cancellationEligible: invoice.status === "PENDING" },
     };
+  else if (endpoint === `/orders/${invoice._id}/history`) {
+    const matching = financialEvents.filter(e => e.orderId === invoice._id && (!url.searchParams.get("requestKey") || e.requestKey === url.searchParams.get("requestKey")));
+    const page = Number(url.searchParams.get("page") || 1), limit = Number(url.searchParams.get("limit") || 20);
+    data = { history: matching.slice((page - 1) * limit, page * limit), revision: invoice.revision || 0, pagination: { currentPage: page, totalPages: Math.ceil(matching.length / limit), recordCount: matching.length } };
+  } else if (/\/(adjustments|payments|cancellations)(\/preview)?$/.test(endpoint)) {
+    assert.equal(role, "OWNER");
+    const kind = endpoint.includes("/payments") ? "PAYMENT" : endpoint.includes("/cancellations") ? "CANCELLATION" : "ADJUSTMENT";
+    if (endpoint.endsWith("/preview")) {
+      if (staleFinancialPreview) { status = 409; message = "Invoice changed; reload before preview"; staleFinancialPreview = false; }
+      else {
+        const before = { items: invoice.items, totalMinor: invoice.totalPrice * 100, subtotalMinor: invoice.subtotal * 100, discountMinor: invoice.discountAmount * 100, settledMinor: invoice.paidAmount * 100, dueMinor: invoice.amountDue * 100 };
+        data = financialPreview || { revision: invoice.revision || 0, before, proposed: { ...before, items: [], totalMinor: 0, subtotalMinor: 0, discountMinor: 0, settledMinor: 0, dueMinor: 0 }, movements: [], requirements: { refundMinor: invoice.paidAmount * 100, creditRestoreMinor: 0, cashRefundMaximumMinor: invoice.paidAmount * 100 }, settlement: { cashRefundMinor: invoice.paidAmount * 100, cashReceivedMinor: 0, creditRedeemedMinor: 0, creditIssuedMinor: 0 }, canSubmit: true, confirmationToken: "a".repeat(64), validationMessage: null };
+      }
+    } else {
+      assert.equal(body.confirmationToken, "a".repeat(64));
+      const old = financialEvents.find(e => e.requestKey === body.requestKey);
+      if (old) data = { event: old };
+      else {
+        const proposed = financialPreview?.proposed || { items: [], totalMinor: 0, subtotalMinor: 0, discountMinor: 0, settledMinor: 0, dueMinor: 0 };
+        const eventRecord = { _id: "event-" + financialEvents.length, kind, orderId: invoice._id, revisionBefore: invoice.revision || 0, revisionAfter: (invoice.revision || 0) + 1, requestKey: body.requestKey, createdByName: "owner", reason: body.reason, occurredAt: new Date().toISOString(), after: proposed, before: financialPreview?.before, movements: financialPreview?.movements || [], financial: financialPreview?.settlement || {} };
+        financialEvents.unshift(eventRecord);
+        Object.assign(invoice, { items: proposed.items, revision: eventRecord.revisionAfter, subtotal: proposed.subtotalMinor / 100, totalPrice: proposed.totalMinor / 100, discountAmount: proposed.discountMinor / 100, paidAmount: proposed.settledMinor / 100, amountDue: proposed.dueMinor / 100 });
+        if (kind === "CANCELLATION") { invoice.status = "CANCELLED"; invoice.cancellationMode = "SETTLED"; }
+        data = { event: eventRecord };
+      }
+      if (failFinancialResponse) { failFinancialResponse = false; await send("Fetch.failRequest", { requestId: event.requestId, errorReason: "Failed" }); return; }
+      if (incompleteFinancialResponse) { incompleteFinancialResponse = false; data = {}; }
+    }
+  }
   else if (endpoint === "/orders/" + invoice._id + "/cancel") {
     invoice.status = "CANCELLED";
     data = { orderInDb: invoice };
@@ -418,7 +474,7 @@ async function wait(expression) {
     "Timed out: " +
       expression +
       "\n" +
-      (await evaluate("document.body.innerText")),
+      (await evaluate("document.body.innerText")) + "\nBrowser errors: " + JSON.stringify(errors),
   );
 }
 async function assertReceiptShop() {
@@ -447,6 +503,8 @@ const click = async (text) => {
 };
 const fill = async (selector, value) => {
   await wait("!!document.querySelector(" + JSON.stringify(selector) + ")");
+  // A select can render before its asynchronously loaded options arrive.
+  await wait(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el && (el.tagName !== "SELECT" || [...el.options].some(option => option.value === ${JSON.stringify(value)})); })()`);
   return evaluate(
     "(()=>{const el=document.querySelector(" +
       JSON.stringify(selector) +
@@ -507,6 +565,8 @@ try {
           ? promise.reject(Error(message.error.message))
           : promise.resolve(message.result);
       }
+    } else if (message.method === "Page.javascriptDialogOpening" && message.params.type === "beforeunload") {
+      await send("Page.handleJavaScriptDialog", { accept: true });
     } else if (message.method === "Fetch.requestPaused") {
       try {
         await mock(message.params);
@@ -762,6 +822,7 @@ try {
     await click("Next sale");
     await wait('!!document.querySelector(".product-result:not(:disabled)")');
     await fill('[aria-label="Sale type"]', saleType);
+    await wait('!!document.querySelector(".product-result:not(:disabled)")');
     await evaluate('document.querySelector(".product-result").click()');
     await evaluate(
       'document.querySelector(".row select").id = "discount-test"',
@@ -801,6 +862,30 @@ try {
   );
   await click("Complete sale");
   await wait('document.body.innerText.includes("Sale completed.")');
+  // Cashier credit redemption preserves cash-only checkout and recovers a lost
+  // response by replaying the identical idempotent request, not a new sale.
+  await click("Next sale");
+  await wait('!!document.querySelector(".product-result:not(:disabled)")');
+  await evaluate('document.querySelector(".product-result").click()');
+  await click("Select customer");
+  await wait('!!document.querySelector(".customer-result")');
+  await evaluate('document.querySelector(".customer-result").click()');
+  await fillLabel("Store credit to use", "40");
+  assert.equal(await evaluate(paymentInput + '.value'), "10");
+  failFinancialResponse = true;
+  const walletBeforeSale = customer.storeCreditBalanceMinor;
+  await click("Complete sale");
+  await wait('document.body.innerText.includes("Retry same sale")');
+  await send("Page.reload"); await sleep(250);
+  await click("Retry same sale");
+  await wait('document.body.innerText.includes("Sale completed.")');
+  const creditWrites = calls.filter(c => c.endpoint === "/orders/create-order" && c.method === "POST" && JSON.parse(c.body).creditAmount);
+  assert.equal(creditWrites.length, 2);
+  assert.deepEqual(JSON.parse(creditWrites[0].body), JSON.parse(creditWrites[1].body));
+  assert.equal(customer.storeCreditBalanceMinor, walletBeforeSale - 4000);
+  assert.equal(invoice.paidAmount, 50);
+  assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Net store-credit settlement")'));
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Adjust Invoice")'), false);
   await click("Customers");
   await wait('!!document.querySelector("table")');
   await fill('[aria-label="Search customer by name or phone"]', "0300");
@@ -1258,7 +1343,140 @@ try {
   assert.ok(await evaluate('location.pathname.includes("invoice-two")'));
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
   await assertReceiptShop();
+  // OWNER returns/exchanges use server plans, never browser accounting. These
+  // isolated contract fixtures do not mutate any real shop records.
+  const snapshot = (items, total, settled, due) => ({ items, subtotalMinor: total * 100, discountMinor: 0, totalMinor: total * 100, settledMinor: settled * 100, dueMinor: due * 100 });
+  const line = { productId: product._id, lineId: "historical-line", name: "Copper Cable", brand: "Local Wire", unit: "meter", quantity: 2, unitPrice: 50 };
+  const originalDate = invoice.createdAt;
+  Object.assign(invoice, { items: [line], totalPrice: 100, subtotal: 100, discountAmount: 0, discountType: "NONE", discountValue: 0, paidAmount: 70, amountDue: 30, customerId: customer._id, revision: 0, status: "PENDING", originalSnapshot: { items: [line], totalPrice: 100, subtotal: 100, paidAmount: 70, amountDue: 30, discountAmount: 0 } });
+  const makePreview = (before, proposed, movements, settlement, requirements = {}) => ({ revision: invoice.revision || 0, before, proposed, movements, settlement, requirements: { refundMinor: 0, creditRestoreMinor: 0, cashRefundMaximumMinor: 0, ...requirements }, canSubmit: true, confirmationToken: "a".repeat(64), validationMessage: null });
+  await send("Page.reload"); await sleep(200);
+  await click("Adjust Invoice");
+  await fill('[aria-label="Return quantity for Copper Cable"]', "1");
+  await fillLabel("Reason", "Partial return");
+  financialPreview = { ...makePreview(snapshot([line], 100, 70, 30), snapshot([{ ...line, quantity: 1 }], 50, 50, 0), [{ kind: "RETURN", productId: product._id, lineId: line.lineId, quantity: 1, unitPriceMinor: 5000, stockDelta: 1, disposition: "RESTOCK" }], null, { refundMinor: 2000, cashRefundMaximumMinor: 2000 }), canSubmit: false, confirmationToken: null, validationMessage: "Refund allocation must exactly match refundable cash-funded amount" };
+  await click("Preview changes");
+  await wait('document.body.innerText.includes("Refund allocation must exactly match")');
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Confirm adjustment")'), false);
+  await fillLabel("Cash to refund", "10"); await fillLabel("Refund as store credit", "10");
+  financialPreview = { ...financialPreview, canSubmit: true, confirmationToken: "a".repeat(64), validationMessage: null, settlement: { cashRefundMinor: 1000, creditIssuedMinor: 1000, cashReceivedMinor: 0, creditRedeemedMinor: 0, creditRestoredMinor: 0, debtDeltaMinor: -3000 } };
+  await click("Preview changes");
+  await wait(`!!document.querySelector('[aria-label="Server preview"] input[type=checkbox]')`);
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "Confirm adjustment").disabled'), true);
+  await evaluate(`document.querySelector('[aria-label="Server preview"] input[type=checkbox]').click()`);
+  const beforeAdjustmentCount = financialEvents.length;
+  failFinancialResponse = true;
+  await evaluate('[...document.querySelectorAll("button")].find(b => b.textContent === "Confirm adjustment").click(); [...document.querySelectorAll("button")].find(b => b.textContent === "Confirm adjustment")?.click()');
+  await wait('document.body.innerText.includes("Check whether saved")');
+  assert.equal(financialEvents.length, beforeAdjustmentCount + 1);
+  await send("Page.reload"); await sleep(250);
+  await click("Check whether saved");
+  await wait('document.body.innerText.includes("Current invoice · Revision 1")');
+  assert.equal(invoice.createdAt, originalDate);
+  assert.equal(invoice.createdByName, "ali");
+  await click("Original invoice");
+  await wait('document.querySelector(".receipt")?.innerText.includes("100.00")');
+  assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("100.00")'));
+  await click("Current invoice · Revision 1");
+  await click("Open printable record");
+  await wait('document.querySelector(".receipt")?.innerText.includes("Cash refunded")');
+  assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Cash refunded")'));
+  assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  await send("Emulation.setEmulatedMedia", { media: "print" });
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".receipt")).visibility'), "visible");
+  const adjustmentPdf = await send("Page.printToPDF", { printBackground: false });
+  assert.ok(Buffer.from(adjustmentPdf.data, "base64").length > 1500);
+  await send("Emulation.setEmulatedMedia", { media: "screen" });
+  await click("Current invoice · Revision 1");
+  // Damaged same-product exchange: the supplied unit uses the server's current
+  // price, while the returned unit retains its historic price.
+  await click("Adjust Invoice");
+  await fill('[aria-label="Return quantity for Copper Cable"]', "1");
+  await fill('[aria-label="Return condition for Copper Cable"]', "DAMAGED");
+  await wait(`!!document.querySelector('[aria-label="Adjust invoice"] .product-result')`);
+  await evaluate(`document.querySelector('[aria-label="Adjust invoice"] .product-result').click()`);
+  await fillLabel("Reason", "Exchange damaged cable");
+  const supplied = { ...line, lineId: "new-unit", quantity: 1, unitPrice: 60 };
+  financialPreview = makePreview(snapshot([{ ...line, quantity: 1 }], 50, 50, 0), snapshot([supplied], 60, 50, 10), [{ kind: "RETURN", lineId: line.lineId, productId: product._id, quantity: 1, unitPriceMinor: 5000, stockDelta: 0, disposition: "DAMAGED" }, { kind: "ADD", lineId: "new-unit", productId: product._id, quantity: 1, unitPriceMinor: 6000, stockDelta: -1 }], { cashRefundMinor: 0, cashReceivedMinor: 0, creditIssuedMinor: 0, creditRedeemedMinor: 0, debtDeltaMinor: 1000 });
+  staleFinancialPreview = true;
+  await click("Preview changes");
+  await wait('document.body.innerText.includes("Invoice changed; reload before preview")');
+  await click("Close");
+  await click("Adjust Invoice");
+  await fill('[aria-label="Return quantity for Copper Cable"]', "1");
+  await fill('[aria-label="Return condition for Copper Cable"]', "DAMAGED");
+  await wait(`!!document.querySelector('[aria-label="Adjust invoice"] .product-result')`);
+  await evaluate(`document.querySelector('[aria-label="Adjust invoice"] .product-result').click()`);
+  await fillLabel("Reason", "Exchange damaged cable");
+  await click("Preview changes");
+  await wait('document.body.innerText.includes("Damaged, no sellable stock increase")');
+  await click("Confirm adjustment");
+  await wait('document.body.innerText.includes("Current invoice · Revision 2")');
+  const exchangeCall = calls.filter(c => c.endpoint.endsWith("/adjustments") && c.method === "POST").at(-1);
+  assert.equal(JSON.parse(exchangeCall.body).returns[0].disposition, "DAMAGED");
+  assert.deepEqual(JSON.parse(exchangeCall.body).additions, [{ productId: product._id, quantity: 1 }]);
+  await click("Receive payment");
+  await fillLabel("Reason", "Settle exchange balance");
+  await fillLabel("Additional cash received", "5"); await fillLabel("Store credit to redeem", "5");
+  financialPreview = makePreview(snapshot([supplied], 60, 50, 10), snapshot([supplied], 60, 60, 0), [], { cashReceivedMinor: 500, creditRedeemedMinor: 500, cashRefundMinor: 0, debtDeltaMinor: -1000 });
+  const validPaymentPreview = financialPreview;
+  financialPreview = { ...financialPreview, settlement: null, confirmationToken: null, canSubmit: false, validationMessage: "Insufficient store credit" };
+  await click("Preview changes");
+  await wait('document.body.innerText.includes("Insufficient store credit")');
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Confirm payment")'), false);
+  financialPreview = validPaymentPreview;
+  await click("Preview changes");
+  await wait(`!!document.querySelector('[aria-label="Server preview"] input[type=checkbox]')`);
+  await evaluate(`document.querySelector('[aria-label="Server preview"] input[type=checkbox]').click()`);
+  incompleteFinancialResponse = true;
+  await click("Confirm payment");
+  await wait('document.body.innerText.includes("operation response is incomplete")');
+  await click("Check whether saved");
+  await wait('document.body.innerText.includes("Current invoice · Revision 3")');
+  // Full return restores credit-funded amounts automatically before allocating
+  // the remaining refund to cash and new credit.
+  await click("Adjust Invoice"); await click("Return all remaining units");
+  await fillLabel("Reason", "Full return");
+  await fillLabel("Cash to refund", "35"); await fillLabel("Refund as store credit", "20");
+  financialPreview = makePreview(snapshot([supplied], 60, 60, 0), snapshot([], 0, 0, 0), [{ kind: "RETURN", lineId: supplied.lineId, productId: product._id, quantity: 1, unitPriceMinor: 6000, stockDelta: 1, disposition: "RESTOCK" }], { cashRefundMinor: 3500, creditIssuedMinor: 2000, creditRestoredMinor: 500, cashReceivedMinor: 0 }, { refundMinor: 6000, creditRestoreMinor: 500, cashRefundMaximumMinor: 5500 });
+  await click("Preview changes");
+  await wait(`!!document.querySelector('[aria-label="Server preview"] input[type=checkbox]')`);
+  await evaluate(`document.querySelector('[aria-label="Server preview"] input[type=checkbox]').click()`);
+  await click("Confirm adjustment");
+  await wait('document.body.innerText.includes("Current invoice · Revision 4")');
+  assert.equal(invoice.items.length, 0);
+  // Anonymous credit recipients are sent separately, never by rewriting the
+  // original invoice's customer. Pagination is exercised with recorded events.
+  Object.assign(invoice, { items: [{ ...line, quantity: 1 }], totalPrice: 50, subtotal: 50, paidAmount: 50, amountDue: 0, customerId: undefined, revision: 0 });
+  await send("Page.reload"); await sleep(200);
+  await click("Adjust Invoice"); await click("Return all remaining units");
+  await fillLabel("Reason", "Anonymous credit refund"); await fillLabel("Refund as store credit", "50");
+  await wait('!!document.querySelector(".customer-result")');
+  await evaluate('document.querySelector(".customer-result").click()');
+  financialPreview = makePreview(snapshot([{ ...line, quantity: 1 }], 50, 50, 0), snapshot([], 0, 0, 0), [], { creditIssuedMinor: 5000, cashRefundMinor: 0, cashReceivedMinor: 0 }, { refundMinor: 5000, cashRefundMaximumMinor: 5000 });
+  await click("Preview changes"); await click("Confirm adjustment");
+  await wait('document.body.innerText.includes("Current invoice · Revision 1")');
+  const anonymousCall = JSON.parse(calls.filter(c => c.endpoint.endsWith("/adjustments") && c.method === "POST").at(-1).body);
+  assert.equal(anonymousCall.creditRecipientId, customer._id);
+  assert.equal(Object.hasOwn(anonymousCall, "customerId"), false);
+  assert.equal(invoice.customerId, undefined);
+  const historyCount = financialEvents.length;
+  while (financialEvents.filter(e => e.orderId === invoice._id).length < 11) financialEvents.push({ ...financialEvents[0], _id: `older-event-${financialEvents.length}`, reason: "Earlier recorded payment", kind: "PAYMENT" });
+  await send("Page.reload"); await sleep(200);
+  await click("Next");
+  await wait('document.body.innerText.includes("Page 2 of 2")');
+  assert.ok(calls.some(c => c.endpoint.endsWith("/history") && c.query.includes("page=2")));
+  financialEvents.splice(historyCount);
+  // Restore a pending fully paid invoice for the pre-existing cancellation regression.
+  financialPreview = null;
+  Object.assign(invoice, { items: [{ ...line, quantity: 1 }], totalPrice: 50, subtotal: 50, paidAmount: 50, amountDue: 0, customerId: undefined, revision: 0, status: "PENDING" });
+  await send("Page.reload"); await sleep(200);
   await click("Cancel invoice");
+  await fillLabel("Reason", "Customer cancelled order");
+  await fillLabel("Cash to refund", String(invoice.paidAmount));
+  await click("Preview changes");
+  await wait(`!!document.querySelector('[aria-label="Server preview"]')`);
+  if (invoice.paidAmount > 0) await evaluate(`document.querySelector('[aria-label="Server preview"] input[type=checkbox]').click()`);
   await click("Confirm cancellation");
   await wait('document.body.innerText.includes("Status: cancelled")');
   assert.equal(invoice.status, "CANCELLED");
@@ -1355,7 +1573,7 @@ try {
   );
   await screenshot("stock-history");
   await click("Customers");
-  await wait('document.body.innerText.includes("Customer balance")');
+  await wait('document.body.innerText.includes("Outstanding debt") && document.body.innerText.includes("Store credit")');
   await click("AI Assistant");
   await wait('document.body.innerText.includes("Speak")');
   await fill('[aria-label="Ask about your shop"]', "How many bulbs?");
@@ -1723,7 +1941,7 @@ try {
     "Live credentialed CORS origin",
   );
   console.log(
-    "Browser smoke passed: all routes/roles, retail/wholesale, all discounts, full/credit payments, rejection recovery, customers, quotation conversion, category/product/stock writes, invoice reload/search/back/cancellation, staff/avatar and owner registration, AI upload/denied microphone, subscription actions, manual deactivation/reactivation and both roles blocked login/restoration/mid-session/logout/recovery, password, refresh/session expiry, owner 3-day subscription warning boundaries/role isolation, renewal payment details/clipboard/WhatsApp/no writes, expired Owner and Cashier login/restoration, printing/responsive layout. Write workflows use isolated contract responses; anonymous initialization also checked against the live backend.",
+    "Browser smoke passed: invoice return/exchange previews and confirmations, restock/damaged same-product exchange, full/partial returns, cash/credit refunds, anonymous credit recipient, additional cash/credit payments, insufficient-credit rejection, stale preview, double-submit protection, lost-response/reload recovery, original/current/history and printable adjustments, history pagination, cashier POS credit redemption/replay; all existing roles/POS/quotations/inventory/customers/staff/AI/auth/subscription/printing/responsive regressions. Writes use isolated contract responses; anonymous initialization also checked against the live backend.",
   );
 } finally {
   if (socket?.readyState === 1) {

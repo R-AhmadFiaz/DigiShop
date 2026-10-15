@@ -30,6 +30,7 @@ export function validateSale(
   paidAmount,
   customer,
   quotation = false,
+  creditAmount = 0,
 ) {
   if (!cart.length) return "Add at least one product.";
   if (
@@ -68,12 +69,16 @@ export function validateSale(
   )
     return "Check the discount amount.";
   if (!Number.isFinite(total) || total < 0) return "Check the sale total.";
+  if (!quotation && (!Number.isFinite(creditAmount) || creditAmount < 0 || creditAmount > total))
+    return "Check the store-credit amount.";
+  if (!quotation && creditAmount > 0 && !customer)
+    return "Select a customer to use store credit.";
   if (
     !quotation &&
-    (!Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > total)
+    (!Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount + creditAmount > total + (creditAmount > 0 ? 0.0000001 : 0))
   )
     return "Amount paid must be between zero and the sale total.";
-  if (!quotation && total - paidAmount > 0 && !customer)
+  if (!quotation && total - paidAmount - creditAmount > (creditAmount > 0 ? 0.0000001 : 0) && !customer)
     return "Select or create a customer for this credit sale.";
   return "";
 }
