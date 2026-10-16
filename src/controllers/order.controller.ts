@@ -17,6 +17,7 @@ import {createHash} from 'node:crypto';
 import {invoiceTotals, moneyMinor, moneyMajor, safeMinor} from '../utils/invoiceAccounting.js';
 import {changeStoreCredit} from '../utils/invoiceSettlement.js';
 import {invoiceEligibility} from './invoiceAdjustment.controller.js';
+import {invoiceAccountingEnabled, invoiceCashRouting, requireAccountingOwner, recordIntegratedSale, throwAccountingTransactionError} from '../utils/invoiceAccountingIntegration.js';
 
 
 
@@ -36,12 +37,19 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
     const creditAmount = req.body.creditAmount === undefined ? 0 : req.body.creditAmount
     const creditMinor = moneyMinor(creditAmount)
     const requestKey = req.body.requestKey
+    const accounting = invoiceAccountingEnabled()
+    if (accounting) {
+        requireAccountingOwner(req.user)
+        if (typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Accounting sale requires a valid request key')
+    }
+    const routing = accounting ? invoiceCashRouting(req.body) : undefined
     if (creditMinor && (!['OWNER', 'CASHIER'].includes(req.user.role) || !mongoose.isValidObjectId(customerId) ||
         typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey))) {
         throw new apiError(400, 'Store credit requires a customer and valid request key')
     }
-    const creditHash = creditMinor ? createHash('sha256').update(JSON.stringify({userID: String(userID),
-        items, saleType, discountType, discountValue, paidAmount, customerId, creditAmount})).digest('hex') : ''
+    const creditHash = creditMinor || accounting ? createHash('sha256').update(JSON.stringify({userID: String(userID),
+        items, saleType, discountType, discountValue, paidAmount, customerId, creditAmount,
+        ...(accounting ? {cashRouting: routing} : {})})).digest('hex') : ''
 
     if (!items || !Array.isArray(items) || items.length === 0) {
         throw new apiError(400, 'Array of items required!')
@@ -89,10 +97,10 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
 
 const session = await mongoose.startSession()
 
-session.startTransaction()
+session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined)
 
 try {
-    if (creditMinor) {
+    if (creditMinor || accounting) {
         const replay = await InvoiceAdjustment.findOne({shopId, kind: 'SALE', requestKey}).session(session)
         if (replay) {
             if (replay.requestHash !== creditHash || String(replay.createdBy) !== String(userID)) throw new apiError(409, 'Request key already used')
@@ -211,6 +219,7 @@ try {
         creditFunding = {cashNetMinor: cashMinor, creditNetMinor: creditMinor, openingCashMinor: cashMinor, openingCreditMinor: creditMinor}
     }
     let amountDue = creditMinor ? moneyMajor(moneyMinor(totalPrice) - moneyMinor(recordedPaidAmount)) : totalPrice - paidAmount
+    if (accounting && !creditFunding) creditFunding = {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: 0, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: 0}
 
     if (amountDue > 0 && !customerId) {
         throw new apiError(400, 'Required customer Id')
@@ -253,7 +262,8 @@ const [createOrder] = await Order.create([{
     totalPrice,
     amountDue,
     paidAmount: recordedPaidAmount,
-    ...(creditMinor ? {settlementState: creditFunding} : {}),
+    ...(accounting ? {accountingMode: 'INTEGRATION_TEST'} : {}),
+    ...(creditMinor || accounting ? {settlementState: creditFunding} : {}),
     customerId,
     shopId,
     invoiceNo
@@ -337,7 +347,9 @@ for (const item of processedItems) {
 
 
 
-if (creditMinor) {
+if (accounting) {
+    await recordIntegratedSale(req.user, createOrder, {requestKey, requestHash: creditHash, routing: routing!, eventId: paymentRecordId}, session)
+} else if (creditMinor) {
     const snapshot = {items: createOrder.items, subtotalMinor: moneyMinor(subtotal), discountMinor: moneyMinor(discountAmount),
         totalMinor: moneyMinor(totalPrice), discountType, discountValue}
     await InvoiceAdjustment.create([{_id: paymentRecordId, shopId, orderId: createOrder._id, invoiceNo, kind: 'SALE',
@@ -363,8 +375,11 @@ return res.status(201)
 
 
 }catch (error) {
-    await session.abortTransaction()
-    if (creditMinor && ((error as any)?.code === 11000 || (error as any)?.code === 112 || (error as any)?.hasErrorLabel?.('TransientTransactionError'))) {
+    if (accounting) {
+        if (session.inTransaction()) await session.abortTransaction().catch(() => {})
+        throwAccountingTransactionError(error)
+    } else await session.abortTransaction()
+    if ((creditMinor || accounting) && ((error as any)?.code === 11000 || (error as any)?.code === 112 || (error as any)?.hasErrorLabel?.('TransientTransactionError'))) {
         throw new apiError(409, 'Concurrent credit sale; retry the same request key')
     }
     if (error instanceof apiError) {
@@ -388,6 +403,7 @@ return res.status(201)
 
 
 export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
+    if (invoiceAccountingEnabled()) throw new apiError(409, 'Accounting requires previewed settlement-aware cancellation');
     // fetch the order id from parameter
     // check it in mongo db 
     // check its must be pending state
@@ -737,12 +753,21 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
     const { quotationId } = req.params
     const {_id: userID, shopId} = req.user
     const { customerId, paidAmount } = req.body
+    const accounting = invoiceAccountingEnabled()
+    const requestKey = req.body.requestKey
+    if (accounting) {
+        requireAccountingOwner(req.user)
+        if (typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Accounting conversion requires a valid request key')
+        if (req.body.creditAmount !== undefined || req.body.creditRedeemedAmount !== undefined) throw new apiError(400, 'Store-credit redemption on quotation conversion is not supported')
+    }
+    const routing = accounting ? invoiceCashRouting(req.body) : undefined
+    const requestHash = accounting ? createHash('sha256').update(JSON.stringify({userID: String(userID), quotationId: String(quotationId), customerId, paidAmount, cashRouting: routing})).digest('hex') : ''
 
     if (!quotationId) {
         throw new apiError(400, 'Quotation ID is required')
     }
     
-    const quotation = await Order.findOne({_id: quotationId, shopId})
+    let quotation = await Order.findOne({_id: quotationId, shopId})
     
     if (!quotation) {
         throw new apiError(404, 'Quotation is not found')
@@ -760,15 +785,27 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
                     && quotation.status == 'DRAFT'
 
 
-    if (!isValid) {
+    if (!isValid && !accounting) {
         throw new apiError(400, 'Array of products are required')
     }
 
     const session = await mongoose.startSession()
 
-    session.startTransaction()
+    session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined)
 
     try {
+        if (accounting) {
+            const replay = await InvoiceAdjustment.findOne({shopId, kind: 'SALE', requestKey}).session(session)
+            if (replay) {
+                if (replay.requestHash !== requestHash || String(replay.createdBy) !== String(userID)) throw new apiError(409, 'Request key already used')
+                const saved = await Order.findOne({_id: replay.orderId, shopId}).session(session)
+                if (!saved) throw new apiError(409, 'Recorded conversion requires reconciliation')
+                await session.abortTransaction()
+                return res.status(200).json(new apiResponse(200, {createOrder: saved}, 'Conversion already recorded'))
+            }
+            quotation = await Order.findOne({_id: quotationId, shopId, type: 'QUOTATION', status: 'DRAFT'}).session(session)
+            if (!quotation || !quotation.items.length) throw new apiError(409, 'Quotation already converted or unavailable')
+        }
 
 
         let processedItems: IOrderItems[] = []
@@ -844,6 +881,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
             paidAmount,
+            ...(accounting ? {accountingMode: 'INTEGRATION_TEST', settlementState: {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: 0, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: 0}} : {}),
             amountDue: due,
             customerId,
             status: 'PENDING',
@@ -913,6 +951,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             }], {session})
         }
 
+        if (accounting) await recordIntegratedSale(req.user, createOrder, {requestKey, requestHash, routing: routing!, sourceQuotationId: String(quotationId)}, session)
         await session.commitTransaction()
 
         return res.status(201)
@@ -931,7 +970,10 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
         
         
     } catch (error) {
- await session.abortTransaction()
+ if (accounting) {
+     if (session.inTransaction()) await session.abortTransaction().catch(() => {})
+     throwAccountingTransactionError(error)
+ } else await session.abortTransaction()
     if (error instanceof apiError) {
         throw error
 

@@ -27,6 +27,11 @@ const adjustmentSchema = new Schema({
     invoiceNo: {type: String, required: true},
     requestKey: {type: String, required: true},
     requestHash: {type: String, required: true},
+    sourceQuotationId: {type: Schema.Types.ObjectId},
+    cashRouting: {type: new Schema({
+        mode: {type: String, enum: ['INTEGRATION_TEST'], required: true},
+        receiptAccountId: {type: Schema.Types.ObjectId}, refundAccountId: {type: Schema.Types.ObjectId}
+    }, {_id: false})},
     revisionBefore: {type: Number, required: true},
     revisionAfter: {type: Number, required: true},
     createdBy: {type: Schema.Types.ObjectId, required: true},
@@ -59,6 +64,7 @@ adjustmentSchema.index({shopId: 1, orderId: 1, requestKey: 1}, {unique: true});
 adjustmentSchema.index({shopId: 1, occurredAt: 1});
 adjustmentSchema.index({shopId: 1, orderId: 1, occurredAt: -1, _id: -1});
 adjustmentSchema.index({shopId: 1, kind: 1, requestKey: 1}, {unique: true, partialFilterExpression: {kind: 'SALE'}});
+adjustmentSchema.index({shopId: 1, orderId: 1, kind: 1}, {unique: true, partialFilterExpression: {kind: 'SALE'}});
 // Application-level append-only history. A database administrator can still alter records.
 adjustmentSchema.pre('save', function () {
     if (!this.isNew) throw new apiError(409, 'Adjustment history is immutable');

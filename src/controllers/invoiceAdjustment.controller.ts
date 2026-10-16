@@ -14,11 +14,13 @@ import {apiResponse} from '../utils/apiResponse.js';
 import {listQuery} from '../utils/listQuery.js';
 import {periodBounds} from '../utils/aiQuestions.js';
 import {salesSummary} from '../utils/salesReporting.js';
+import {invoiceAccountingEnabled, invoiceCashRouting, postIntegratedInvoiceEvent, throwAccountingTransactionError} from '../utils/invoiceAccountingIntegration.js';
+import type {CashRouting} from '../utils/invoiceAccountingIntegration.js';
 
 type Line = {lineId: string, productId: any, quantity: number, unitPrice: number, name?: string, brand?: string, unit?: string};
 type ReturnLine = {lineId: string, quantity: number, disposition: 'RESTOCK' | 'DAMAGED'};
 type Addition = {productId: string, quantity: number};
-type AdjustmentInput = SettlementInput & {requestKey: string, expectedRevision: number, reason: string,
+type AdjustmentInput = SettlementInput & CashRouting & {requestKey: string, expectedRevision: number, reason: string,
     returns: ReturnLine[], additions: Addition[], discountType?: string, discountValue?: number, confirmationToken?: string};
 type Actor = {_id: any, shopId: any, role: string, username: string};
 type Operation = 'ADJUSTMENT' | 'PAYMENT' | 'CANCELLATION';
@@ -61,7 +63,7 @@ function operationInput(order: any, input: AdjustmentInput, kind: Operation): Ad
     }
     return input;
 }
-function confirmationToken(order: any, plan: any, settlement: any, kind: Operation) {
+function confirmationToken(order: any, plan: any, settlement: any, kind: Operation, routing?: CashRouting) {
     return createHash('sha256').update(JSON.stringify({kind, orderId: String(order._id), shopId: String(order.shopId),
         revision: order.revision ?? 0, status: order.status, before: [plan.before.totalMinor, plan.before.settledMinor, plan.before.dueMinor],
         after: [plan.after.totalMinor, plan.after.discountMinor, settlement.settledMinor, settlement.dueMinor],
@@ -69,11 +71,13 @@ function confirmationToken(order: any, plan: any, settlement: any, kind: Operati
         movements: plan.movements.map((m: any) => ({productId: String(m.productId), lineId: m.kind === 'RETURN' ? m.lineId : undefined,
             kind: m.kind, quantity: m.quantity, price: m.unitPriceMinor, disposition: m.disposition})),
         financial: [settlement.cashReceivedMinor, settlement.creditRedeemedMinor, settlement.cashRefundMinor,
-            settlement.creditIssuedMinor, settlement.creditRestoredMinor], recipient: String(settlement.recipientId ?? order.customerId ?? '')})).digest('hex');
+            settlement.creditIssuedMinor, settlement.creditRestoredMinor], recipient: String(settlement.recipientId ?? order.customerId ?? ''),
+        ...(invoiceAccountingEnabled() ? {cashRouting: routing ?? {}} : {})})).digest('hex');
 }
 
 export async function invoiceEligibility(order: any, session: mongoose.ClientSession) {
     const base = {revision: order.revision ?? 0, originalSnapshotAvailable: !!order.originalSnapshot};
+    if (order.accountingMode && !invoiceAccountingEnabled()) return {...base, adjustmentEligible: false, paymentEligible: false, cancellationEligible: false, reason: 'Accounting invoice is locked while integration is disabled'};
     if (!['PENDING', 'DELIVERED'].includes(order.status)) return {...base, adjustmentEligible: false, paymentEligible: false, cancellationEligible: false, reason: 'Invoice is locked'};
     try {
         planInvoiceAdjustment(order, {requestKey: 'eligibility-read', expectedRevision: base.revision, reason: 'Read eligibility', returns: [], additions: []}, [], true);
@@ -115,6 +119,8 @@ export function invoicePreview(kind: Operation) {
             if (!shop.subscriptionActive || !shop.subscriptionExpiry || shop.subscriptionExpiry <= new Date()) throw new apiError(403, 'Subscription expired or inactive');
             const order = await Order.findOne({_id: String(req.params.orderId), shopId: req.user.shopId, type: 'INVOICE'}).session(session);
             if (!order) throw new apiError(404, 'Invoice not found');
+            const accounting = invoiceAccountingEnabled();
+            if (!accounting && order.accountingMode) throw new apiError(409, 'Accounting invoice is locked while integration is disabled');
             if ((order.revision ?? 0) !== input.expectedRevision) throw new apiError(409, 'Invoice changed; reload before preview');
             const planned = operationInput(order, input, kind);
             const products = await Product.find({shopId: req.user.shopId, _id: {$in: [...order.items.map(i => i.productId), ...input.additions.map(i => i.productId)]}})
@@ -130,7 +136,11 @@ export function invoicePreview(kind: Operation) {
             let settlement: any = null, token: string | null = null, validationMessage: string | null = null;
             try {
                 settlement = await calculateInvoiceSettlement(order, plan.after.totalMinor, input, req.user, session);
-                token = confirmationToken(order, plan, settlement, kind);
+                if (accounting) {
+                    const {validateInvoiceCashRouting} = await import('../utils/businessAccounts.js');
+                    await validateInvoiceCashRouting(req.user, invoiceCashRouting(input), settlement, session);
+                }
+                token = confirmationToken(order, plan, settlement, kind, accounting ? invoiceCashRouting(input) : undefined);
             } catch (error) {
                 if (!(error instanceof apiError) || error.statusCode !== 400) throw error;
                 validationMessage = error.message;
@@ -236,6 +246,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
     if (actor.role !== 'OWNER' || !actor.shopId) throw new apiError(403, 'Owner access required');
     if (!mongoose.isValidObjectId(orderId)) throw new apiError(400, 'Valid invoice required');
     validateInput(input);
+    const accounting = invoiceAccountingEnabled(), routing = accounting ? invoiceCashRouting(input) : undefined;
     // Only accepted fields participate in replay identity; forged shop/actor/prices are ignored.
     const requestHash = createHash('sha256').update(JSON.stringify({kind, expectedRevision: input.expectedRevision,
         reason: input.reason.trim(), returns: input.returns.map(i => ({lineId: i.lineId, quantity: i.quantity, disposition: i.disposition})),
@@ -243,9 +254,10 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
         discountType: input.discountType, discountValue: input.discountValue,
         cashReceivedAmount: input.cashReceivedAmount ?? 0, creditRedeemedAmount: input.creditRedeemedAmount ?? 0,
         cashRefundAmount: input.cashRefundAmount ?? 0, creditIssueAmount: input.creditIssueAmount ?? 0,
-        creditRecipientId: input.creditRecipientId, confirmationToken: input.confirmationToken})).digest('hex');
+        creditRecipientId: input.creditRecipientId, confirmationToken: input.confirmationToken,
+        ...(accounting ? {cashRouting: routing} : {})})).digest('hex');
     const session = await mongoose.startSession();
-    session.startTransaction();
+    session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined);
     try {
         const shop = await Shop.findById(actor.shopId).session(session);
         if (!shop || String(shop.ownerId) !== String(actor._id)) throw new apiError(403, 'Owner shop access required');
@@ -259,6 +271,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
         }
         const order = await Order.findOne({_id: orderId, shopId: actor.shopId, type: 'INVOICE'}).session(session);
         if (!order) throw new apiError(404, 'Invoice not found');
+        if (!accounting && order.accountingMode) throw new apiError(409, 'Accounting invoice is locked while integration is disabled');
         if ((order.revision ?? 0) !== input.expectedRevision) throw new apiError(409, 'Invoice changed; reload before adjusting');
         const products = await Product.find({shopId: actor.shopId, _id: {$in: input.additions.map(item => item.productId)}}).session(session);
         const plannedInput = operationInput(order, input, kind);
@@ -267,7 +280,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
         const occurredAt = new Date();
         if (input.confirmationToken) {
             const proposed = await calculateInvoiceSettlement(order, plan.after.totalMinor, input, actor, session);
-            if (input.confirmationToken !== confirmationToken(order, plan, proposed, kind)) throw new apiError(409, 'Invoice or prices changed; preview and confirm again');
+            if (input.confirmationToken !== confirmationToken(order, plan, proposed, kind, routing)) throw new apiError(409, 'Invoice or prices changed; preview and confirm again');
         }
         const settlement = await settleInvoice(order, plan.after.totalMinor, input, actor, adjustmentId, session, kind);
         plan.after.settledMinor = settlement.settledMinor;
@@ -281,6 +294,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             discountType: plan.after.discountType, discountValue: plan.after.discountValue,
             paidAmount: moneyMajor(settlement.settledMinor), amountDue: moneyMajor(settlement.dueMinor),
             settlementState: settlement.settlementState,
+            ...(accounting ? {accountingMode: 'INTEGRATION_TEST'} : {}),
             returnState: !plan.after.items.length ? 'FULL' : plannedInput.returns.length || order.returnState === 'PARTIAL' || order.returnState === 'FULL' ? 'PARTIAL' : 'NONE'};
         if (kind === 'CANCELLATION') Object.assign(changes, {status: 'CANCELLED', cancelledAt: occurredAt, cancellationMode: 'SETTLED'});
         if (settlement.recipientId) changes.creditRecipientId = settlement.recipientId;
@@ -309,15 +323,20 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             invoiceNo: order.invoiceNo, requestKey: input.requestKey, requestHash,
             revisionBefore: input.expectedRevision, revisionAfter: input.expectedRevision + 1,
             createdBy: actor._id, createdByName: actor.username, reason: input.reason.trim(),
+            ...(accounting ? {cashRouting: {mode: 'INTEGRATION_TEST', ...routing}} : {}),
             before: plan.before, after: plan.after, movements: plan.movements,
             financial: {salesDeltaMinor: plan.after.totalMinor - plan.before.totalMinor, debtDeltaMinor: settlement.debtDeltaMinor,
                 cashReceivedMinor: settlement.cashReceivedMinor, cashRefundMinor: settlement.cashRefundMinor,
                 creditRedeemedMinor: settlement.creditRedeemedMinor, creditIssuedMinor: settlement.creditIssuedMinor,
                 creditRestoredMinor: settlement.creditRestoredMinor}}], {session});
+        if (accounting) await postIntegratedInvoiceEvent(actor, record!, session);
         await session.commitTransaction();
         return record;
     } catch (error: any) {
-        await session.abortTransaction();
+        if (accounting) {
+            if (session.inTransaction()) await session.abortTransaction().catch(() => {});
+            throwAccountingTransactionError(error);
+        } else await session.abortTransaction();
         if (error?.code === 11000 || error?.code === 112 || error?.hasErrorLabel?.('TransientTransactionError')) {
             throw new apiError(409, 'Concurrent invoice change; reload or retry the same request key');
         }

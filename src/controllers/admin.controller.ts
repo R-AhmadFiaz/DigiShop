@@ -11,6 +11,10 @@ import { Customer } from "../models/customer.model.js";
 import { StockLog } from "../models/stockLog.model.js";
 import { CustomerLedger } from "../models/customerLedger.model.js";
 import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
+import {BusinessEntity} from '../models/businessEntity.model.js';
+import {FinancialAccount} from '../models/financialAccount.model.js';
+import {BusinessTransaction} from '../models/businessTransaction.model.js';
+import {BusinessBrand, ProductBrandLink} from '../models/businessBrand.model.js';
 
 export const deleteShop = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -27,6 +31,12 @@ export const deleteShop = asyncHandler(async (req, res) => {
         // with this transaction rather than allowing an active shop to be deleted.
         const deleted = await Shop.deleteOne({_id: id, isActive: false}, {session});
         if (deleted.deletedCount !== 1) throw new apiError(409, "Shop access changed. Refresh and try again");
+        // Existing permanent-shop deletion is the sole ledger deletion exception.
+        await BusinessTransaction.collection.deleteMany({shopId: new mongoose.Types.ObjectId(shopId)}, {session});
+        await FinancialAccount.deleteMany({shopId}, {session});
+        await ProductBrandLink.deleteMany({shopId}, {session});
+        await BusinessBrand.deleteMany({shopId}, {session});
+        await BusinessEntity.deleteMany({shopId}, {session});
         await CustomerLedger.deleteMany({shopId}, {session});
         await InvoiceAdjustment.deleteMany({shopId}, {session});
         await StockLog.deleteMany({shopId}, {session});
