@@ -22,6 +22,9 @@ import RenewalInformation from "./components/RenewalInformation";
 import Companies from './pages/owner/Companies';
 import CashBank from './pages/owner/CashBank';
 import Transactions from './pages/owner/Transactions';
+import Purchases from './pages/owner/Purchases';
+import PurchaseDetails from './pages/owner/PurchaseDetails';
+import SupplierDetails from './pages/owner/SupplierDetails';
 function Guard({ role }) {
   const { user } = useAuth();
   return !user ? (
@@ -74,6 +77,9 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="products" element={<Products />} />
           <Route path="stock" element={<Stock />} />
+          <Route path="purchases" element={<Purchases />} />
+          <Route path="purchases/:purchaseId" element={<PurchaseDetails />} />
+          <Route path="accounts/suppliers/:supplierId" element={<SupplierDetails />} />
           <Route path="sales" element={<Sales />} />
           <Route path="sales/:orderId" element={<Invoice />} />
           <Route path="customers" element={<Customers />} />

@@ -1,0 +1,33 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useLoad } from '../../api/hooks';
+import { query } from '../../api/client';
+import { activity, pakistanTime, pkr, quantityItems } from '../../api/purchases';
+import { Empty, Field, Notice, PageTitle, Pagination } from '../../components/Common';
+import SupplierAction from '../../components/SupplierAction';
+import SupplierReturn from '../../components/SupplierReturn';
+
+function Receiving({po,prepare,locked}){
+  const [values,setValues]=useState({}),[error,setError]=useState('');
+  function submit(e){e.preventDefault();if(locked)return;try{const items=quantityItems(po.items,values,r=>r.quantity-r.receivedQuantity);setError('');const reference=new FormData(e.currentTarget).get('reference');prepare({path:'/purchases/'+po._id+'/receipts',title:'Confirm delivered stock',summary:reference+'\n'+items.map(r=>po.items.find(i=>i.productId===r.productId).name+': '+r.quantity+' delivered').join('\n')+'\nConfirm these goods have physically arrived. Stock changes only after recording succeeds.',body:{requestKey:crypto.randomUUID(),reference,expectedRevision:po.revision,items}});}catch(e){setError(e.message);}}
+  return <form onSubmit={submit} className="mt-3"><fieldset disabled={locked}><h2 className="h5">Receive delivery</h2><p className="text-body-secondary">Enter only quantities delivered now. Accounting-enabled receiving requires the supplier opening and reconciliation to be complete.</p><Notice error={error}/><Field label="Delivery reference"><input name="reference" className="form-control" required maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9/_-]*"/></Field>
+    {po.items.filter(r=>r.receivedQuantity<r.quantity).map(r=><Field key={r.productId} label={r.name+' — '+(r.quantity-r.receivedQuantity)+' remaining'}><input aria-label={'Delivered '+r.name} className="form-control" type="number" min="0" max={r.quantity-r.receivedQuantity} step="1" value={values[r.productId]??''} onChange={e=>setValues({...values,[r.productId]:e.target.value})}/></Field>)}<button className="btn btn-primary" type="submit">Review delivered quantities</button>
+  </fieldset></form>;
+}
+export default function PurchaseDetails(){
+  const {purchaseId}=useParams(),[page,setPage]=useState(1),[returning,setReturning]=useState(null),[cancelReason,setCancelReason]=useState('');
+  const detail=useLoad('/purchases/'+purchaseId),receipts=useLoad('/purchases/'+purchaseId+'/receipts'+query({page,limit:10})),po=detail.data?.purchaseOrder;
+  const refresh=()=>{detail.reload();receipts.reload();setReturning(null);};
+  return <><PageTitle title={po?.reference||'Purchase order'}><Link className="btn btn-sm btn-outline-secondary" to="/owner/purchases">All purchases</Link></PageTitle><Notice loading={detail.loading} error={detail.error}/>
+    {po&&<><section className="panel mb-3"><h2 className="h5">{po.supplierName}</h2><p>{pakistanTime(po.createdAt)} (Pakistan) · {activity(po.status)} · {pkr(po.totalMinor)}</p><Link to={'/owner/accounts/suppliers/'+po.supplierId}>Supplier account</Link>
+      <div className="table-responsive mt-3"><table className="table table-sm"><thead><tr><th>Product</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Agreed cost</th></tr></thead><tbody>{po.items.map(r=><tr key={r.productId}><td>{r.name}</td><td>{r.quantity}</td><td>{r.receivedQuantity}</td><td>{r.quantity-r.receivedQuantity}</td><td>{pkr(r.unitCostMinor)}</td></tr>)}</tbody></table></div>
+      <SupplierAction onChanged={refresh}>{({prepare,locked})=><>
+        {po.status==='DRAFT'&&<button className="btn btn-primary me-2" disabled={locked} onClick={()=>prepare({path:'/purchases/'+po._id+'/confirm',title:'Confirm purchase order',summary:po.reference+' — '+po.supplierName+'\nConfirmation does not receive stock or make a payment.',body:{requestKey:crypto.randomUUID(),expectedRevision:po.revision}})}>Confirm order</button>}
+        {['DRAFT','CONFIRMED','PARTIALLY_RECEIVED'].includes(po.status)&&<div className="mt-3"><Field label="Reason for cancelling remaining order"><input className="form-control" maxLength={300} value={cancelReason} disabled={locked} onChange={e=>setCancelReason(e.target.value)}/></Field><button className="btn btn-sm btn-outline-danger" disabled={locked||!cancelReason.trim()} onClick={()=>prepare({path:'/purchases/'+po._id+'/cancel',title:'Cancel remaining purchase order',summary:po.reference+'\nAlready received deliveries and stock will remain unchanged.\n'+cancelReason,body:{requestKey:crypto.randomUUID(),expectedRevision:po.revision,reason:cancelReason.trim()}})}>Cancel remaining order</button></div>}
+        {['CONFIRMED','PARTIALLY_RECEIVED'].includes(po.status)&&<Receiving key={po.revision} po={po} prepare={prepare} locked={locked}/>}
+      </>}</SupplierAction>
+    </section><section className="panel"><h2 className="h5">Delivery history</h2><Notice loading={receipts.loading} error={receipts.error}/>{receipts.data?.entries.map(r=><article className="border-bottom py-3" key={r._id}><div className="d-flex flex-wrap justify-content-between gap-2"><strong>{r.reference}</strong><span>{pakistanTime(r.occurredAt)} (Pakistan)</span></div><p className="mb-1">Received by {r.createdByName||'Unavailable'} · {pkr(r.totalMinor)}</p><ul>{r.items.map(i=><li key={i.productId}>{i.name}: {i.quantity} units at {pkr(i.unitCostMinor)}</li>)}</ul><p className="text-body-secondary">{r.accountingStatus==='DEFERRED'?'Deferred accounting evidence — this delivery value is not an authoritative supplier debt.':activity(r.accountingStatus)}</p><button className="btn btn-sm btn-outline-secondary" onClick={()=>setReturning(r)}>Return details</button></article>)}{receipts.data?.entries.length===0&&<Empty>No deliveries recorded.</Empty>}<Pagination pagination={receipts.data?.pagination} onPage={setPage}/></section>
+      {returning&&<SupplierReturn key={returning._id} receipt={returning} onClose={()=>setReturning(null)} onChanged={refresh}/>}
+    </>}
+  </>;
+}

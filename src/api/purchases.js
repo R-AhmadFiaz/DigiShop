@@ -1,0 +1,34 @@
+import { amount } from './invoice.js';
+
+export const pkr = minor => Number.isSafeInteger(minor) ? 'PKR ' + (minor / 100).toLocaleString('en-PK', {minimumFractionDigits:2,maximumFractionDigits:2}) : 'Unavailable';
+export const pakistanTime = value => value ? new Date(value).toLocaleString('en-PK', {timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'}) : 'Unavailable';
+export const activity = value => (value || 'Recorded activity').replaceAll('_',' ').toLowerCase().replace(/^./,s=>s.toUpperCase());
+export function minorAmount(value) { return Math.round(amount(value,'an amount') * 100); }
+export function purchaseItems(rows) {
+  if (!rows.length) throw new Error('Add at least one product.');
+  return rows.map(row => {
+    const quantity=Number(row.quantity);
+    if (!Number.isSafeInteger(quantity)||quantity<1) throw new Error('Enter whole positive quantities.');
+    const unitCostMinor=minorAmount(row.cost);
+    if (!Number.isSafeInteger(quantity*unitCostMinor)) throw new Error('Purchase value is too large.');
+    return {productId:row._id,quantity,unitCostMinor};
+  });
+}
+export function quantityItems(rows,values,remaining) {
+  const items=rows.flatMap(row=>{
+    const raw=values[row.productId];
+    if(raw===undefined||raw===''||Number(raw)===0)return [];
+    const quantity=Number(raw);
+    if(!Number.isSafeInteger(quantity)||quantity<1||quantity>remaining(row))throw new Error('Check quantities against the available units.');
+    return [{productId:row.productId,quantity}];
+  });
+  if(!items.length)throw new Error('Enter at least one quantity.');
+  return items;
+}
+export function returnQuantities(receipt,events) {
+  return Object.fromEntries(receipt.items.map(row=>{
+    const returned=events.reduce((sum,event)=>sum+(event.kind==='REVERSAL'?-1:1)*event.items.filter(i=>i.productId===row.productId).reduce((n,i)=>n+i.quantity,0),0);
+    if(!Number.isSafeInteger(returned)||returned<0||returned>row.quantity)throw new Error('Return history needs review.');
+    return [row.productId,{returned,eligible:row.quantity-returned}];
+  }));
+}

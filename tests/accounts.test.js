@@ -12,9 +12,9 @@ try {
       const html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(Page)));
       assert.ok(html.includes(title));assert.match(html,/Loading/);
       assert.doesNotMatch(html,/PKR 0\.00|Revenue|Profit|Pay supplier|Record purchase/);
-      if(file==='Companies')assert.match(html,/not available yet/);
+      if(file==='Companies')assert.match(html,/supplier details/);
       if(file==='CashBank')assert.match(html,/Live accounting is not enabled/);
-      if(file==='Transactions')assert.match(html,/combined business statement is not available/);
+      if(file==='Transactions')assert.match(html,/not a complete historical business ledger/);
     });
   }
 } finally {await server.close();}

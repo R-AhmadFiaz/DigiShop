@@ -9,6 +9,7 @@ const links = {
     ["", "Dashboard"],
     ["products", "Products"],
     ["stock", "Stock"],
+    ["purchases", "Purchases"],
     ["sales", "Sales"],
     ["quotations", "Quotations"],
     ["staff", "Create Cashier"],
@@ -67,7 +68,7 @@ export default function ShopLayout() {
         </div>
         <nav aria-label="Main navigation">
           {links[user.role].map(([to, label]) => (
-            <NavLink key={to} to={to || "."} end={to !== "sales"}>
+            <NavLink key={to} to={to || "."} end={!["sales","purchases"].includes(to)}>
               {label}
             </NavLink>
           ))}

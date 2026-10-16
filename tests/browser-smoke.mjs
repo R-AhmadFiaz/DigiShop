@@ -77,6 +77,28 @@ const stockLogs = [];
 const businessEntities = [], businessBrands = [];
 const financialAccounts = [{_id:'cash-account',name:'Counter cash',kind:'CASH',isActive:true}];
 let allowAccountBalance=false, denyAccounts=false;
+const purchaseOrders=[],goodsReceipts=[],supplierSettlements=[];
+let supplierReady=false,supplierPayableMinor=5000,supplierCashMinor=125000,loseSupplierResponse=false;
+function purchaseContract(endpoint,request,body,url){
+  if(role!=='OWNER')return {status:403,message:'Owner shop access required'};
+  const parts=endpoint.split('/'),po=purchaseOrders.find(p=>p._id===parts[2]);
+  if(endpoint==='/purchases/'&&request.method==='POST'){
+    const prior=purchaseOrders.find(p=>p.requestKey===body.requestKey);if(prior)return {data:{purchaseOrder:prior,replayed:true}};
+    const items=body.items.map(r=>({...r,name:product.name,brand:product.brand,unit:product.unit,totalMinor:r.quantity*r.unitCostMinor,receivedQuantity:0}));
+    const record={...body,_id:'purchase-'+(purchaseOrders.length+1),supplierName:businessEntities.find(e=>e._id===body.supplierId).name,createdAt:new Date().toISOString(),items,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),revision:0,status:'DRAFT'};purchaseOrders.push(record);return {data:{purchaseOrder:record,replayed:false}};
+  }
+  if(endpoint==='/purchases/'){const entries=purchaseOrders.filter(p=>(!url.searchParams.get('supplierId')||p.supplierId===url.searchParams.get('supplierId'))&&(!url.searchParams.get('q')||p.reference.includes(url.searchParams.get('q')))&&(!url.searchParams.get('status')||p.status===url.searchParams.get('status')));return {data:{entries,pagination:{currentPage:1,totalPages:1,recordCount:entries.length}}};}
+  if(!po)return {status:404,message:'Purchase order not found in shop'};
+  if(parts[3]==='receipts'&&request.method==='GET')return {data:{entries:goodsReceipts.filter(r=>r.purchaseOrderId===po._id).toReversed(),pagination:{currentPage:1,totalPages:1}}};
+  if(parts[3]==='receipts'){
+    const existing=goodsReceipts.find(r=>r.requestKey===body.requestKey);if(existing)return {data:{receipt:existing,purchaseOrder:po,replayed:true}};
+    if(body.expectedRevision!==po.revision)return {status:409,message:'Purchase changed; reload before receiving'};const items=body.items.map(r=>{const line=po.items.find(i=>i.productId===r.productId);assert.ok(r.quantity<=line.quantity-line.receivedQuantity);line.receivedQuantity+=r.quantity;return {...r,name:line.name,unitCostMinor:line.unitCostMinor,totalMinor:r.quantity*line.unitCostMinor};});
+    const receipt={_id:'receipt-'+(goodsReceipts.length+1),...body,items,purchaseOrderId:po._id,purchaseReference:po.reference,supplierId:po.supplierId,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),occurredAt:new Date().toISOString(),createdByName:'Receiving Owner',accountingStatus:supplierReady?'POSTED':'DEFERRED'};
+    goodsReceipts.push(receipt);product.stockQuantity+=items.reduce((n,r)=>n+r.quantity,0);if(supplierReady)supplierPayableMinor+=receipt.totalMinor;po.revision++;po.status=po.items.every(i=>i.quantity===i.receivedQuantity)?'RECEIVED':'PARTIALLY_RECEIVED';return {data:{receipt,purchaseOrder:po,replayed:false}};
+  }
+  if(request.method==='POST'){if(body.expectedRevision!==po.revision)return {status:409,message:'Purchase changed; reload before continuing'};po.revision++;po.status=parts[3]==='confirm'?'CONFIRMED':'CANCELLED';}
+  return {data:{purchaseOrder:po}};
+}
 const shops = [
   {
     _id: "shop-one",
@@ -215,6 +237,7 @@ async function mock(event) {
     };
   else if (endpoint === "/categories/")
     data = { categories: [product.category, { _id: "category-two", name: "Lighting" }] };
+  else if(endpoint.startsWith('/purchases/')){const result=purchaseContract(endpoint,request,body,url);data=result.data;status=result.status||200;message=result.message||'';}
   else if (endpoint.startsWith('/accounts/')) {
     if(role!=='OWNER' || denyAccounts){status=403;message='Owner shop access required';}
     else if(endpoint==='/accounts/entities' && request.method==='POST'){
@@ -225,15 +248,39 @@ async function mock(event) {
     else if(endpoint==='/accounts/brands' && request.method==='POST'){data={...body,_id:'brand-'+(businessBrands.length+1)};businessBrands.push(data);}
     else if(endpoint==='/accounts/brands')data={entries:businessBrands,pagination:{currentPage:1,totalPages:1}};
     else if(/^\/accounts\/brands\/[^/]+\/entities$/.test(endpoint)){data=businessBrands.find(b=>b._id===endpoint.split('/')[3]);assert.deepEqual(data.entityIds,body.expectedEntityIds);data.entityIds=body.entityIds;}
+    else if(endpoint.startsWith('/accounts/suppliers/')){
+      const supplierId=endpoint.split('/')[3];
+      if(endpoint.endsWith('/reconciliation'))data={authoritative:supplierReady,cutover:supplierReady?{cutoffAt:'2026-01-01T00:00:00.000Z'}:null,balanceMinor:supplierReady?supplierPayableMinor:null,issues:[]};
+      else if(!supplierReady){status=409;message='Supplier accounting is disabled; authoritative payable unavailable';}
+      else if(endpoint.endsWith('/balance'))data={authoritative:true,balanceMinor:supplierPayableMinor,accountId:'supplier-payable',currency:'PKR'};
+      else if(endpoint.endsWith('/settlements'))data={entries:supplierSettlements.filter(e=>!url.searchParams.get('sourceId')||e.receiptId===url.searchParams.get('sourceId')),pagination:{currentPage:1,totalPages:1},allocation:'UNAPPLIED_SUPPLIER_LEVEL'};
+      else {
+        const previous=supplierSettlements.find(e=>e.requestKey===body.requestKey);
+        if(previous){assert.equal(previous.requestKey,body.requestKey);data={settlement:previous,replayed:true};}
+        else if(endpoint.endsWith('/payments')){
+          if(body.amountMinor>supplierPayableMinor){status=409;message='Supplier payment exceeds outstanding payable';}
+          else if(body.amountMinor>supplierCashMinor){status=409;message='Insufficient cash or bank funds';}
+          else {supplierCashMinor-=body.amountMinor;supplierPayableMinor-=body.amountMinor;const e={...body,_id:'supplier-payment-'+(supplierSettlements.length+1),supplierId,kind:'PAYMENT',items:[],createdByName:'Paying Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};if(loseSupplierResponse){loseSupplierResponse=false;await send('Fetch.failRequest',{requestId:event.requestId,errorReason:'ConnectionReset'});return;}}
+        } else if(endpoint.endsWith('/returns')){
+          const receipt=goodsReceipts.find(r=>r._id===body.receiptId);const items=body.items.map(i=>({...i,name:product.name,unitCostMinor:receipt.items[0].unitCostMinor})),amountMinor=items.reduce((n,i)=>n+i.quantity*i.unitCostMinor,0);
+          if(amountMinor>supplierPayableMinor){status=409;message='Return exceeds remaining supplier payable; supplier refund-due/credit workflow is not supported';}
+          else {supplierPayableMinor-=amountMinor;product.stockQuantity-=items.reduce((n,i)=>n+i.quantity,0);const e={...body,_id:'supplier-return-'+(supplierSettlements.length+1),supplierId,kind:'RETURN',items,amountMinor,receiptReference:receipt.reference,createdByName:'Returning Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};}
+        }
+      }
+    }
+    else if(endpoint==='/accounts/transactions'||/^\/accounts\/transactions\/[^/]+$/.test(endpoint)){
+      if(!supplierReady&&!allowAccountBalance){status=409;message='Accounting is disabled; posted test journal register is unavailable';}
+      else {const entries=supplierSettlements.map(e=>({eventId:e._id,eventType:'SUPPLIER_'+e.kind,sourceDocument:{reference:e.reference,receiptId:e.receiptId},occurredAt:e.occurredAt,recordedAt:e.occurredAt,actor:{name:e.createdByName,role:'OWNER'},amountMinor:e.amountMinor,postings:[{accountId:'cash-account',account:{name:'Counter cash',kind:'CASH'},debitMinor:0,creditMinor:e.kind==='PAYMENT'?e.amountMinor:0,moneyOutMinor:e.kind==='PAYMENT'?e.amountMinor:null,moneyInMinor:null}],businessAction:{items:e.items},reversedBy:[]}));data=endpoint==='/accounts/transactions'?{entries,pagination:{currentPage:1,totalPages:1},coverage:{complete:false}}:{transaction:entries.find(e=>e.eventId===endpoint.split('/')[3]),originalTransaction:null};}
+    }
     else if(endpoint==='/accounts/financial' && request.method==='POST'){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
     else if(endpoint==='/accounts/financial')data={entries:financialAccounts,pagination:{currentPage:1,totalPages:1},livePostingEnabled:false};
     else if(endpoint.endsWith('/reconciliation'))data={debtMinor:1000,storeCreditMinor:4000,reconciled:true,issues:[]};
     else if(endpoint.endsWith('/history')){
       if(!allowAccountBalance){status=409;message='Prepared cash/bank cutover required; balance unavailable';}
-      else data={balanceMinor:125000,currency:'PKR',openingBalanceMinor:0,entries:[{_id:'tx-'+(url.searchParams.get('page')||1),occurredAt:'2026-01-01T10:00:00.000Z',source:{kind:'INVOICE_RECEIPT',referenceId:'event'},invoice:{invoiceNo:'INV-1',orderId:invoice._id},createdByName:'Original Seller',debitMinor:5000,creditMinor:0,runningBalanceMinor:url.searchParams.get('q')?null:5000}],pagination:{currentPage:Number(url.searchParams.get('page')||1),totalPages:2}};
+      else data={balanceMinor:125000,currency:'PKR',rangeOpeningBalanceMinor:0,rangeClosingBalanceMinor:5000,transactions:[{eventId:'tx-'+(url.searchParams.get('page')||1),eventType:'INVOICE_RECEIPT',occurredAt:'2026-01-01T10:00:00.000Z',sourceDocument:{invoiceNo:'INV-1',orderId:invoice._id},actor:{name:'Original Seller'},amountMinor:5000,runningBalanceMinor:url.searchParams.get('q')?null:5000}],pagination:{currentPage:Number(url.searchParams.get('page')||1),totalPages:2}};
     } else if(endpoint==='/accounts/financial/cash-account'){
-      if(!allowAccountBalance){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
-      else data={account:financialAccounts[0],authority:'JOURNAL',balanceMinor:125000,currency:'PKR',livePostingEnabled:false};
+      if(!allowAccountBalance&&!supplierReady){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
+      else data={account:financialAccounts[0],authority:'JOURNAL',balanceMinor:supplierReady?supplierCashMinor:125000,currency:'PKR',livePostingEnabled:false};
     } else {status=404;message='Account not found in shop';}
   }
   else if (endpoint === "/customers/")
@@ -636,6 +683,7 @@ try {
   await send("Page.navigate", { url: "http://localhost:5173" });
   await login("CASHIER");
   assert.equal(await evaluate('document.querySelector(".accounts-nav")'),null);
+  assert.equal(await evaluate('[...document.querySelectorAll(".sidebar a")].some(a=>a.textContent==="Purchases")'),false);
   await send('Page.navigate',{url:'http://localhost:5173/owner/accounts/companies'});
   await wait('location.pathname === "/cashier/pos"');
   assert.ok(!calls.some(c=>c.role==='CASHIER'&&c.endpoint.startsWith('/accounts/')));
@@ -1240,6 +1288,7 @@ try {
   shops[0].subscriptionActive = false;
   await login("ADMIN");
   assert.equal(await evaluate('document.querySelector(".accounts-nav")'),null);
+  assert.equal(await evaluate('[...document.querySelectorAll(".sidebar a")].some(a=>a.textContent==="Purchases")'),false);
   await wait('document.body.innerText.includes("Hardware Shop")');
   assert.equal(
     await evaluate('document.querySelector(".alert-warning")'),
@@ -1273,6 +1322,37 @@ try {
   await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Ali ·")).click()');
   await click('Save business');await wait('!document.querySelector("dialog[open]")');
   const linkedBusiness=JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body);assert.equal(linkedBusiness.customerId,customer._id);assert.ok(!Object.hasOwn(linkedBusiness,'name'));assert.equal(calls.filter(c=>c.endpoint==='/customers/create-customer').length,customerCreatesBefore);
+  // Supplier purchasing and accounting are contract fixtures only; never sent to a database.
+  const stockBeforePurchases=product.stockQuantity;
+  await click('Purchases');await wait('document.body.innerText.includes("No purchase orders found")');
+  await click('Create purchase order');await fillLabel('Purchase reference','PO-SMOKE');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
+  await click('Add Copper Cable');await fill('[aria-label="Quantity for Copper Cable"]','5');await fill('[aria-label="Unit cost for Copper Cable"]','10.00');
+  await click('Review purchase order');assert.equal(purchaseOrders.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("PO-SMOKE") && !document.querySelector("dialog[open]")');
+  assert.equal(purchaseOrders[0].items[0].unitCostMinor,1000);assert.equal(product.stockQuantity,stockBeforePurchases);
+  await click('Open purchase');await wait('document.body.innerText.includes("Confirm order")');purchaseOrders[0].revision++;await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Purchase changed")');await click('Refresh current data');await wait('document.body.innerText.includes("Confirm order")');await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Receive delivery")');
+  await fillLabel('Delivery reference','GR-DEFERRED');await fill('[aria-label="Delivered Copper Cable"]','1');await click('Review delivered quantities');assert.equal(goodsReceipts.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("GR-DEFERRED")');
+  assert.equal(product.stockQuantity,stockBeforePurchases+1);assert.equal(goodsReceipts[0].accountingStatus,'DEFERRED');
+  await click('Return details');await wait('document.body.innerText.includes("Historical deferred deliveries")');assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Review return").matches(":disabled")'),true);await click('Close return details');
+  supplierReady=true;financialAccounts[0].cashCutoverId='prepared-cutover';
+  await fillLabel('Delivery reference','GR-POSTED');await fill('[aria-label="Delivered Copper Cable"]','2');await click('Review delivered quantities');await click('Confirm and record');await wait('document.body.innerText.includes("GR-POSTED")');assert.equal(goodsReceipts.length,2);
+  await click('Supplier account');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');
+  await fill('select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await click('Review supplier payment');await wait('document.body.innerText.includes("no greater than the outstanding payable")');assert.equal(supplierSettlements.length,0);
+  supplierCashMinor=1;await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');await click('Confirm payment sent');await wait('document.body.innerText.includes("Insufficient cash or bank funds")');assert.equal(supplierSettlements.length,0);supplierCashMinor=125000;
+  await click('Refresh current data');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');await fill('select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');loseSupplierResponse=true;await click('Confirm payment sent');await wait('document.body.innerText.includes("result is uncertain")');assert.equal(supplierSettlements.length,1);
+  const paymentBeforeRetry=calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body;
+  supplierReady=false;await click('Retry same request');await wait('document.querySelector("dialog").innerText.includes("authoritative payable unavailable")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);supplierReady=true;
+  await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Retry same request").click();[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("request"))?.click()');
+  await wait('document.body.innerText.includes("Outstanding: PKR 60.00")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);
+  await click('Open purchase');await wait('document.body.innerText.includes("GR-POSTED")');await click('Return details');await wait('document.body.innerText.includes("Already returned (net)")');
+  await fillLabel('Return Copper Cable','1');await fillLabel('Return reference','RET-SMOKE');await fillLabel('Return reason','Supplier accepted returned goods');await click('Review return');assert.equal(supplierSettlements.length,1);
+  const cashBeforeReturn=supplierCashMinor;await click('Confirm and record');await wait('!document.querySelector("dialog[open]") && !document.querySelector("section[aria-label]")');assert.equal(supplierSettlements.length,2);assert.equal(supplierCashMinor,cashBeforeReturn);assert.equal(supplierPayableMinor,5000);
+  await click('Return details');await wait('document.body.innerText.includes("RET-SMOKE")');assert.equal(await evaluate('document.querySelector("section[aria-label] tbody").innerText.includes("1")'),true);await click('Close return details');
+  const stockBeforeCancel=product.stockQuantity;await fillLabel('Reason for cancelling remaining order','Cancel only undelivered quantities');await click('Cancel remaining order');await click('Confirm and record');await wait('document.body.innerText.includes("Cancelled") && !document.body.innerText.includes("Receive delivery")');assert.equal(purchaseOrders[0].status,'CANCELLED');assert.equal(product.stockQuantity,stockBeforeCancel);assert.equal(goodsReceipts.length,2);
+  await click('Transactions');await wait('document.body.innerText.includes("PAY-SMOKE")');await click('View transaction');await wait('document.querySelector("dialog").innerText.includes("Money out PKR 10.00")');await click('Close');
+  await evaluate('document.querySelector(".accounts-nav summary").parentElement.open=true');
+  product.stockQuantity=stockBeforePurchases;supplierReady=false;delete financialAccounts[0].cashCutoverId;
   await click('Cash & Bank');await wait('document.body.innerText.includes("Counter cash")');
   assert.ok(!(await evaluate('document.body.innerText.includes("PKR 0.00")')));
   await click('View balance');await wait('document.body.innerText.includes("Balance unavailable")');
@@ -2004,7 +2084,7 @@ try {
     "Live credentialed CORS origin",
   );
   console.log(
-    "Browser smoke passed: Accounts navigation and role guards, entity creation/search/customer links without duplicate customers, brand links, customer debt/credit reads, disabled setup and unavailable balances/history, confirmed balance display, transaction search/UTC dates/pagination and API denial; invoice returns/exchanges, refunds, payments, previews, idempotency, POS credit, all existing roles/POS/quotations/inventory/customers/staff/AI/auth/subscription/printing/responsive regressions. Authenticated writes use isolated contract responses; anonymous initialization also checked against the local backend.",
+    "Browser smoke passed: purchase creation/confirmation, deferred and posted deliveries, supplier payment validation and identical retry after lost response, duplicate-click protection, original receipt return and eligibility, payable updates, posted transaction details; Accounts navigation and role guards, entity creation/search/customer links without duplicate customers, brand links, customer debt/credit reads, disabled setup and unavailable balances/history, confirmed balance display, transaction search/UTC dates/pagination and API denial; invoice returns/exchanges, refunds, payments, previews, idempotency, POS credit, all existing roles/POS/quotations/inventory/customers/staff/AI/auth/subscription/printing/responsive regressions. Authenticated writes use isolated contract responses; anonymous initialization also checked against the local backend.",
   );
 } finally {
   if (socket?.readyState === 1) {

@@ -26,8 +26,21 @@ Manual subscription payment instructions are public receiving details only. Ther
 
 - Accounts management is OWNER-only. CASHIER retains its existing Customers/POS experience and cannot open Owner Accounts routes; ADMIN is unchanged.
 - Companies and customer links reuse existing identities. Product brand text is not an automatic company association; the separate registered-brand links are explicit.
-- Supplier purchases, payments and balances are not implemented. No controls imply these are available.
+- Supplier purchases, payments and returns are connected in Phase 4D; accounting restrictions are described below.
 - Cash/bank creation and prepared account balances/history require explicitly enabled backend test accounting and approved opening/cutover evidence. The frontend does not enable accounting, configure cutover or issue opening balances. Unavailable values are not displayed as zero.
 - The financial list endpoint returns paginated account metadata across kinds, without a kind filter. Cash & Bank shows cash/bank rows on each server page and retains that pagination. Transactions can select any listed account, but unsupported/unprepared balances and histories remain blocked by the server.
-- Transactions are per-account statements, never an invented combined financial report. UTC date filters use inclusive From/exclusive Before. Search-filtered running balances may be unavailable; no client-side balance reconstruction is attempted.
+- Transactions now include the Phase 4A posted-event register and per-account statements. This is not a complete historical financial report. UTC date filters use inclusive From/exclusive Before. Search-filtered running balances may be unavailable; no client-side balance reconstruction is attempted.
 - Customer balance details use the existing read-only reconciliation endpoint. Customer debt and store credit remain distinct and no entries or balances are changed by viewing them.
+
+
+### Supplier workflows - Phase 4D frontend boundaries
+
+- OWNER purchases use existing purchase-order/receiving APIs. Creation and confirmation do not receive stock or create payables. Delivery requests include expected revisions; stock and financial changes wait for confirmed server responses.
+- Accounting remains disabled by default and NODE_ENV=test-only. Supplier balances, payments, returns and posted histories require valid backend accounting and cutovers. The UI does not enable accounting or confirm openings. Unavailable balances are not zero.
+- Payment accounts are explicitly selected active, prepared cash/bank accounts. Metadata search/pagination is retained because the API has no account-kind filter. Backend routing, funds and payable validations remain authoritative.
+- Payments are unapplied at supplier level. Receipt-specific payment allocation, supplier refund-due assets, incoming purchase refunds and carry-forward credits are unsupported. Returns reduce remaining payable only; deferred historical deliveries cannot be returned here.
+- Return eligibility is shown only after all receipt-specific history pages, including reversals, load. Histories over 100 pages require review instead of truncated calculations. The server rechecks every quantity and balance.
+- User-scoped session storage retains uncertain supplier requests with their original body, timestamp, revision and key. Retry uses that exact request. No automatic retry or new key is generated after an uncertain response. Definite validation/conflict errors require refreshed review.
+- The register counts server events once, not postings. Cash/bank movements are distinct from accounting debits/credits. Zero-cost physical returns have settlement history without a fake zero journal. Display dates use Asia/Karachi; reporting filters explicitly remain UTC.
+- A return source may have a purchase reference without a document ID. The UI links to purchase search by that reference, without inventing a receipt endpoint. Existing settlement reversal events are displayed; initiating reversals is outside this frontend pass.
+- Authenticated browser-write tests use isolated contract responses. No financial requests are submitted to production Atlas. Real accounting integration requires the approved disposable local replica-set setup.
