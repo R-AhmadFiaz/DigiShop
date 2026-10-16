@@ -10,7 +10,6 @@ const links = {
     ["products", "Products"],
     ["stock", "Stock"],
     ["sales", "Sales"],
-    ["customers", "Customers"],
     ["quotations", "Quotations"],
     ["staff", "Create Cashier"],
     ["ai", "AI Assistant"],
@@ -72,6 +71,15 @@ export default function ShopLayout() {
               {label}
             </NavLink>
           ))}
+          {user.role === "OWNER" && (
+            <details className="accounts-nav" open={pathname.includes('/accounts/') || pathname === '/owner/customers' ? true : undefined}>
+              <summary>Accounts</summary>
+              <NavLink to="customers">Customers</NavLink>
+              <NavLink to="accounts/companies">Companies &amp; Suppliers</NavLink>
+              <NavLink to="accounts/cash-bank">Cash &amp; Bank</NavLink>
+              <NavLink to="accounts/transactions">Transactions</NavLink>
+            </details>
+          )}
         </nav>
       </aside>
       <main className="workspace">

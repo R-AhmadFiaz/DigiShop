@@ -10,7 +10,14 @@ import {
   Pagination,
 } from "../components/Common";
 import { CustomerForm } from "../components/CustomerPicker";
+import { useAuth } from '../auth/AuthContext';
+function CustomerBalances({ customer }) {
+  const result = useLoad('/accounts/customers/' + customer._id + '/reconciliation');
+  return <><Notice loading={result.loading} error={result.error}/>{result.data && <><p>Outstanding debt: PKR {money(result.data.debtMinor / 100)}</p><p>Available store credit: PKR {money(result.data.storeCreditMinor / 100)}</p><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances match the recorded invoices and customer history.':'Balances need review. No financial records have been changed.'}</p></>}</>;
+}
 export default function Customers() {
+  const {user} = useAuth();
+  const [selected,setSelected] = useState(null);
   const [search, setSearch] = useState(""),
     [page, setPage] = useState(1),
     [creating, setCreating] = useState(false),
@@ -54,6 +61,7 @@ export default function Customers() {
                   <th>Address</th>
                   <th className="text-end">Outstanding debt</th>
                   <th className="text-end">Store credit</th>
+                  {user.role==='OWNER' && <th/>}
                 </tr>
               </thead>
               <tbody>
@@ -64,6 +72,7 @@ export default function Customers() {
                     <td>{c.address || "-"}</td>
                     <td className="text-end">{money(c.remainingMoney)}</td>
                     <td className="text-end">{money((c.storeCreditBalanceMinor ?? 0) / 100)}</td>
+                    {user.role==='OWNER' && <td><button className="btn btn-outline-secondary btn-sm" onClick={()=>setSelected(c)}>Balance details</button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -92,6 +101,7 @@ export default function Customers() {
           />
         </Modal>
       )}
+      {selected && <Modal title={selected.name + ' — balances'} onClose={()=>setSelected(null)}><CustomerBalances customer={selected}/></Modal>}
     </>
   );
 }

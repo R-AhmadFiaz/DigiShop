@@ -177,6 +177,13 @@ fieldset {
   display: flex;
   flex-direction: column;
 }
+.accounts-nav summary {
+  cursor: pointer;
+  padding: 9px 10px;
+  color: #115e59;
+  font-weight: 600;
+}
+.accounts-nav a { margin-left: 10px; }
 .sidebar nav {
   display: flex;
   flex-direction: column;

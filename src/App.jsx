@@ -19,6 +19,9 @@ import ShopBlocked from "./pages/ShopBlocked";
 import { useEffect, useState } from "react";
 import SubscriptionBlocked from "./pages/SubscriptionBlocked";
 import RenewalInformation from "./components/RenewalInformation";
+import Companies from './pages/owner/Companies';
+import CashBank from './pages/owner/CashBank';
+import Transactions from './pages/owner/Transactions';
 function Guard({ role }) {
   const { user } = useAuth();
   return !user ? (
@@ -74,6 +77,9 @@ export default function App() {
           <Route path="sales" element={<Sales />} />
           <Route path="sales/:orderId" element={<Invoice />} />
           <Route path="customers" element={<Customers />} />
+          <Route path="accounts/companies" element={<Companies />} />
+          <Route path="accounts/cash-bank" element={<CashBank />} />
+          <Route path="accounts/transactions" element={<Transactions />} />
           <Route path="quotations" element={<Quotations />} />
           <Route path="staff" element={<Staff />} />
           <Route path="ai" element={<VoiceStock />} />

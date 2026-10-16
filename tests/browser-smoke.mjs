@@ -74,6 +74,9 @@ const posCreditRequests = new Map();
 let slowCategorySearch = false;
 const cashiers = [];
 const stockLogs = [];
+const businessEntities = [], businessBrands = [];
+const financialAccounts = [{_id:'cash-account',name:'Counter cash',kind:'CASH',isActive:true}];
+let allowAccountBalance=false, denyAccounts=false;
 const shops = [
   {
     _id: "shop-one",
@@ -212,6 +215,27 @@ async function mock(event) {
     };
   else if (endpoint === "/categories/")
     data = { categories: [product.category, { _id: "category-two", name: "Lighting" }] };
+  else if (endpoint.startsWith('/accounts/')) {
+    if(role!=='OWNER' || denyAccounts){status=403;message='Owner shop access required';}
+    else if(endpoint==='/accounts/entities' && request.method==='POST'){
+      data={...body,_id:'entity-'+(businessEntities.length+1),revision:0,...(body.customerId?{name:customer.name,phoneNo:customer.phoneNo}:{} )};businessEntities.push(data);
+    } else if(endpoint==='/accounts/entities'){
+      const entries=businessEntities.filter(e=>!url.searchParams.get('q') || e.name.toLowerCase().includes(url.searchParams.get('q').toLowerCase()));data={entries,pagination:{currentPage:1,totalPages:1}};
+    } else if(/^\/accounts\/entities\/[^/]+$/.test(endpoint))data=businessEntities.find(e=>e._id===endpoint.split('/')[3]);
+    else if(endpoint==='/accounts/brands' && request.method==='POST'){data={...body,_id:'brand-'+(businessBrands.length+1)};businessBrands.push(data);}
+    else if(endpoint==='/accounts/brands')data={entries:businessBrands,pagination:{currentPage:1,totalPages:1}};
+    else if(/^\/accounts\/brands\/[^/]+\/entities$/.test(endpoint)){data=businessBrands.find(b=>b._id===endpoint.split('/')[3]);assert.deepEqual(data.entityIds,body.expectedEntityIds);data.entityIds=body.entityIds;}
+    else if(endpoint==='/accounts/financial' && request.method==='POST'){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
+    else if(endpoint==='/accounts/financial')data={entries:financialAccounts,pagination:{currentPage:1,totalPages:1},livePostingEnabled:false};
+    else if(endpoint.endsWith('/reconciliation'))data={debtMinor:1000,storeCreditMinor:4000,reconciled:true,issues:[]};
+    else if(endpoint.endsWith('/history')){
+      if(!allowAccountBalance){status=409;message='Prepared cash/bank cutover required; balance unavailable';}
+      else data={balanceMinor:125000,currency:'PKR',openingBalanceMinor:0,entries:[{_id:'tx-'+(url.searchParams.get('page')||1),occurredAt:'2026-01-01T10:00:00.000Z',source:{kind:'INVOICE_RECEIPT',referenceId:'event'},invoice:{invoiceNo:'INV-1',orderId:invoice._id},createdByName:'Original Seller',debitMinor:5000,creditMinor:0,runningBalanceMinor:url.searchParams.get('q')?null:5000}],pagination:{currentPage:Number(url.searchParams.get('page')||1),totalPages:2}};
+    } else if(endpoint==='/accounts/financial/cash-account'){
+      if(!allowAccountBalance){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
+      else data={account:financialAccounts[0],authority:'JOURNAL',balanceMinor:125000,currency:'PKR',livePostingEnabled:false};
+    } else {status=404;message='Account not found in shop';}
+  }
   else if (endpoint === "/customers/")
     data = {
       customers: [customer],
@@ -611,6 +635,10 @@ try {
   });
   await send("Page.navigate", { url: "http://localhost:5173" });
   await login("CASHIER");
+  assert.equal(await evaluate('document.querySelector(".accounts-nav")'),null);
+  await send('Page.navigate',{url:'http://localhost:5173/owner/accounts/companies'});
+  await wait('location.pathname === "/cashier/pos"');
+  assert.ok(!calls.some(c=>c.role==='CASHIER'&&c.endpoint.startsWith('/accounts/')));
   await wait('!!document.querySelector(".product-result")');
   assert.deepEqual(
     await evaluate(
@@ -1211,6 +1239,7 @@ try {
   shops[0].subscriptionExpiry = null;
   shops[0].subscriptionActive = false;
   await login("ADMIN");
+  assert.equal(await evaluate('document.querySelector(".accounts-nav")'),null);
   await wait('document.body.innerText.includes("Hardware Shop")');
   assert.equal(
     await evaluate('document.querySelector(".alert-warning")'),
@@ -1222,6 +1251,40 @@ try {
     Date.now() + 30 * 86400000,
   ).toISOString();
   await login("OWNER");
+  // Owner Accounts contract checks. These responses are isolated browser fixtures,
+  // not evidence that live accounting has been enabled.
+  await evaluate('document.querySelector(".accounts-nav summary").click()');
+  await click('Companies & Suppliers');
+  await wait('document.body.innerText.includes("No businesses found.")');
+  await click('Add business');
+  await fill('[name=name]','Eagle Cables');await fill('[name=phoneNo]','03009876543');await fill('[name=address]','Main market');
+  await click('Save business');await wait('!document.querySelector("dialog[open]")');await wait('document.body.innerText.includes("Eagle Cables")');
+  assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['COMPANY','SUPPLIER']);
+  await fill('[aria-label="Search businesses"]','Eagle');await sleep(300);
+  await click('View details');await wait('document.body.innerText.includes("Brand associations")');
+  await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
+  await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
+  await click('Close');await click('Customers');await click('Balance details');await wait('document.body.innerText.includes("Balances match")');
+  assert.ok(await evaluate('document.querySelector("dialog").innerText.includes("40.00")'));await click('Close');
+  await click('Companies & Suppliers');await fill('[aria-label="Search businesses"]','');await click('Add business');
+  const customerCreatesBefore=calls.filter(c=>c.endpoint==='/customers/create-customer').length;
+  await evaluate('[...document.querySelectorAll("dialog label")].find(label=>label.textContent.trim()==="Customer").querySelector("input").click()');
+  await wait('[...document.querySelectorAll("dialog button")].some(b=>b.textContent.includes("Ali ·"))');
+  await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("Ali ·")).click()');
+  await click('Save business');await wait('!document.querySelector("dialog[open]")');
+  const linkedBusiness=JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body);assert.equal(linkedBusiness.customerId,customer._id);assert.ok(!Object.hasOwn(linkedBusiness,'name'));assert.equal(calls.filter(c=>c.endpoint==='/customers/create-customer').length,customerCreatesBefore);
+  await click('Cash & Bank');await wait('document.body.innerText.includes("Counter cash")');
+  assert.ok(!(await evaluate('document.body.innerText.includes("PKR 0.00")')));
+  await click('View balance');await wait('document.body.innerText.includes("Balance unavailable")');
+  await evaluate('[...document.querySelectorAll("main a")].find(a=>a.textContent==="Transactions").click()');await wait('document.body.innerText.includes("History unavailable")');await click('Cash & Bank');
+  await click('Add account');await fill('[name=name]','Bank account');await fill('[name=code]','BANK_1');await click('Create account');await wait('document.querySelector("dialog").innerText.includes("Accounting is disabled")');await click('Close');
+  allowAccountBalance=true;await click('Companies & Suppliers');await click('Cash & Bank');await click('View balance');await wait('document.body.innerText.includes("1,250.00")');
+  await evaluate('[...document.querySelectorAll("main a")].find(a=>a.textContent==="Transactions").click()');
+  await wait('document.body.innerText.includes("Original Seller")');await click('Next');await wait('document.body.innerText.includes("Page 2 of 2")');
+  await fillLabel('Search transactions','INV-1');await wait('document.body.innerText.includes("Unavailable for this search")');
+  await fillLabel('From (UTC)','2026-01-01');await fillLabel('Before (UTC)','2026-01-02');await sleep(300);
+  assert.ok(calls.some(c=>c.endpoint.endsWith('/history')&&c.query.includes('from=2026-01-01T00')&&c.query.includes('to=2026-01-02T00')&&c.query.includes('q=INV-1')));
+  denyAccounts=true;await click('Companies & Suppliers');await wait('document.body.innerText.includes("Owner shop access required")');denyAccounts=false;allowAccountBalance=false;
   await click("Products");
   await wait('document.body.innerText.includes("Copper Cable")');
   assert.ok(await evaluate('document.body.innerText.includes("Cost")'));
@@ -1941,7 +2004,7 @@ try {
     "Live credentialed CORS origin",
   );
   console.log(
-    "Browser smoke passed: invoice return/exchange previews and confirmations, restock/damaged same-product exchange, full/partial returns, cash/credit refunds, anonymous credit recipient, additional cash/credit payments, insufficient-credit rejection, stale preview, double-submit protection, lost-response/reload recovery, original/current/history and printable adjustments, history pagination, cashier POS credit redemption/replay; all existing roles/POS/quotations/inventory/customers/staff/AI/auth/subscription/printing/responsive regressions. Writes use isolated contract responses; anonymous initialization also checked against the live backend.",
+    "Browser smoke passed: Accounts navigation and role guards, entity creation/search/customer links without duplicate customers, brand links, customer debt/credit reads, disabled setup and unavailable balances/history, confirmed balance display, transaction search/UTC dates/pagination and API denial; invoice returns/exchanges, refunds, payments, previews, idempotency, POS credit, all existing roles/POS/quotations/inventory/customers/staff/AI/auth/subscription/printing/responsive regressions. Authenticated writes use isolated contract responses; anonymous initialization also checked against the local backend.",
   );
 } finally {
   if (socket?.readyState === 1) {

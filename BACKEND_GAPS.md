@@ -21,3 +21,13 @@ The backend was re-inspected before initial implementation. Manual shop deactiva
 - JSON requests are limited to 16 KB. Unusually large carts can exceed that limit; no bulk sales workflow is promised.
 
 Manual subscription payment instructions are public receiving details only. There are no payment records, payment verification endpoints, automatic renewal, payment/refund services, PDF libraries, or unsupported management functions.
+
+### Business Accounts — Phase 3B frontend boundaries
+
+- Accounts management is OWNER-only. CASHIER retains its existing Customers/POS experience and cannot open Owner Accounts routes; ADMIN is unchanged.
+- Companies and customer links reuse existing identities. Product brand text is not an automatic company association; the separate registered-brand links are explicit.
+- Supplier purchases, payments and balances are not implemented. No controls imply these are available.
+- Cash/bank creation and prepared account balances/history require explicitly enabled backend test accounting and approved opening/cutover evidence. The frontend does not enable accounting, configure cutover or issue opening balances. Unavailable values are not displayed as zero.
+- The financial list endpoint returns paginated account metadata across kinds, without a kind filter. Cash & Bank shows cash/bank rows on each server page and retains that pagination. Transactions can select any listed account, but unsupported/unprepared balances and histories remain blocked by the server.
+- Transactions are per-account statements, never an invented combined financial report. UTC date filters use inclusive From/exclusive Before. Search-filtered running balances may be unavailable; no client-side balance reconstruction is attempted.
+- Customer balance details use the existing read-only reconciliation endpoint. Customer debt and store credit remain distinct and no entries or balances are changed by viewing them.
