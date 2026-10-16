@@ -1,3 +1,4 @@
+import Expenses from './pages/owner/Expenses';
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { homeFor, useAuth } from "./auth/AuthContext";
 import ShopLayout from "./layouts/ShopLayout";
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="products" element={<Products />} />
           <Route path="stock" element={<Stock />} />
           <Route path="purchases" element={<Purchases />} />
+          <Route path="expenses" element={<Expenses />} />
           <Route path="purchases/:purchaseId" element={<PurchaseDetails />} />
           <Route path="accounts/suppliers/:supplierId" element={<SupplierDetails />} />
           <Route path="sales" element={<Sales />} />

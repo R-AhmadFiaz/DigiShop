@@ -5,8 +5,8 @@ import { useAuth } from '../auth/AuthContext';
 import { Modal, Notice } from './Common';
 
 // Persist only the exact proposed request, not financial API responses.
-export default function SupplierAction({children,onChanged}) {
-  const {user}=useAuth(),storageKey=journalKey(user,'supplier-operation');
+export default function SupplierAction({children,onChanged,operation="supplier-operation"}) {
+  const {user}=useAuth(),storageKey=journalKey(user,operation);
   const [request,setRequest]=useState(()=>readPending(storageKey)),[retained,setRetained]=useState(()=>!!readPending(storageKey));
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');
   const [needsRefresh,setNeedsRefresh]=useState(false);

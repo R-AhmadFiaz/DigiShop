@@ -10,6 +10,7 @@ const links = {
     ["products", "Products"],
     ["stock", "Stock"],
     ["purchases", "Purchases"],
+    ["expenses", "Expenses"],
     ["sales", "Sales"],
     ["quotations", "Quotations"],
     ["staff", "Create Cashier"],

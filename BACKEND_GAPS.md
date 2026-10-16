@@ -72,3 +72,36 @@ Manual subscription payment instructions are public receiving details only. Ther
 - Repeatable supplier runner and local evidence are in the backend repository:
   tests/supplier-browser.integration.mjs and gitignored
   tests/artifacts/supplier-phase5a-evidence.json.
+
+
+### Expense Management
+
+- OWNER-only /owner/expenses uses /accounts/expenses setup, categories, list/create,
+  detail and reverse APIs. No CASHIER/ADMIN expense controls or routes are added.
+- Paid expenses are unavailable when accounting is disabled or cash/bank cutover
+  is unprepared. Categories may still be created without claiming any payment.
+  Production accounting remains disabled and test-only; this module does not
+  enable real production expense posting.
+- Exact paisa and server totals are authoritative. Monthly/category totals use
+  Pakistan calendar months; timestamps display in Asia/Karachi including seconds.
+  Reversals reduce expenses on the reversal date, potentially making that month's
+  net total negative. Existing sales reporting retains its UTC convention.
+- Corrections require confirmed actual restoration of the original funds, followed
+  by an immutable reversal to the original account. Record a new corrected expense
+  separately. No posted history editing/deletion or partial reversal is offered.
+- Retained exact-key requests reuse existing financial confirmation/retry storage
+  with an expense-specific scope. A refresh or uncertain outcome must not create a
+  new request key. The server revalidates funds and account preparation.
+- Existing journal monotonic-date policy applies: an expense cannot predate later
+  activity on either participating account. Backdated expense entry, accruals,
+  unpaid bills, payroll, tax accounting and profit/loss are outside this module.
+- Supplier payments, inventory purchases and customer refunds are not operating
+  expenses and are never merged into these totals. No external payment is executed
+  or verified by DigiShop; OWNER records an actual payment already made.
+
+- Verified locally: backend build and 358 backend tests; focused expense/deletion
+  subset 21 tests; frontend lint/build and 60 tests; 15 real supplier/expense Chrome
+  scenario groups. The actual expense page records PKR 12.50 once, shows its source
+  and actor, reverses it with actual-funds confirmation, and displays server net
+  totals. Cash reconciliation and existing supplier/customer/stock state agree.
+  Financial writes used disposable loopback MongoDB replica sets, never Atlas.
