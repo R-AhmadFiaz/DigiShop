@@ -65,6 +65,10 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
         async function preview(orderId,kind,extra={}){const current=await Order.findById(orderId);const body={requestKey:key('operation'),expectedRevision:current.revision??0,reason:'Verified HTTP test',returns:[],additions:[],...extra};return {body,response:await http('POST',`/orders/${orderId}/${kind}/preview`,body)};}
         async function operation(orderId,kind,extra={}){const p=await preview(orderId,kind,extra);assert.equal(p.response.status,200,JSON.stringify(p.response.body));assert.equal(p.response.body.data.canSubmit,true,JSON.stringify(p.response.body));const body={...p.body,confirmationToken:p.response.body.data.confirmationToken};const result=await http('POST',`/orders/${orderId}/${kind}`,body);assert.equal(result.status,200,JSON.stringify(result.body));return {body,event:result.body.data.event};}
         const returns=(order,quantity=1,disposition='RESTOCK')=>[{lineId:order.items[0].lineId,quantity,disposition}];
+        async function quote(user=owner){const p=await product();const response=await http('POST','/orders/quotation',{items:[{productId:String(p._id),quantity:2}],saleType:'RETAIL',discountType:'NONE',discountValue:0},user);assert.equal(response.status,201);return {p,quotation:response.body.data.quotation};}
+        async function fundedCustomer(){const buyer=await customer(),donor=await sale({customerId:String(buyer._id)});await operation(donor.order._id,'adjustments',{returns:returns(donor.order,2),creditIssueAmount:100});return buyer;}
+        async function cashierTransaction(work){const session=await mongoose.startSession();session.startTransaction({readConcern:{level:'snapshot'}});try{const value=await work(session);await session.commitTransaction();return value;}catch(error){if(session.inTransaction())await session.abortTransaction();throw error;}finally{await session.endSession();}}
+        const cashierActor={_id:cashier._id,shopId:shop._id,role:'CASHIER',username:cashier.username};
         let legacy,paid,partial;
         await t.test('disabled default preserves OWNER/CASHIER cash sales, missing routing, and existing cancellation',async()=>{
             assert.equal(invoiceAccountingEnabled(),false);
@@ -210,10 +214,10 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
             const result=await http('POST','/orders/create-order',saleBody(p,{paidAmount:0,receiptAccountId:undefined,customerId:String(buyer._id)}),foreign);assert.equal(result.status,409);assert.equal(await Order.countDocuments(),before);assert.equal((await Product.findById(p._id)).stockQuantity,20);assert.equal((await Customer.findById(buyer._id)).remainingMoney,0);
             const count=await InvoiceAdjustment.countDocuments();await assert.rejects(recordIntegratedSale(actor,{}, {requestKey:'outside-txn',requestHash:'invalid',routing:{}},null),/active transaction/);assert.equal(await InvoiceAdjustment.countDocuments(),count);
         });
-        await t.test('enabled CASHIER writes fail closed; OWNER/CASHIER/Admin and cross-shop restrictions remain',async()=>{
-            const p=await product();assert.equal((await http('POST','/orders/create-order',saleBody(p),cashier)).status,403);assert.equal((await http('POST','/orders/create-order',saleBody(p),admin)).status,403);
+        await t.test('enabled CASHIER sales post while Admin and cross-shop restrictions remain',async()=>{
+            const p=await product();assert.equal((await http('POST','/orders/create-order',saleBody(p),cashier)).status,201);assert.equal((await http('POST','/orders/create-order',saleBody(p),admin)).status,403);
             assert.equal((await http('POST',`/orders/${paid.order._id}/adjustments/preview`,{requestKey:key('foreign'),expectedRevision:0,reason:'Invalid',returns:[],additions:[]},foreign)).status,404);
-            assert.equal((await Product.findById(p._id)).stockQuantity,20);
+            assert.equal((await Product.findById(p._id)).stockQuantity,18);
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;const response=await http('POST','/orders/create-order',saleBody(p,{receiptAccountId:undefined}),cashier);assert.equal(response.status,201);process.env.BUSINESS_ACCOUNTING_ENABLED='true';
         });
         await t.test('late initial-sale journal failure rolls back invoice, stock, source, debt and counter',async()=>{
@@ -279,6 +283,112 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
         await t.test('unknown commit outcomes and write conflicts return controlled retry guidance',()=>{
             assert.throws(()=>throwAccountingTransactionError({hasErrorLabel:label=>label==='UnknownTransactionCommitResult'}),error=>error.statusCode===503&&/identical/.test(error.message));
             assert.throws(()=>throwAccountingTransactionError({code:112}),error=>error.statusCode===409);
+        });
+        await t.test('payment-account read route exposes only active same-shop names/kinds to OWNER/CASHIER',async()=>{
+            const hidden=await account('UNPREPARED','BANK');
+            for(const user of [owner,cashier]){const response=await http('GET','/orders/payment-accounts',undefined,user);assert.equal(response.status,200);assert.equal(response.body.data.accountingEnabled,true);assert.equal(response.body.data.accounts.length,3);for(const row of response.body.data.accounts){assert.deepEqual(Object.keys(row).sort(),['_id','kind','name']);assert.notEqual(row._id,String(hidden._id));}}
+            assert.equal((await http('GET','/orders/payment-accounts',undefined,admin)).status,403);
+            assert.equal((await http('GET','/orders/payment-accounts',undefined,foreign)).status,409);
+            const bad=await http('POST','/orders/create-order',saleBody(await product(),{receiptAccountId:String(hidden._id)}),cashier);assert.equal(bad.status,409);
+        });
+        await t.test('CASHIER retail/wholesale cash and partial sales use explicit accounts and historical cashier attribution',async()=>{
+            const before=await balance(bank),f=await sale({saleType:'WHOLESALE',paidAmount:90,receiptAccountId:String(bank._id)},cashier);assert.equal(await balance(bank),before+9000);assert.equal(f.order.totalPrice,90);assert.equal(f.order.items[0].unitPrice,45);assert.equal(f.order.createdBy,String(cashier._id));assert.equal(f.order.createdByName,cashier.username);
+            const event=await InvoiceAdjustment.findOne({orderId:f.order._id});assert.equal(event.createdByRole,'CASHIER');assert.equal(String((await BusinessTransaction.findOne({'source.referenceId':event._id})).createdBy),String(cashier._id));
+            const buyer=await customer(),partial=await sale({paidAmount:20,customerId:String(buyer._id)},cashier);assert.equal(partial.order.amountDue,80);assert.equal((await Customer.findById(buyer._id)).remainingMoney,80);
+            const beforeReplay=await balance(bank);assert.equal((await http('POST','/orders/create-order',f.body,cashier)).status,200);assert.equal(await balance(bank),beforeReplay);
+        });
+        await t.test('CASHIER mixed and credit-only POS sales never count redeemed credit as cash',async()=>{
+            const buyer=await fundedCustomer(),before=await balance(cash),f=await sale({paidAmount:20,creditAmount:30,customerId:String(buyer._id)},cashier);
+            assert.equal(await balance(cash),before+2000);assert.equal(f.order.paidAmount,50);assert.equal(f.order.amountDue,50);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,7000);
+            const buyer2=await fundedCustomer(),count=await BusinessTransaction.countDocuments(),g=await sale({paidAmount:0,creditAmount:100,receiptAccountId:undefined,customerId:String(buyer2._id)},cashier);assert.equal(g.order.amountDue,0);assert.equal(await BusinessTransaction.countDocuments(),count);assert.equal((await Customer.findById(buyer2._id)).storeCreditBalanceMinor,0);
+        });
+        await t.test('OWNER and CASHIER quotation conversions redeem mixed credit and preserve quotation prices/customer',async()=>{
+            for(const user of [owner,cashier]){const buyer=await fundedCustomer(),q=await quote(owner),before=await balance(bank);await Product.updateOne({_id:q.p._id},{$set:{retailPrice:75}});
+                const body={requestKey:key('mixed-conversion'),paidAmount:20,creditAmount:50,customerId:String(buyer._id),receiptAccountId:String(bank._id)};
+                const result=await http('PATCH',`/orders/${q.quotation._id}`,body,user);assert.equal(result.status,201,JSON.stringify(result.body));const order=result.body.data.createOrder;
+                assert.equal(order.totalPrice,100);assert.equal(order.items[0].unitPrice,50);assert.equal(order.paidAmount,70);assert.equal(order.amountDue,30);assert.equal(order.customerId,String(buyer._id));assert.equal(order.createdBy,String(user._id));assert.equal((await Customer.findById(buyer._id)).remainingMoney,30);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,5000);assert.equal(await balance(bank),before+2000);
+                const event=await InvoiceAdjustment.findOne({orderId:order._id});assert.equal(event.createdByRole,user.role);assert.equal(event.financial.creditRedeemedMinor,5000);assert.equal(event.financial.cashReceivedMinor,2000);assert.equal(String((await CustomerLedger.findOne({referenceId:order._id,description:'CREDIT_REDEEMED'})).adjustmentId),String(event._id));
+                assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,body,user)).status,200);assert.equal(await balance(bank),before+2000);assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,{...body,creditAmount:40},user)).status,409);assert.equal(String((await Order.findById(q.quotation._id)).createdBy),String(owner._id));
+            }
+        });
+        await t.test('credit-only CASHIER conversion has no cash posting and OWNER return restores credit only',async()=>{
+            const buyer=await fundedCustomer(),q=await quote(cashier),count=await BusinessTransaction.countDocuments();
+            const result=await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('credit-only-convert'),paidAmount:0,creditAmount:100,customerId:String(buyer._id)},cashier);assert.equal(result.status,201);const order=result.body.data.createOrder;
+            assert.equal(order.paidAmount,100);assert.equal(order.amountDue,0);assert.equal(await BusinessTransaction.countDocuments(),count);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,0);
+            const returned=await operation(order._id,'adjustments',{returns:returns(order,2)});assert.equal(returned.event.financial.creditRestoredMinor,10000);assert.equal(returned.event.financial.cashRefundMinor,0);assert.equal(await BusinessTransaction.countDocuments(),count);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);assert.equal((await Product.findById(q.p._id)).stockQuantity,20);
+        });
+        await t.test('OWNER subsequent mixed payment/cancellation of CASHIER credit conversion reconciles debt and funding',async()=>{
+            const buyer=await fundedCustomer(),q=await quote(cashier);const response=await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('later-payment-convert'),paidAmount:20,creditAmount:50,customerId:String(buyer._id),receiptAccountId:String(cash._id)},cashier);assert.equal(response.status,201);const order=response.body.data.createOrder;
+            const before=await balance(bank);await operation(order._id,'payments',{cashReceivedAmount:10,creditRedeemedAmount:20,receiptAccountId:String(bank._id)});assert.equal(await balance(bank),before+1000);assert.equal((await Customer.findById(buyer._id)).remainingMoney,0);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,3000);
+            const cancelled=await operation(order._id,'cancellations',{cashRefundAmount:30,refundAccountId:String(cash._id)});assert.equal(cancelled.event.financial.creditRestoredMinor,7000);assert.equal(cancelled.event.financial.cashRefundMinor,3000);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);assert.equal((await Product.findById(q.p._id)).stockQuantity,20);assert.equal(String((await Order.findById(order._id)).createdBy),String(cashier._id));
+            assert.equal((await run(s=>accounts.reconcileBusinessCustomer(actor,String(buyer._id),s))).reconciled,true);
+        });
+        await t.test('CASHIER cannot use OWNER routes or internal management/balance/refund primitives',async()=>{
+            const f=await sale({},cashier),source=await InvoiceAdjustment.findOne({orderId:f.order._id});
+            for(const kind of ['payments','adjustments','cancellations']){for(const suffix of ['', '/preview'])assert.equal((await http('POST',`/orders/${f.order._id}/${kind}${suffix}`,{requestKey:key('forbidden'),expectedRevision:0,reason:'Forbidden',returns:[],additions:[]},cashier)).status,403);}
+            assert.equal((await http('PATCH',`/orders/${f.order._id}/cancel`,{},cashier)).status,403);
+            await assert.rejects(cashierTransaction(s=>accounts.getAccountBalance(cashierActor,String(cash._id),s)),/Owner/);
+            await assert.rejects(cashierTransaction(s=>accounts.createFinancialAccount(cashierActor,{code:'BAD',name:'Bad',kind:'CASH'},s)),/Owner/);
+            await assert.rejects(cashierTransaction(s=>accounts.recordOpeningBalance(cashierActor,{accountId:String(cash._id),equityAccountId:String(equity._id),amountMinor:1,requestKey:key('bad-opening'),occurredAt:new Date().toISOString(),reason:'Forbidden',confirmation:'CONFIRM OPENING BALANCE'},s)),/Owner/);
+            await assert.rejects(cashierTransaction(s=>accounts.postInvoiceCashMovement(cashierActor,{eventId:String(source._id),cashAccountId:String(cash._id),direction:'REFUND',requestKey:key('bad-refund')},s)),/cannot issue refunds/);
+            await assert.rejects(cashierTransaction(s=>accounts.postBusinessJournal(cashierActor,{requestKey:key('bad-journal'),reason:'Forbidden',occurredAt:new Date().toISOString(),postings:[]},s)),/Owner/);
+            const ownerSource=await InvoiceAdjustment.findOne({orderId:paid.order._id,kind:'SALE'});
+            await assert.rejects(cashierTransaction(s=>accounts.postInvoiceCashMovement(cashierActor,{eventId:String(ownerSource._id),cashAccountId:String(cash._id),direction:'RECEIPT',requestKey:key('borrowed-source')},s)),/own initial sale/);
+        });
+        await t.test('inactive cash/clearing accounts are hidden and rejected, without changing historical balances',async()=>{
+            const before=await balance(bank);await FinancialAccount.updateOne({_id:bank._id},{$set:{isActive:false}});
+            try{
+                const selected=await http('GET','/orders/payment-accounts',undefined,cashier);assert.equal(selected.status,200);assert.ok(selected.body.data.accounts.every(row=>row._id!==String(bank._id)));assert.equal(await balance(bank),before);
+                const p=await product(),count=await Order.countDocuments();const result=await http('POST','/orders/create-order',saleBody(p,{receiptAccountId:String(bank._id)}),cashier);assert.equal(result.status,409);assert.equal((await Product.findById(p._id)).stockQuantity,20);assert.equal(await Order.countDocuments(),count);
+            }finally{await FinancialAccount.updateOne({_id:bank._id},{$set:{isActive:true}});}
+            await FinancialAccount.updateOne({_id:clearing._id},{$set:{isActive:false}});
+            try{assert.equal((await http('GET','/orders/payment-accounts',undefined,cashier)).status,409);const p=await product();assert.equal((await http('POST','/orders/create-order',saleBody(p),cashier)).status,409);assert.equal((await Product.findById(p._id)).stockQuantity,20);}finally{await FinancialAccount.updateOne({_id:clearing._id},{$set:{isActive:true}});}
+        });
+        await t.test('account deactivation after preview prevents mutation and replay of an old sale does not repost',async()=>{
+            const f=await sale({receiptAccountId:String(bank._id)}),pv=await preview(f.order._id,'adjustments',{returns:returns(f.order),cashRefundAmount:50,refundAccountId:String(bank._id)}),before=await balance(bank);
+            await FinancialAccount.updateOne({_id:bank._id},{$set:{isActive:false}});
+            try{assert.equal((await http('POST',`/orders/${f.order._id}/adjustments`,{...pv.body,confirmationToken:pv.response.body.data.confirmationToken})).status,409);assert.equal((await Order.findById(f.order._id)).revision,0);assert.equal((await Product.findById(f.p._id)).stockQuantity,18);assert.equal((await http('POST','/orders/create-order',f.body)).status,200);assert.equal(await balance(bank),before);}finally{await FinancialAccount.updateOne({_id:bank._id},{$set:{isActive:true}});}
+        });
+        await t.test('invalid, excessive and insufficient quotation credit cannot change wallets, stock or quotation status',async()=>{
+            const buyer=await fundedCustomer(),q=await quote(),counter=(await Shop.findById(shop._id)).invoiceCounter;
+            for(const extra of [{paidAmount:80,creditAmount:30,customerId:String(buyer._id)},{paidAmount:0,creditAmount:101,customerId:String(buyer._id)},{paidAmount:0,creditAmount:100},{paidAmount:0,creditAmount:-1,customerId:String(buyer._id)},{paidAmount:0,creditAmount:'10',customerId:String(buyer._id)},{paidAmount:0,creditRedeemedAmount:100,customerId:String(buyer._id)}]){
+                const response=await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('invalid-credit-convert'),...extra},cashier);assert.ok([400,409].includes(response.status),JSON.stringify(response.body));assert.equal((await Order.findById(q.quotation._id)).status,'DRAFT');assert.equal((await Product.findById(q.p._id)).stockQuantity,20);
+            }
+            const emptyBuyer=await customer();assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('insufficient-credit'),paidAmount:0,creditAmount:100,customerId:String(emptyBuyer._id)},cashier)).status,409);
+            assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);assert.equal((await Shop.findById(shop._id)).invoiceCounter,counter);
+        });
+        await t.test('CASHIER conversion rejects foreign customers and accounts without exposing or modifying them',async()=>{
+            const q=await quote(),foreignBuyer=await Customer.create({shopId:foreignShop._id,name:'Foreign buyer',phoneNo:'03888888888'});
+            assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('foreign-credit'),paidAmount:0,creditAmount:100,customerId:String(foreignBuyer._id)},cashier)).status,400);
+            const foreignAccount=await FinancialAccount.findOne({shopId:foreignShop._id,kind:'CASH'});assert.ok(foreignAccount);
+            assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('foreign-routing'),paidAmount:100,receiptAccountId:String(foreignAccount._id)},cashier)).status,404);assert.equal((await Order.findById(q.quotation._id)).status,'DRAFT');assert.equal((await Product.findById(q.p._id)).stockQuantity,20);assert.equal((await Customer.findById(foreignBuyer._id)).storeCreditBalanceMinor,0);
+        });
+        await t.test('mixed CASHIER conversion rolls back wallet, debt, quotation, inventory and event when journal insertion fails',async()=>{
+            const buyer=await fundedCustomer(),q=await quote(),before=await balance(bank),counter=(await Shop.findById(shop._id)).invoiceCounter;
+            const body={requestKey:key('rollback-credit-convert'),paidAmount:20,creditAmount:50,customerId:String(buyer._id),receiptAccountId:String(bank._id)};
+            await mongoose.connection.db.command({collMod:BusinessTransaction.collection.collectionName,validator:{'source.kind':{$ne:'INVOICE_RECEIPT'}}});
+            try{assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,body,cashier)).status,500);}finally{await mongoose.connection.db.command({collMod:BusinessTransaction.collection.collectionName,validator:{}});}
+            assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);assert.equal((await Customer.findById(buyer._id)).remainingMoney,0);assert.equal((await Order.findById(q.quotation._id)).status,'DRAFT');assert.equal((await Product.findById(q.p._id)).stockQuantity,20);assert.equal((await Shop.findById(shop._id)).invoiceCounter,counter);assert.equal(await InvoiceAdjustment.countDocuments({requestKey:body.requestKey}),0);assert.equal(await balance(bank),before);
+            assert.equal((await http('PATCH',`/orders/${q.quotation._id}`,body,cashier)).status,201);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,5000);
+        });
+        await t.test('concurrent credit conversions cannot redeem one customer wallet twice',async()=>{
+            const buyer=await fundedCustomer(),a=await quote(),b=await quote(),counter=(await Shop.findById(shop._id)).invoiceCounter;
+            const results=await Promise.all([a,b].map(q=>http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('race-credit'),paidAmount:0,creditAmount:100,customerId:String(buyer._id)},cashier)));
+            assert.equal(results.filter(r=>r.status===201).length,1);assert.equal(results.filter(r=>r.status===409).length,1);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,0);assert.equal((await Shop.findById(shop._id)).invoiceCounter,counter+1);assert.deepEqual([(await Product.findById(a.p._id)).stockQuantity,(await Product.findById(b.p._id)).stockQuantity].sort(),[18,20]);
+        });
+        await t.test('concurrent identical CASHIER POS requests post once, with unchanged retry identity',async()=>{
+            const p=await product(),body=saleBody(p),before=await balance(cash);const results=await Promise.all([http('POST','/orders/create-order',body,cashier),http('POST','/orders/create-order',body,cashier)]);assert.ok(results.some(row=>row.status===201));assert.equal((await http('POST','/orders/create-order',body,cashier)).status,200);assert.equal(await balance(cash),before+10000);assert.equal((await Product.findById(p._id)).stockQuantity,18);assert.equal(await InvoiceAdjustment.countDocuments({requestKey:body.requestKey}),1);
+        });
+        await t.test('disabled mode preserves quotation cash calculations and does not introduce credit redemption or routing',async()=>{
+            const buyer=await fundedCustomer(),q=await quote();delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+            try{const selected=await http('GET','/orders/payment-accounts',undefined,cashier);assert.deepEqual(selected.body.data,{accountingEnabled:false,accounts:[]});const before=await balance(cash),result=await http('PATCH',`/orders/${q.quotation._id}`,{paidAmount:20,creditAmount:50,customerId:String(buyer._id),receiptAccountId:'ignored'},cashier);assert.equal(result.status,201);assert.equal(result.body.data.createOrder.paidAmount,20);assert.equal(result.body.data.createOrder.amountDue,80);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);assert.equal(await balance(cash),before);assert.equal(await InvoiceAdjustment.countDocuments({orderId:result.body.data.createOrder._id}),0);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
+        });
+        await t.test('reconciliation accepts cashier credit conversions and detects wallet corruption without repairing it',async()=>{
+            const buyer=await fundedCustomer(),q=await quote();const response=await http('PATCH',`/orders/${q.quotation._id}`,{requestKey:key('reconcile-credit'),paidAmount:20,creditAmount:50,customerId:String(buyer._id),receiptAccountId:String(cash._id)},cashier);assert.equal(response.status,201);const order=response.body.data.createOrder,event=await InvoiceAdjustment.findOne({orderId:order._id});
+            const reconcileEvent=()=>run(s=>accounts.reconcileCashBank(actor,{clearingAccountId:String(clearing._id),limit:100,page:1},s));let r=await reconcileEvent();
+            let row=r.entries.find(e=>e.eventId===String(event._id));if(!row){r=await run(s=>accounts.reconcileCashBank(actor,{clearingAccountId:String(clearing._id),limit:100,page:2},s));row=r.entries.find(e=>e.eventId===String(event._id));}assert.ok(row);assert.deepEqual(row.issues,[]);
+            const ledger=await CustomerLedger.findOne({referenceId:order._id,description:'CREDIT_REDEEMED'}).lean();
+            try{await CustomerLedger.collection.updateOne({_id:ledger._id},{$set:{amountMinor:ledger.amountMinor+1}});const mismatch=await run(s=>accounts.reconcileBusinessCustomer(actor,String(buyer._id),s));assert.equal(mismatch.reconciled,false);assert.equal((await CustomerLedger.collection.findOne({_id:ledger._id})).amountMinor,ledger.amountMinor+1);}finally{await CustomerLedger.collection.updateOne({_id:ledger._id},{$set:{amountMinor:ledger.amountMinor}});}
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;

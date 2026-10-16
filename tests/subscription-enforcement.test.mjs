@@ -309,9 +309,9 @@ async function assertBlocked(route, userId, message = SUB) {
   assert.deepEqual({ shops: [...shops], businessData }, before);
 }
 try {
-  await test('all 32 paid routes use the centralized gate; auth/profile/account/Admin routes remain outside it', () => {
-    assert.equal(mounted.length, 45);
-    assert.equal(businessRoutes.length, 32);
+  await test('all 33 paid routes use the centralized gate; auth/profile/account/Admin routes remain outside it', () => {
+    assert.equal(mounted.length, 46);
+    assert.equal(businessRoutes.length, 33);
     for (const route of mounted)
       assert.equal(
         route.shop,

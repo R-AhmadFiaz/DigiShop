@@ -10,6 +10,7 @@ const schema = new Schema({
     authority: {type: String, enum: ['JOURNAL', 'LEGACY_CUSTOMER'], required: true, immutable: true},
     entityId: {type: Schema.Types.ObjectId, ref: 'BusinessEntity', immutable: true},
     currency: {type: String, enum: ['PKR'], default: 'PKR', immutable: true},
+    isActive: {type: Boolean, default: true},
     postingRevision: {type: Number, default: 0, min: 0, validate: Number.isSafeInteger},
     openingAt: Date, lastPostedAt: Date,
     cashCutoverId: {type: Schema.Types.ObjectId, ref: 'FinancialAccount'},

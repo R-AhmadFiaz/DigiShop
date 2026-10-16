@@ -36,6 +36,7 @@ const adjustmentSchema = new Schema({
     revisionAfter: {type: Number, required: true},
     createdBy: {type: Schema.Types.ObjectId, required: true},
     createdByName: {type: String, required: true},
+    createdByRole: {type: String, enum: ['OWNER', 'CASHIER']},
     reason: {type: String, required: true},
     before: {type: snapshotSchema, required: true},
     after: {type: snapshotSchema, required: true},

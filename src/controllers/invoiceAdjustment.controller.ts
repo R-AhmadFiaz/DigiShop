@@ -25,6 +25,18 @@ type AdjustmentInput = SettlementInput & CashRouting & {requestKey: string, expe
 type Actor = {_id: any, shopId: any, role: string, username: string};
 type Operation = 'ADJUSTMENT' | 'PAYMENT' | 'CANCELLATION';
 
+export const getInvoicePaymentAccounts = asyncHandler(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!invoiceAccountingEnabled()) return res.status(200).json(new apiResponse(200, {accountingEnabled: false, accounts: []}, 'Accounting is disabled'));
+    const session = await mongoose.startSession();
+    session.startTransaction({readConcern: {level: 'snapshot'}});
+    try {
+        const {selectInvoicePaymentAccounts} = await import('../utils/businessAccounts.js');
+        const accounts = await selectInvoicePaymentAccounts(req.user, session);
+        return res.status(200).json(new apiResponse(200, {accountingEnabled: true, accounts}, 'Payment accounts fetched'));
+    } finally {await session.abortTransaction(); await session.endSession();}
+});
+
 function validateInput(input: AdjustmentInput) {
     if (!input || typeof input.requestKey !== 'string' || !/^[\w-]{8,100}$/.test(input.requestKey) ||
         !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 ||
@@ -323,6 +335,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             invoiceNo: order.invoiceNo, requestKey: input.requestKey, requestHash,
             revisionBefore: input.expectedRevision, revisionAfter: input.expectedRevision + 1,
             createdBy: actor._id, createdByName: actor.username, reason: input.reason.trim(),
+            ...(accounting ? {createdByRole: actor.role} : {}),
             ...(accounting ? {cashRouting: {mode: 'INTEGRATION_TEST', ...routing}} : {}),
             before: plan.before, after: plan.after, movements: plan.movements,
             financial: {salesDeltaMinor: plan.after.totalMinor - plan.before.totalMinor, debtDeltaMinor: settlement.debtDeltaMinor,

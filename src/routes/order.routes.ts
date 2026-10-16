@@ -5,11 +5,12 @@ import { Router } from "express";
 import { verifyJWT } from "../middleware/auth.middleware.js";
 import { getInvoices, getInvoice, cancelOrder, createOrder, createQuotation, updateOrderStatus, updateQuotationToInvoice, viewStockLog } from "../controllers/order.controller.js";
 import { checkSubscription } from "../middleware/subscription.middleware.js";
-import {invoiceMutation, invoicePreview, getInvoiceHistory, getSalesSummary} from '../controllers/invoiceAdjustment.controller.js';
+import {invoiceMutation, invoicePreview, getInvoiceHistory, getSalesSummary, getInvoicePaymentAccounts} from '../controllers/invoiceAdjustment.controller.js';
 
 export const orderRouter = Router()
 
 orderRouter.route('/create-order').post(verifyJWT, verifyShopUser, checkSubscription, createOrder)
+orderRouter.route('/payment-accounts').get(verifyJWT, verifyShopUser, getInvoicePaymentAccounts)
 orderRouter.route('/:orderId/cancel').patch(verifyJWT, verifyShopUser, verifyOwner, cancelOrder)
 orderRouter.route('/:orderId/status').patch(verifyJWT, verifyShopUser, updateOrderStatus)
 orderRouter.route('/quotation').post(verifyJWT, verifyShopUser, createQuotation)

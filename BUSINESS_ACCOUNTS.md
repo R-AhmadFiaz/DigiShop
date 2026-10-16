@@ -1,9 +1,8 @@
 # Business Accounts & Ledger — Phases 1, 2A and 2B
 
-Backend foundation, internal primitives and disabled OWNER write-path adapters.
-No live accounting, new routes, purchase posting, supplier payments, frontend,
-migrations or production data changes. Phase 2B below supersedes the earlier
-sections' statements about adapters not yet being connected.
+Backend foundation, internal primitives and disabled shop write-path adapters.
+No live accounting, purchase posting, supplier payments, frontend, migrations or
+production data changes. Phase 2C below supersedes earlier coverage limitations.
 
 ## Existing sources of truth
 
@@ -404,3 +403,94 @@ they verify persisted invoices, stock/logs, customer debt/credit, event history 
 cash journals, including late database failures, concurrent submissions, conversion
 and idempotent replays. No production URI, migration, deployment, secrets change,
 new dependency or frontend change is part of Phase 2B.
+
+## Phase 2C: complete existing financial write-path coverage (local tests only)
+
+This section supersedes the Phase 2B CASHIER and quotation-credit limitations.
+BUSINESS_ACCOUNTING_ENABLED remains disabled by default. Setting it to true is
+accepted only with NODE_ENV=test; production enablement is still rejected.
+
+### Supported flows and permissions
+
+| Existing operation | OWNER | CASHIER | Accounting coverage |
+| --- | --- | --- | --- |
+| POST /api/v2/orders/create-order | Yes | Yes | Initial SALE source; actual cash/bank receipt and optional credit redemption |
+| PATCH /api/v2/orders/:quotationId | Yes | Yes | Initial SALE source; actual cash/bank receipt and optional credit redemption |
+| Preview/submit invoice payments | Yes | No | Additional cash/credit settlement, source-linked receipt |
+| Preview/submit invoice adjustments | Yes | No | Returns/exchanges, debt reduction, cash refund and credit issuance/restoration |
+| Preview/submit settlement cancellation | Yes | No | Settlement-aware stock/debt/credit/refund reversal |
+| Account setup, opening balances, transfers, statements/reconciliation | Yes | No | Existing internal services; no public management mutation APIs |
+
+CASHIER posting requires a server-created SALE event attributed to that exact
+same-shop authenticated cashier and invoice. Stored createdByRole records the
+historical role; no owner impersonation or current-viewer identity is used.
+Cashier SALE events cannot issue credit, restore credit or refund cash. Existing
+route permissions for adjustments, later payments and cancellation remain OWNER-only.
+ADMIN cannot operate a shop's financial workflows.
+
+Quotation conversion accepts creditAmount (PKR number) in enabled mode, matching
+POS naming. paidAmount remains actual cash received; invoice paidAmount records
+cash plus redeemed credit. The existing quotation prices, discount and total are
+preserved. Credit requires a verified same-shop customer and sufficient wallet
+balance. Redemption uses the initial SALE event ID in the existing customer ledger,
+inside the same transaction as invoice creation, debt, stock and cash postings.
+creditRedeemedAmount is not an alternative request field. Credit-only conversion
+has no cash receipt posting or receipt account. With accounting disabled, existing
+cash-only conversion behavior remains unchanged; no new credit redemption is enabled.
+
+### Explicit routing and active accounts
+
+GET /api/v2/orders/payment-accounts uses existing JWT and verifyShopUser checks,
+including subscription and manual shop access. OWNER/CASHIER receive only _id,
+name and kind of active CASH/BANK accounts configured in the prepared same-shop
+cutover. No balances, postings or owner management information are returned.
+Disabled mode returns accountingEnabled=false and an empty accounts array.
+Enabled mode still requires a prepared clearing account; no account is guessed.
+
+FinancialAccount.isActive defaults to true. Missing legacy values remain active;
+explicit false prevents new postings and removes the account from selection.
+An inactive clearing account also prevents new posting. OWNER can still read
+historical balances of inactive accounts. No public account-status mutation API
+was introduced. Positive cash directions require an explicit same-shop prepared
+account; zero directions must omit it. No arbitrary multi-bank split is supported.
+Preview tokens and operation hashes bind routing; changing selection requires a
+new preview. Accounts are revalidated on submission. Successful replay returns the
+original result without reposting, even if its account was subsequently disabled.
+
+### Coverage audit and reconciliation
+
+All existing money-changing invoice endpoints have adapters in enabled mode.
+Delivery-status updates change no money; quotation creation reserves no stock and
+collects no payment. Customer creation starts with zero balances. Manual stock
+adjustments are not proof of purchases and create no fictitious money movement.
+There is no independent customer collection, supplier payment or purchase-posting
+endpoint to integrate. Legacy direct cancellation remains rejected in enabled mode:
+use the previewed settlement cancellation, not an ambiguous historical refund.
+Disabled-mode legacy cancellation behavior is unchanged.
+
+Reconciliation checks missing/duplicate source postings, exact cash route and
+amount, initial SALE provenance, quotation links and existing customer wallet/debt
+ledger consistency. It also flags CASHIER_EVENT_PERMISSION_MISMATCH for a stored
+cashier event outside its allowed initial-sale funding boundary. Historical checks
+do not require the cashier account to still exist. Reconciliation is paginated,
+read-only and never repairs history. Existing settlement/customer records remain
+authoritative; clearing postings do not duplicate debt or store-credit balances.
+
+### Verification and rollout prerequisites
+
+Real disposable loopback MongoDB replica-set HTTP tests cover OWNER/CASHIER sales,
+partial and mixed/credit-only payments, conversion, refunds and cancellation,
+account inactivity, foreign shops, permission rejection, concurrent wallet use,
+idempotent retries and late journal-insert rollback. Persisted stock, source events,
+wallets, customer debt, invoice counters and cash balances are asserted. Disabled
+mode compatibility and existing invoice-adjustment regression suites remain covered.
+
+Ready for local frontend integration of these financial workflows behind the test
+flag, not production accounting activation. Frontend account selection and stable
+sale/conversion retry keys remain to be implemented. Public owner account setup and
+approved per-shop LIVE cutover remain future work. Supplier purchasing and payments
+are not implemented. Legacy ambiguity/precision discrepancies must be reconciled,
+not guessed. All required indexes and every reconciliation page must be verified
+before any approved cutover. Follow the Phase 2B freeze/drain, confirmed openings,
+UTC cutoff and downgrade procedure; do not simply remove the test-only guard.
+No production migration, historical repair or production enablement is included.

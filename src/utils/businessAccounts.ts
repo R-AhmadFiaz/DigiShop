@@ -34,18 +34,21 @@ function utcDate(value: unknown): Date {
     if (!Number.isFinite(+result) || result.toISOString() !== value || +result > Date.now()) throw new apiError(400, 'Use a valid UTC date, not in the future');
     return result;
 }
-async function owner(actor: Actor, session: Session, write = false) {
+// Strict OWNER by default. The private opt-in is used only after verifying a
+// cashier's own initial SALE or for the balance-free payment-account selector.
+async function owner(actor: Actor, session: Session, write = false, cashierSale = false) {
     if (!session?.inTransaction()) throw new apiError(400, 'An active MongoDB transaction is required');
-    if (!actor || actor.role !== 'OWNER' || !mongoose.isValidObjectId(actor._id) || !mongoose.isValidObjectId(actor.shopId)) throw new apiError(403, 'Owner shop access required');
-    const user = await User.findOne({_id: actor._id, shopId: actor.shopId, role: 'OWNER'}).session(session);
-    const shop = await Shop.findOne({_id: actor.shopId, ownerId: actor._id}).session(session);
+    if (!actor || !((actor.role === 'OWNER') || (cashierSale && actor.role === 'CASHIER')) || !mongoose.isValidObjectId(actor._id) || !mongoose.isValidObjectId(actor.shopId)) throw new apiError(403, 'Owner shop access required');
+    const user = await User.findOne({_id: actor._id, shopId: actor.shopId, role: actor.role}).session(session);
+    const shopScope = {_id: actor.shopId, ...(actor.role === 'OWNER' ? {ownerId: actor._id} : {})};
+    const shop = await Shop.findOne(shopScope).session(session);
     if (!user || !shop) throw new apiError(403, 'Owner shop access required');
     if (shop.isActive === false) throw new apiError(403, 'Shop has been deactivated. Contact administrator.');
     if (!shop.subscriptionActive || !shop.subscriptionExpiry || shop.subscriptionExpiry <= new Date()) throw new apiError(403, 'Subscription expired or inactive');
     if (write) {
         // Acquire a real write on existing shop metadata. A concurrent permanent
         // deletion/deactivation must conflict, rather than leave orphan records.
-        const claim = await Shop.updateOne({_id: shop._id, ownerId: actor._id}, {$set: {updatedAt: new Date(Math.max(Date.now(), +shop.updatedAt + 1))}}, {session, timestamps: false});
+        const claim = await Shop.updateOne(shopScope, {$set: {updatedAt: new Date(Math.max(Date.now(), +shop.updatedAt + 1))}}, {session, timestamps: false});
         if (claim.modifiedCount !== 1) throw new apiError(409, 'Shop changed; retry the same request');
     }
     return user;
@@ -165,6 +168,10 @@ function journalRows(shopId: any, accountId: any): any[] {
     return [{$match: {shopId: new mongoose.Types.ObjectId(String(shopId)), 'postings.accountId': accountId}}, {$unwind: '$postings'}, {$match: {'postings.accountId': accountId}},
         {$project: {occurredAt: 1, recordedAt: 1, source: 1, reason: 1, createdBy: 1, createdByName: 1, debitMinor: '$postings.debitMinor', creditMinor: '$postings.creditMinor'}}];
 }
+async function journalBalance(shopId: any, account: any, session: Session) {
+    const rows = await BusinessTransaction.aggregate([...journalRows(shopId, account._id), sumStage]).session(session).option({maxTimeMS: 5000});
+    return sumBalance(rows[0], account.normalSide as 'DEBIT' | 'CREDIT');
+}
 export async function getAccountBalance(actor: Actor, accountId: string, session: Session) {
     await owner(actor, session);
     const account = await accountInShop(actor, accountId, session);
@@ -174,8 +181,7 @@ export async function getAccountBalance(actor: Actor, accountId: string, session
         const customer = await checkedCustomer(entity.customerId, actor.shopId, session);
         return {authority: 'LEGACY_CUSTOMER', balanceMinor: account.kind === 'CUSTOMER_RECEIVABLE' ? moneyMinor(customer.remainingMoney) : (customer.storeCreditBalanceMinor ?? 0), currency: 'PKR'};
     }
-    const rows = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), sumStage]).session(session).option({maxTimeMS: 5000});
-    return {authority: 'JOURNAL', balanceMinor: sumBalance(rows[0], account.normalSide as 'DEBIT' | 'CREDIT'), currency: 'PKR'};
+    return {authority: 'JOURNAL', balanceMinor: await journalBalance(actor.shopId, account, session), currency: 'PKR'};
 }
 
 export async function getAccountStatement(actor: Actor, input: {accountId: string, page?: number, limit?: number, from?: string, to?: string}, session: Session) {
@@ -228,7 +234,9 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
 async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER', referenceId?: string}, confirmed = false) {
-    const user = await owner(actor, session);
+    const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
+    if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
+    const user = await owner(actor, session, false, cashierSale);
     const requestKey = text(input.requestKey, 100, 'request key');
     if (!/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Valid idempotency key required');
     const reason = text(input.reason, 300, 'transaction reason'), occurredAt = utcDate(input.occurredAt), postings = balancedPostings(input.postings);
@@ -240,8 +248,9 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
     }
     const accounts = await FinancialAccount.find({shopId: actor.shopId, _id: {$in: postings.map(p => p.accountId)}}).session(session);
     if (accounts.length !== postings.length) throw new apiError(404, 'Account not found in shop');
-    await owner(actor, session, true);
+    await owner(actor, session, true, cashierSale);
     for (const account of accounts) {
+        if (account.isActive === false) throw new apiError(409, 'Selected financial account is inactive');
         if (account.authority !== 'JOURNAL') throw new apiError(409, 'Customer debt and credit remain in the existing ledger; cutover is not enabled');
         if (account.kind === 'SETTLEMENT_CLEARING' && !['INVOICE_RECEIPT', 'INVOICE_REFUND'].includes(source.kind)) throw new apiError(409, 'Settlement clearing requires a verified invoice cash event');
         if (account.cashCutoverId && ['MANUAL', 'OPENING'].includes(source.kind)) throw new apiError(409, 'Prepared cash accounts require source-linked integration or transfers');
@@ -250,7 +259,7 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
         if (source.kind === 'OPENING' && String(account._id) === source.referenceId && account.postingRevision !== 0) throw new apiError(409, 'Opening cannot follow existing activity');
         if (account.kind === 'OPENING_EQUITY' && source.kind === 'MANUAL') throw new apiError(400, 'Opening equity is reserved for confirmed opening balances');
         const row = postings.find(p => p.accountId === String(account._id))!;
-        const prior = await getAccountBalance(actor, String(account._id), session);
+        const prior = {balanceMinor: await journalBalance(actor.shopId, account, session)};
         const delta = account.normalSide === 'DEBIT' ? BigInt(row.debitMinor) - BigInt(row.creditMinor) : BigInt(row.creditMinor) - BigInt(row.debitMinor);
         const next = BigInt(prior.balanceMinor) + delta;
         signedBalance(next, 0n, 'DEBIT');
@@ -291,7 +300,7 @@ export async function reverseBusinessJournal(actor: Actor, input: {transactionId
 export async function selectCashBankAccounts(actor: Actor, session: Session) {
     await owner(actor, session);
     // No implicit first/default account: a future caller must select explicitly.
-    return FinancialAccount.find({shopId: actor.shopId, kind: {$in: ['CASH', 'BANK']}, authority: 'JOURNAL'})
+    return FinancialAccount.find({shopId: actor.shopId, kind: {$in: ['CASH', 'BANK']}, authority: 'JOURNAL', isActive: {$ne: false}})
         .select('code name kind cashCutoverId').sort({code: 1}).limit(100).session(session).lean();
 }
 
@@ -302,7 +311,7 @@ export async function prepareCashBankCutover(actor: Actor, input: {clearingAccou
     const selected = input.accounts.map(row => ({accountId: id(row.accountId), balance: safeMinor(row.confirmedBalanceMinor)})).sort((a, b) => a.accountId.localeCompare(b.accountId));
     if (new Set(selected.map(row => row.accountId)).size !== selected.length) throw new apiError(400, 'Duplicate cash/bank account');
     const clearing = await accountInShop(actor, input.clearingAccountId, session);
-    if (clearing.kind !== 'SETTLEMENT_CLEARING') throw new apiError(400, 'A dedicated settlement clearing account is required');
+    if (clearing.kind !== 'SETTLEMENT_CLEARING' || clearing.isActive === false) throw new apiError(400, 'An active dedicated settlement clearing account is required');
     if (clearing.cashIntegration) {
         const config = clearing.cashIntegration;
         if (+config.cutoffAt !== +cutoffAt || config.accountIds.map(String).sort().join() !== selected.map(row => row.accountId).join()) throw new apiError(409, 'Cutover already prepared with different details');
@@ -318,7 +327,7 @@ export async function prepareCashBankCutover(actor: Actor, input: {clearingAccou
     await owner(actor, session, true);
     for (const row of selected) {
         const account = await accountInShop(actor, row.accountId, session);
-        if (!['CASH', 'BANK'].includes(account.kind) || account.cashCutoverId) throw new apiError(400, 'Choose unused same-shop cash/bank accounts');
+        if (!['CASH', 'BANK'].includes(account.kind) || account.cashCutoverId || account.isActive === false) throw new apiError(400, 'Choose active unused same-shop cash/bank accounts');
         const activity = await BusinessTransaction.find({shopId: actor.shopId, 'postings.accountId': account._id}).limit(2).session(session);
         if (activity.length > 1 || (activity[0] && (activity[0].source.kind !== 'OPENING' || String(activity[0].source.referenceId) !== row.accountId || +activity[0].occurredAt !== +cutoffAt))) throw new apiError(409, 'Opening must be the only activity, at the agreed cutoff');
         if ((await getAccountBalance(actor, row.accountId, session)).balanceMinor !== row.balance) throw new apiError(409, 'Confirmed opening does not match ledger');
@@ -332,20 +341,25 @@ export async function prepareCashBankCutover(actor: Actor, input: {clearingAccou
     return claimed;
 }
 
-async function preparedCashAccount(actor: Actor, accountId: string, session: Session) {
-    await owner(actor, session);
+async function preparedCashAccount(actor: Actor, accountId: string, session: Session, cashierSale = false) {
+    await owner(actor, session, false, cashierSale);
     const account = await accountInShop(actor, accountId, session);
-    if (!['CASH', 'BANK'].includes(account.kind) || account.authority !== 'JOURNAL' || !account.cashCutoverId) throw new apiError(409, 'Select a prepared cash/bank account');
+    if (!['CASH', 'BANK'].includes(account.kind) || account.authority !== 'JOURNAL' || !account.cashCutoverId || account.isActive === false) throw new apiError(409, 'Select an active prepared cash/bank account');
     const clearing = await accountInShop(actor, String(account.cashCutoverId), session);
-    if (clearing.kind !== 'SETTLEMENT_CLEARING' || !clearing.cashIntegration?.accountIds.some(value => String(value) === String(account._id))) throw new apiError(409, 'Cash/bank cutover requires reconciliation');
+    if (clearing.kind !== 'SETTLEMENT_CLEARING' || clearing.isActive === false || clearing.cashIntegration?.state !== 'PREPARED' || !clearing.cashIntegration.accountIds.some(value => String(value) === String(account._id))) throw new apiError(409, 'Cash/bank cutover requires reconciliation');
     return {account, clearing, cutoffAt: clearing.cashIntegration.cutoffAt};
 }
 
-// Internal integration primitive only. No existing controller calls this yet.
+// Internal integration primitive; not an independently callable mutation route.
 // Call AFTER writing the invoice and immutable event, within their SAME session.
 export async function postInvoiceCashMovement(actor: Actor, input: {eventId: string, cashAccountId: string,
     direction: 'RECEIPT' | 'REFUND', requestKey: string}, session: Session) {
-    const {account, clearing, cutoffAt} = await preparedCashAccount(actor, input.cashAccountId, session);
+    const cashierSale = actor.role === 'CASHIER';
+    if (cashierSale) {
+        if (input.direction !== 'RECEIPT') throw new apiError(403, 'Cashiers cannot issue refunds');
+        await cashierSaleEvent(actor, input.eventId, session);
+    }
+    const {account, clearing, cutoffAt} = await preparedCashAccount(actor, input.cashAccountId, session, cashierSale);
     if (!['RECEIPT', 'REFUND'].includes(input.direction)) throw new apiError(400, 'Valid cash movement direction required');
     // lean is intentional: schema defaults must not fabricate a date or missing
     // monetary evidence on older/incomplete persisted events.
@@ -378,20 +392,54 @@ export async function postInvoiceCashMovement(actor: Actor, input: {eventId: str
 
 export async function validateInvoiceCashRouting(actor: Actor, routing: {receiptAccountId?: string, refundAccountId?: string},
     financial: {cashReceivedMinor: number, cashRefundMinor: number}, session: Session) {
-    await owner(actor, session);
+    return validateRouting(actor, routing, financial, session);
+}
+
+async function cashierSaleEvent(actor: Actor, eventId: string, session: Session) {
+    await owner(actor, session, false, true);
+    const event = await InvoiceAdjustment.findOne({_id: id(eventId), shopId: actor.shopId}).session(session).lean();
+    if (!event || event.kind !== 'SALE' || event.createdByRole !== 'CASHIER' || String(event.createdBy) !== String(actor._id) || event.cashRouting?.mode !== 'INTEGRATION_TEST' ||
+        event.financial?.cashRefundMinor !== 0 || event.financial?.creditIssuedMinor !== 0 || event.financial?.creditRestoredMinor !== 0 ||
+        process.env.BUSINESS_ACCOUNTING_ENABLED !== 'true' || process.env.NODE_ENV !== 'test' ||
+        !await Order.exists({_id: event.orderId, shopId: actor.shopId, createdBy: actor._id, type: 'INVOICE'}).session(session)) throw new apiError(403, 'Cashier posting requires their own initial sale');
+    return event;
+}
+
+export async function validateInvoiceSaleRouting(actor: Actor, routing: {receiptAccountId?: string, refundAccountId?: string}, eventId: string, session: Session) {
+    const event = actor.role === 'CASHIER' ? await cashierSaleEvent(actor, eventId, session) : null;
+    if (!event) {
+        await owner(actor, session);
+        const source = await InvoiceAdjustment.findOne({_id: id(eventId), shopId: actor.shopId, kind: 'SALE'}).session(session).lean();
+        if (!source) throw new apiError(404, 'Sale event not found in shop');
+        return validateRouting(actor, routing, source.financial, session);
+    }
+    return validateRouting(actor, routing, event.financial, session, true);
+}
+
+async function validateRouting(actor: Actor, routing: {receiptAccountId?: string, refundAccountId?: string},
+    financial: {cashReceivedMinor: number, cashRefundMinor: number}, session: Session, cashierSale = false) {
+    await owner(actor, session, false, cashierSale);
     const clearing = await FinancialAccount.findOne({shopId: actor.shopId, kind: 'SETTLEMENT_CLEARING'}).session(session);
-    if (!clearing?.cashIntegration || clearing.cashIntegration.state !== 'PREPARED' || clearing.cashIntegration.cutoffAt > new Date()) throw new apiError(409, 'Prepare and reconcile cash/bank cutover before integration testing');
+    if (clearing?.isActive === false || !clearing?.cashIntegration || clearing.cashIntegration.state !== 'PREPARED' || clearing.cashIntegration.cutoffAt > new Date()) throw new apiError(409, 'Prepare and reconcile active cash/bank cutover before integration testing');
     for (const [amount, value, direction] of [[financial.cashReceivedMinor, routing.receiptAccountId, 'receipt'], [financial.cashRefundMinor, routing.refundAccountId, 'refund']] as const) {
         safeMinor(amount);
         if (amount && !value) throw new apiError(400, `Select an explicit ${direction} cash/bank account`);
         if (!amount && value) throw new apiError(400, `No ${direction} money movement requires an account`);
         if (value) {
-            const {account, clearing: selected} = await preparedCashAccount(actor, value, session);
+            const {account, clearing: selected} = await preparedCashAccount(actor, value, session, cashierSale);
             if (String(selected._id) !== String(clearing._id)) throw new apiError(409, 'Selected account differs from prepared cutover');
             if (direction === 'refund' && (await getAccountBalance(actor, String(account._id), session)).balanceMinor < amount) throw new apiError(409, 'Insufficient cash or bank funds');
         }
     }
     return clearing.cashIntegration;
+}
+
+export async function selectInvoicePaymentAccounts(actor: Actor, session: Session) {
+    await owner(actor, session, false, true);
+    const clearing = await FinancialAccount.findOne({shopId: actor.shopId, kind: 'SETTLEMENT_CLEARING', isActive: {$ne: false}}).session(session);
+    if (!clearing?.cashIntegration || clearing.cashIntegration.state !== 'PREPARED' || clearing.cashIntegration.cutoffAt > new Date()) throw new apiError(409, 'Prepared active cash/bank cutover required');
+    return FinancialAccount.find({shopId: actor.shopId, _id: {$in: clearing.cashIntegration.accountIds}, cashCutoverId: clearing._id,
+        kind: {$in: ['CASH', 'BANK']}, authority: 'JOURNAL', isActive: {$ne: false}}).select('_id name kind').sort({name: 1, _id: 1}).limit(100).session(session).lean();
 }
 
 export async function transferCashBank(actor: Actor, input: {fromAccountId: string, toAccountId: string,
@@ -452,6 +500,8 @@ export async function reconcileCashBank(actor: Actor, input: {clearingAccountId:
         const issues: string[] = [];
         const order = await Order.findOne({_id: event.orderId, shopId: actor.shopId, type: 'INVOICE'}).session(session);
         if (event.sourceQuotationId && !await Order.exists({_id: event.sourceQuotationId, shopId: actor.shopId, type: 'QUOTATION', status: 'CONVERTED'}).session(session)) issues.push('QUOTATION_SOURCE_MISMATCH');
+        if (event.createdByRole === 'CASHIER' && (event.kind !== 'SALE' || String(event.createdBy) !== String(order?.createdBy) ||
+            event.financial?.cashRefundMinor !== 0 || event.financial?.creditIssuedMinor !== 0 || event.financial?.creditRestoredMinor !== 0)) issues.push('CASHIER_EVENT_PERMISSION_MISMATCH');
         if (!order || order.cancellationMode === 'LEGACY') issues.push('INVOICE_RECONCILIATION_REQUIRED');
         else try {await verifiedInvoiceFunding(order, session);} catch (error) {if (!(error instanceof apiError)) throw error; issues.push('INVOICE_RECONCILIATION_REQUIRED');}
         for (const [kind, amount] of [['INVOICE_RECEIPT', event.financial?.cashReceivedMinor], ['INVOICE_REFUND', event.financial?.cashRefundMinor]] as const) {

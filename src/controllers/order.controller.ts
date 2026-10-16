@@ -17,7 +17,7 @@ import {createHash} from 'node:crypto';
 import {invoiceTotals, moneyMinor, moneyMajor, safeMinor} from '../utils/invoiceAccounting.js';
 import {changeStoreCredit} from '../utils/invoiceSettlement.js';
 import {invoiceEligibility} from './invoiceAdjustment.controller.js';
-import {invoiceAccountingEnabled, invoiceCashRouting, requireAccountingOwner, recordIntegratedSale, throwAccountingTransactionError} from '../utils/invoiceAccountingIntegration.js';
+import {invoiceAccountingEnabled, invoiceCashRouting, requireAccountingShopUser, recordIntegratedSale, throwAccountingTransactionError} from '../utils/invoiceAccountingIntegration.js';
 
 
 
@@ -39,7 +39,7 @@ export const createOrder = asyncHandler(async(req: Request, res: Response) => {
     const requestKey = req.body.requestKey
     const accounting = invoiceAccountingEnabled()
     if (accounting) {
-        requireAccountingOwner(req.user)
+        requireAccountingShopUser(req.user)
         if (typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Accounting sale requires a valid request key')
     }
     const routing = accounting ? invoiceCashRouting(req.body) : undefined
@@ -756,12 +756,15 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
     const accounting = invoiceAccountingEnabled()
     const requestKey = req.body.requestKey
     if (accounting) {
-        requireAccountingOwner(req.user)
+        requireAccountingShopUser(req.user)
         if (typeof requestKey !== 'string' || !/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Accounting conversion requires a valid request key')
-        if (req.body.creditAmount !== undefined || req.body.creditRedeemedAmount !== undefined) throw new apiError(400, 'Store-credit redemption on quotation conversion is not supported')
+        if (req.body.creditRedeemedAmount !== undefined) throw new apiError(400, 'Use creditAmount for quotation conversion store credit')
     }
+    const creditMinor = accounting ? moneyMinor(req.body.creditAmount ?? 0) : 0
+    if (creditMinor && !mongoose.isValidObjectId(customerId)) throw new apiError(400, 'Store credit requires a customer from this shop')
     const routing = accounting ? invoiceCashRouting(req.body) : undefined
-    const requestHash = accounting ? createHash('sha256').update(JSON.stringify({userID: String(userID), quotationId: String(quotationId), customerId, paidAmount, cashRouting: routing})).digest('hex') : ''
+    const requestHash = accounting ? createHash('sha256').update(JSON.stringify({userID: String(userID), quotationId: String(quotationId), customerId, paidAmount, cashRouting: routing,
+        ...(creditMinor ? {creditAmount: moneyMajor(creditMinor)} : {})})).digest('hex') : ''
 
     if (!quotationId) {
         throw new apiError(400, 'Quotation ID is required')
@@ -847,6 +850,15 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
 
 
     let due = quotation.totalPrice - paidAmount
+    const paymentRecordId = new mongoose.Types.ObjectId()
+    let recordedPaidAmount = paidAmount
+    if (creditMinor) {
+        const settledMinor = safeMinor(moneyMinor(paidAmount) + creditMinor)
+        const totalMinor = moneyMinor(quotation.totalPrice)
+        if (settledMinor > totalMinor) throw new apiError(400, 'Cash and credit cannot exceed invoice total')
+        recordedPaidAmount = moneyMajor(settledMinor)
+        due = moneyMajor(totalMinor - settledMinor)
+    }
   
     if (due > 0 && !customerId) {
         throw new apiError(400, "Customer ID is required");
@@ -880,8 +892,8 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             discountValue: quotation.discountValue,
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
-            paidAmount,
-            ...(accounting ? {accountingMode: 'INTEGRATION_TEST', settlementState: {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: 0, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: 0}} : {}),
+            paidAmount: recordedPaidAmount,
+            ...(accounting ? {accountingMode: 'INTEGRATION_TEST', settlementState: {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: creditMinor, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: creditMinor}} : {}),
             amountDue: due,
             customerId,
             status: 'PENDING',
@@ -898,6 +910,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
         if (!createOrder) {
             throw new apiError(400, 'Insufficient stock for products')
         }
+        if (creditMinor) await changeStoreCredit(customerId, createOrder, -creditMinor, 'CREDIT_REDEEMED', req.user, paymentRecordId, session)
         
         for (const item of processedItems) {
             
@@ -951,7 +964,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             }], {session})
         }
 
-        if (accounting) await recordIntegratedSale(req.user, createOrder, {requestKey, requestHash, routing: routing!, sourceQuotationId: String(quotationId)}, session)
+        if (accounting) await recordIntegratedSale(req.user, createOrder, {requestKey, requestHash, routing: routing!, sourceQuotationId: String(quotationId), eventId: paymentRecordId}, session)
         await session.commitTransaction()
 
         return res.status(201)

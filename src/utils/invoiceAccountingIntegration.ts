@@ -24,8 +24,8 @@ export function invoiceCashRouting(input: CashRouting): CashRouting {
     }
     return routing;
 }
-export function requireAccountingOwner(actor: {role: string}) {
-    if (actor.role !== 'OWNER') throw new apiError(403, 'Cashier accounting integration is not supported yet; accounting must remain disabled');
+export function requireAccountingShopUser(actor: {role: string}) {
+    if (!['OWNER', 'CASHIER'].includes(actor.role)) throw new apiError(403, 'Shop accounting access required');
 }
 export function throwAccountingTransactionError(error: any) {
     if (error?.hasErrorLabel?.('UnknownTransactionCommitResult')) throw new apiError(503, 'Accounting transaction outcome uncertain; check or retry the identical request');
@@ -35,12 +35,14 @@ export function throwAccountingTransactionError(error: any) {
 // Called only after the source event and all business writes exist in THIS session.
 export async function postIntegratedInvoiceEvent(actor: any, event: any, session: mongoose.ClientSession) {
     if (!invoiceAccountingEnabled() || !session?.inTransaction()) throw new apiError(409, 'Accounting integration requires enabled test mode and an active transaction');
-    requireAccountingOwner(actor);
+    requireAccountingShopUser(actor);
+    if (actor.role === 'CASHIER' && event.kind !== 'SALE') throw new apiError(403, 'Cashiers may post only their own initial sale');
     // Keep optional accounting/JWT dependencies out of disabled pure planning.
-    const {validateInvoiceCashRouting, postInvoiceCashMovement} = await import('./businessAccounts.js');
+    const {validateInvoiceCashRouting, validateInvoiceSaleRouting, postInvoiceCashMovement} = await import('./businessAccounts.js');
     const routing = invoiceCashRouting({...(event.cashRouting?.receiptAccountId ? {receiptAccountId: String(event.cashRouting.receiptAccountId)} : {}),
         ...(event.cashRouting?.refundAccountId ? {refundAccountId: String(event.cashRouting.refundAccountId)} : {})});
-    const config = await validateInvoiceCashRouting(actor, routing, event.financial, session);
+    const config = event.kind === 'SALE' ? await validateInvoiceSaleRouting(actor, routing, String(event._id), session) :
+        await validateInvoiceCashRouting(actor, routing, event.financial, session);
     const order = await Order.findOne({_id: event.orderId, shopId: actor.shopId, type: 'INVOICE'}).session(session).lean();
     const initial = await InvoiceAdjustment.find({shopId: actor.shopId, orderId: event.orderId, kind: 'SALE'}).select('_id cashRouting').limit(2).session(session).lean();
     if (!order || !(order.createdAt instanceof Date) || initial.length > 1 || (order.createdAt >= config.cutoffAt && (initial.length !== 1 || initial[0]?.cashRouting?.mode !== 'INTEGRATION_TEST'))) throw new apiError(409, 'Initial invoice funding requires reconciliation before accounting integration');
@@ -60,12 +62,12 @@ export async function postIntegratedInvoiceEvent(actor: any, event: any, session
 export async function recordIntegratedSale(actor: any, order: any, input: {requestKey: string, requestHash: string,
     routing: CashRouting, sourceQuotationId?: string, eventId?: mongoose.Types.ObjectId}, session: mongoose.ClientSession) {
     if (!invoiceAccountingEnabled() || !session?.inTransaction()) throw new apiError(409, 'Accounting integration requires enabled test mode and an active transaction');
-    requireAccountingOwner(actor);
+    requireAccountingShopUser(actor);
     const snapshot = {items: order.items, subtotalMinor: moneyMinor(order.subtotal), discountMinor: moneyMinor(order.discountAmount),
         totalMinor: moneyMinor(order.totalPrice), discountType: order.discountType, discountValue: order.discountValue};
     const [event] = await InvoiceAdjustment.create([{...(input.eventId ? {_id: input.eventId} : {}), shopId: order.shopId, orderId: order._id, invoiceNo: order.invoiceNo,
         kind: 'SALE', requestKey: input.requestKey, requestHash: input.requestHash, revisionBefore: 0, revisionAfter: 0,
-        createdBy: actor._id, createdByName: actor.username, reason: input.sourceQuotationId ? 'Quotation converted to invoice' : 'Initial invoice payment',
+        createdBy: actor._id, createdByName: actor.username, createdByRole: actor.role, reason: input.sourceQuotationId ? 'Quotation converted to invoice' : 'Initial invoice payment',
         ...(input.sourceQuotationId ? {sourceQuotationId: input.sourceQuotationId} : {}),
         occurredAt: order.createdAt, before: {...snapshot, settledMinor: 0, dueMinor: snapshot.totalMinor},
         after: {...snapshot, settledMinor: moneyMinor(order.paidAmount), dueMinor: moneyMinor(order.amountDue)}, movements: [],
