@@ -1345,3 +1345,102 @@ carry-forward supplier credits remain unsupported. Returns above remaining payab
 are rejected. Unresolved historical receipt overlap/gaps still require explicit
 review. Production configuration, Atlas backups/indexes and any future activation
 require separate approval and verification; none were inspected remotely here.
+
+
+## Expense Management - operating costs (2026-10-16)
+
+OWNER-only routes under /api/v2/accounts/expenses reuse verifyJWT,
+verifyShopUser (subscription/manual access), verifyOwner and businessTransaction.
+No CASHIER or ADMIN expense access is granted. All references are resolved inside
+the authenticated shop; client actor identities and journal postings are ignored.
+
+Endpoints:
+- GET /setup: {available,message,accounts}. With disabled accounting, available is
+  false and accounts is empty. With missing cutover, returns a controlled setup
+  error. Prepared account selection is explicit; there is no implicit cash account.
+- GET /categories: {entries}; POST /categories: {name}, returns the category.
+  Names are trimmed, case-insensitively unique per shop, maximum 80 characters.
+  Up to 200 categories per shop. Existing matching category creation is idempotent.
+- POST /: {requestKey,categoryId,accountId,amountMinor,occurredAt,description,
+  reference?}. Positive safe integer paisa, canonical non-future UTC timestamp,
+  description up to 300 characters, reference up to 100. Example amountMinor 1250
+  means PKR 12.50. Returns {expense,journalId,replayed}; replay returns the same
+  expense without a second posting. Keys have 8-100 letters/digits/underscore/hyphen.
+- GET /: q,categoryId,month=YYYY-MM,page,limit (max 100). Returns entries,
+  pagination, totalMinor and breakdown [{categoryId,category,netMinor}]. Search
+  covers category/description/reference/payment-account name and escapes regex.
+- GET /:id: {expense,reversal,journal}, all scoped to the authenticated shop.
+- POST /:id/reverse: {requestKey,occurredAt,description,reference?,confirmation:
+  'CONFIRM EXPENSE REVERSAL'}. Returns a new immutable inverse event and journal.
+- GET /reconciliation: paginated expense-to-journal issues plus an all-shop
+  orphanedJournalCount. Review every page; this is not an automatic repair.
+
+Expense and reversal records snapshot category, account/payment method, actor name
+and OWNER role. Effective occurredAt is owner-entered; recordedAt is server-set.
+The request hash binds the actor and normalized details. Unique indexes enforce
+(shopId,requestKey), and one reversal per original (shopId,reversalOf). Other
+indexes cover shop/effective-time ordering and category/date filtering. Categories
+use unique (shopId,key). Existing journal request/source uniqueness is reused.
+
+Posting is available ONLY under the unchanged test-only accounting guard and a
+prepared active cash/bank cutover. Disabled accounting cannot save a paid expense.
+A dedicated JOURNAL EXPENSE account (code OPERATING_EXPENSE) is created atomically
+on the first expense. A conflicting reserved code/classification fails closed.
+Expense: debit EXPENSE / credit selected CASH or BANK. Reversal: exact inverse,
+restoring the original account after the owner confirms funds actually returned.
+Original source journal integrity is checked before reversal. Standalone generic
+journal reversal is prohibited for expense sources. Correction means reversal,
+then a separately confirmed replacement expense; no edits/deletions to history.
+
+The expense event, dedicated-account setup, account revision claims and balanced
+source journal commit in one MongoDB snapshot/majority transaction. Existing
+posting checks prevent insufficient funds, inactive/foreign accounts, pre-cutoff
+posting, backdating before account activity and concurrent double spending. Exact
+request replay is safe; uncertain outcomes must retain the original request key.
+The UI reuses retained-request confirmation with an expense-specific storage scope.
+
+Monthly expense reporting uses Pakistan calendar months (UTC+05:00, Asia/Karachi),
+with half-open boundaries. Stored timestamps remain UTC. Reversals affect their
+actual effective month rather than silently changing the original month. Totals
+use decimal aggregation plus checked integer conversion. Negative net monthly
+expenses are possible when reversing a previous month's expense. These are only
+operating expense totals, NOT profit/loss, supplier purchasing, invoice refunds or
+inventory valuation. Existing sales/AI UTC reporting remains unchanged.
+
+Expense journals appear once per event in the existing global register and cash/
+bank statements, including source references, actor snapshots and reversal links.
+Expense reconciliation reports missing/mismatched journals and orphaned journals;
+it does not invent payments or repair history. Permanent ADMIN shop deletion also
+removes these shop-owned records inside its existing deletion transaction.
+
+Frontend: /owner/expenses, OWNER sidebar Expenses. Categories, confirmation-based
+payment/reversal, details, Pakistan timestamps, monthly/category totals, search and
+pagination. Disabled/missing accounting is visibly unavailable, never zero or paid.
+No new dependencies, production activation, migration or external bank integration.
+
+
+Expense verification results:
+- TypeScript build passed; complete backend suite: 358 passed, zero failed/skipped
+  (node --test --test-concurrency=1 tests/*.test.mjs).
+- Focused expenses plus permanent-deletion tests: 21 passed, zero failed/skipped.
+  Expense tests use real HTTP and an owned disposable loopback MongoDB replica set.
+  They cover precision, balanced journals, cash/bank, idempotency, concurrency,
+  insufficient funds, rollback, immutable history, source integrity, permissions,
+  shop isolation, production guards and Pakistan month-boundary reversals.
+- Frontend lint/build passed; 60 frontend tests passed.
+- Extended tests/supplier-browser.integration.mjs: 15 real Chrome scenario groups
+  passed, exit status 0. This includes all 12 supplier groups plus actual expense
+  unavailable/category/payment/detail/search/reversal/net-total/register/role flows.
+  It verifies PKR 12.50 reduces cash from 70 to 57.50 exactly once and reversal
+  restores 70, with two immutable expense events and clean expense reconciliation.
+  Supplier payable remains PKR 100, bank PKR 490, product stock 13, and customer
+  debt/credit unchanged. No mocked financial responses or production connection.
+- Existing deletion test doubles were updated to include the new collections;
+  the first regression attempt exposed that missing fixture, then focused and
+  complete reruns passed. No accounting restriction was relaxed to pass tests.
+
+Local runner: npm run build, then node tests/supplier-browser.integration.mjs.
+All replica-set runners create and destroy their own local databases; never point
+these tests at an existing database. No commit, push, deployment or migration was
+performed. Production expense posting remains unavailable until a separately
+approved live-accounting activation/cutover is implemented.

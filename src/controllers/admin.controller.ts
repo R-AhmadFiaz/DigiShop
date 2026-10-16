@@ -1,3 +1,4 @@
+import {Expense, ExpenseCategory} from '../models/expense.model.js';
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { apiResponse } from "../utils/apiResponse.js";
 import { Shop } from "../models/shop.model.js";
@@ -37,6 +38,8 @@ export const deleteShop = asyncHandler(async (req, res) => {
         if (deleted.deletedCount !== 1) throw new apiError(409, "Shop access changed. Refresh and try again");
         // Existing permanent-shop deletion is the sole ledger deletion exception.
         await BusinessTransaction.collection.deleteMany({shopId: new mongoose.Types.ObjectId(shopId)}, {session});
+        await Expense.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
+        await ExpenseCategory.deleteMany({shopId},{session});
         await SupplierSettlement.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
         await SupplierCutover.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
         await GoodsReceipt.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});

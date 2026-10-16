@@ -215,6 +215,39 @@ try{
   pass('unsent-form refresh, purchase search, mobile overflow, final reconciliation and unchanged customer/other-shop records');
   for(const p of await Product.find({shopId:shop._id}).lean()){const logs=await StockLog.find({shopId:shop._id,productId:p._id}).lean();assert.equal(p.stockQuantity,logs.reduce((sum,l)=>sum+l.quantityDelta,0));}
   const finalSnapshot=await snapshot();assert.equal(finalSnapshot.receipts,3);assert.equal(finalSnapshot.events,5);assert.equal(finalSnapshot.logs,4);
+
+  // Expense integration uses the SAME verified disposable database and real UI.
+  const {Expense}=await import('../dist/models/expense.model.js');
+  delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+  await navigation('/owner/expenses');await wait(`document.body.innerText.includes('Expense posting unavailable')`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent==='Record expense').disabled`),true);
+  assert.equal(await Expense.countDocuments(),0);
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+  await navigation('/owner/expenses');await wait(`!document.body.innerText.includes('Loading...')`);
+  await fill('[aria-label="New expense category"]','Electricity');await click('Add category');
+  await wait(`document.body.innerText.includes('Category saved.')`);
+  await click('Record expense');await wait(`document.querySelector('[name=categoryId]')?.options.length>1`);
+  const expenseCategory=await evaluate(`document.querySelector('[name=categoryId]').options[1].value`);
+  await fill('[name=categoryId]',expenseCategory);await fill('[name=amount]','12.50');await fill('[name=accountId]',String(cash._id));
+  await fill('[name=description]','Real browser electricity payment');await fill('[name=reference]','EXP-LOCAL');
+  await click('Review payment');await wait(`document.body.innerText.includes('Confirm expense payment')`);
+  await record();await wait(`document.querySelector('tbody')?.innerText.includes('Real browser electricity payment')`);
+  assert.equal(await Expense.countDocuments({kind:'EXPENSE'}),1);assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,5750);
+  const expense=await Expense.findOne({shopId:shop._id,kind:'EXPENSE'}).lean();assert.equal(expense.amountMinor,1250);assert.equal(String(expense.createdBy),String(owner._id));
+  pass('real expense unavailable state, category creation, confirmed expense payment and persisted cash decrease');
+  await label('Search expenses','EXP-LOCAL');await sleep(350);await wait(`document.querySelector('tbody')?.rows.length===1`);
+  await click('Details');await wait(`document.body.innerText.includes('Recorded by: supplierowner')`);
+  await fill('[name=reason]','Original cash actually restored');await click('Review reversal');await click('Confirm and record');await wait(`document.body.innerText.includes('Reversed on')`);
+  assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,7000);
+  const expenseReport=ok(await get('/accounts/expenses/reconciliation'));assert.equal(expenseReport.orphanedJournalCount,0);assert.ok(expenseReport.entries.every(e=>!e.issues.length));
+  assert.equal(ok(await get('/accounts/expenses')).totalMinor,0);assert.equal(await Expense.countDocuments(),2);
+  const expenseRegister=ok(await get('/accounts/transactions?type=EXPENSE&q=EXP-LOCAL'));assert.equal(expenseRegister.entries.length,1);assert.equal(expenseRegister.entries[0].sourceDocument.reference,'EXP-LOCAL');
+  await navigation('/owner/expenses');await wait(`document.body.innerText.includes('Net expenses: PKR 0.00')`);
+  pass('real expense details, search, immutable reversal, net totals and source-linked transaction register');
+  await login(cashier.username);assert.equal(await evaluate(`[...document.querySelectorAll('nav a')].some(e=>e.textContent==='Expenses')`),false);
+  await send('Page.navigate',{url:origin+'/owner/expenses'});await wait(`location.pathname==='/cashier/pos'`);
+  await login(owner.username);await navigation('/owner/expenses');
+  pass('expense owner-only sidebar and browser route protection preserve cashier POS');
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 }catch(error){console.error('SUPPLIER INTEGRATION FAILED:',error.stack);if(socket?.readyState===1)try{console.error('ACTUAL UI:',await evaluate('document.body.innerText'));}catch{}console.error('Passed:',passed);process.exitCode=1;}

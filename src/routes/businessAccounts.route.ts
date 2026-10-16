@@ -1,3 +1,4 @@
+import {expenses} from '../controllers/expense.controller.js';
 import {Router} from 'express';
 import {verifyJWT} from '../middleware/auth.middleware.js';
 import {verifyShopUser, verifyOwner} from '../middleware/role.middleware.js';
@@ -33,3 +34,10 @@ businessAccountsRouter.route('/suppliers/:id/payments').post(businessAccounts('s
 businessAccountsRouter.route('/suppliers/:id/returns').post(businessAccounts('supplierReturn'));
 businessAccountsRouter.route('/suppliers/:id/settlements').get(businessAccounts('supplierSettlements'));
 businessAccountsRouter.route('/suppliers/:id/settlements/:eventId/reverse').post(businessAccounts('supplierReverse'));
+
+businessAccountsRouter.get('/expenses/setup', expenses('setup'));
+businessAccountsRouter.route('/expenses/categories').get(expenses('categories')).post(expenses('createCategory'));
+businessAccountsRouter.get('/expenses/reconciliation', expenses('reconcile'));
+businessAccountsRouter.route('/expenses').get(expenses('list')).post(expenses('create'));
+businessAccountsRouter.get('/expenses/:id', expenses('detail'));
+businessAccountsRouter.post('/expenses/:id/reverse', expenses('reverse'));

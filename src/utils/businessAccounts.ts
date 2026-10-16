@@ -453,7 +453,7 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
     if(type)range['source.kind']=type;
     if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)}]}];
-    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
+    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'expense.reference':pattern},{'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
     const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), ...invoiceSourceLookup(actor.shopId),
         {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
@@ -491,7 +491,7 @@ export async function getBusinessTransactions(actor:Actor,input:{page?:number,li
     if(type)scope['source.kind']=type;
     const selection:any={};
     if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
-    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
+    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'expense.reference':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
     const [result]=await BusinessTransaction.aggregate([{$match:scope},...invoiceSourceLookup(actor.shopId),{$match:selection},{$sort:{occurredAt:1,_id:1}},{$facet:{entries:[{$skip:(page-1)*limit},{$limit:limit}],count:[{$count:'value'}]}}]).session(session).option({maxTimeMS:5000});
     const count=result.count[0]?.value??0;
     return {coverage:journalCoverage,entries:await journalViews(actor.shopId,result.entries,session),pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};
@@ -534,7 +534,7 @@ export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryI
 
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
-async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REVERSAL', referenceId?: string}, confirmed = false) {
+async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REVERSAL' | 'EXPENSE' | 'EXPENSE_REVERSAL', referenceId?: string}, confirmed = false) {
     const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
     if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
     const user = await owner(actor, session, false, cashierSale);
@@ -591,7 +591,7 @@ export async function reverseBusinessJournal(actor: Actor, input: {transactionId
     await owner(actor, session);
     const original = await BusinessTransaction.findOne({_id: id(input.transactionId), shopId: actor.shopId}).session(session);
     if (!original || original.source.kind === 'REVERSAL') throw new apiError(400, 'Select an original transaction in this shop');
-    if (['INVOICE_RECEIPT', 'INVOICE_REFUND', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REVERSAL'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
+    if (['EXPENSE', 'EXPENSE_REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REVERSAL'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
     if (original.source.kind === 'OPENING') {
         const target = await accountInShop(actor, String(original.source.referenceId), session);
         if (target.cashCutoverId) throw new apiError(409, 'Prepared opening cannot be reversed; reconcile before changing cutover');
@@ -911,4 +911,16 @@ export async function getProductBusinessLinks(actor: Actor, productId: string, s
     const entities = [];
     for (const entityId of brand.entityIds) entities.push(await getBusinessEntity(actor, String(entityId), session));
     return {brand, entities};
+}
+
+// Fixed expense adapter: no client-controlled journal postings or source kinds.
+export async function postExpenseMovement(actor: Actor, event: any, session: Session) {
+    if (!invoiceAccountingEnabled()) throw new apiError(409, 'Accounting unavailable; expenses cannot be posted');
+    const {cutoffAt} = await preparedCashAccount(actor, String(event.accountId), session);
+    if (event.occurredAt < cutoffAt || cutoffAt > new Date()) throw new apiError(409, 'Expense must follow the prepared cash/bank cutoff');
+    const reverse = event.kind === 'EXPENSE_REVERSAL';
+    return post(actor, {requestKey:'expense-'+String(event._id),reason:event.description,occurredAt:event.occurredAt.toISOString(),postings:[
+        {accountId:String(event.expenseAccountId),debitMinor:reverse?0:event.amountMinor,creditMinor:reverse?event.amountMinor:0},
+        {accountId:String(event.accountId),debitMinor:reverse?event.amountMinor:0,creditMinor:reverse?0:event.amountMinor}
+    ]}, session, {kind:event.kind,referenceId:String(event._id)});
 }
