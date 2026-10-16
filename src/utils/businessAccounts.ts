@@ -11,6 +11,9 @@ import {BusinessEntity, businessRoles} from '../models/businessEntity.model.js';
 import {FinancialAccount} from '../models/financialAccount.model.js';
 import {BusinessTransaction} from '../models/businessTransaction.model.js';
 import {BusinessBrand, ProductBrandLink} from '../models/businessBrand.model.js';
+import {SupplierCutover} from '../models/supplierCutover.model.js';
+import {GoodsReceipt} from '../models/goodsReceipt.model.js';
+import {StockLog} from '../models/stockLog.model.js';
 import {PurchaseOrder} from '../models/purchaseOrder.model.js';
 import {apiError} from './apiError.js';
 import {checkedCustomer, signedLedgerMinor, verifiedInvoiceFunding} from './invoiceSettlement.js';
@@ -23,6 +26,110 @@ import {invoiceAccountingEnabled} from './invoiceAccountingIntegration.js';
 type Actor = {_id: any, shopId: any, role: string};
 type Session = mongoose.ClientSession;
 type JournalInput = {requestKey: string, reason: string, occurredAt: string, postings: Posting[]};
+
+function supplierAccountingEnabled(){
+    if(!invoiceAccountingEnabled())throw new apiError(409,'Supplier accounting is disabled; authoritative payable unavailable');
+}
+function supplierDigest(receipts:any[]){return createHash('sha256').update(JSON.stringify(receipts.map(r=>[String(r._id),r.requestHash,r.totalMinor,r.occurredAt.toISOString()]))).digest('hex');}
+async function supplierEvidence(actor:Actor,supplierId:string,session:Session){
+    await owner(actor,session);
+    const entity=await getBusinessEntity(actor,id(supplierId),session);
+    if(!entity.roles.includes('SUPPLIER'))throw new apiError(400,'Select a supplier in this shop');
+    const receipts=await GoodsReceipt.find({shopId:actor.shopId,supplierId:entity._id}).sort({occurredAt:1,_id:1}).session(session);
+    return {entity,receipts};
+}
+export async function previewSupplierCutover(actor:Actor,supplierId:string,input:{page:number,limit:number},session:Session){
+    const {entity,receipts}=await supplierEvidence(actor,supplierId,session);
+    const cutover=await SupplierCutover.findOne({shopId:actor.shopId,supplierId:entity._id}).session(session);
+    return {supplier:entity,cutover,evidenceDigest:supplierDigest(receipts),authoritative:false,
+        entries:receipts.slice((input.page-1)*input.limit,input.page*input.limit),
+        pagination:{currentPage:input.page,limit:input.limit,recordCount:receipts.length,totalPages:Math.ceil(receipts.length/input.limit)},
+        reviewRequired:true,policy:'Review each existing delivery, external payments and other historical debt; never repost deferred receipts'};
+}
+export async function initializeSupplierCutover(actor:Actor,supplierId:string,body:any,session:Session){
+    supplierAccountingEnabled();
+    const user=await owner(actor,session,true),supplierIdValue=id(supplierId);
+    if(body.confirmation!=='CONFIRM SUPPLIER OPENING')throw new apiError(400,'Explicit supplier opening confirmation required');
+    const cutoffAt=utcDate(body.cutoffAt),requestKey=text(body.requestKey,100,'request key'),reason=text(body.reason,300,'opening reason');
+    if(!/^[\w-]{8,100}$/.test(requestKey))throw new apiError(400,'Valid idempotency key required');
+    safeMinor(body.openingBalanceMinor);safeMinor(body.otherOpeningMinor);
+    if(!Array.isArray(body.reviews)||body.reviews.length>100)throw new apiError(400,'Review up to 100 existing receipts explicitly');
+    const reviews=body.reviews.map((r:any)=>{safeMinor(r?.unpaidMinor);return {receiptId:id(r.receiptId),unpaidMinor:r.unpaidMinor,reason:text(r.reason,300,'receipt review reason')};}).sort((a:any,b:any)=>a.receiptId.localeCompare(b.receiptId));
+    if(new Set(reviews.map((r:any)=>r.receiptId)).size!==reviews.length)throw new apiError(400,'Review each receipt once');
+    const input={supplierId:supplierIdValue,cutoffAt:cutoffAt.toISOString(),payableAccountId:id(body.payableAccountId),offsetAccountId:id(body.offsetAccountId),equityAccountId:id(body.equityAccountId),openingBalanceMinor:body.openingBalanceMinor,otherOpeningMinor:body.otherOpeningMinor,reviews,evidenceDigest:body.evidenceDigest,reason};
+    const requestHash=createHash('sha256').update(JSON.stringify({actorId:String(user._id),...input})).digest('hex');
+    const existing=await SupplierCutover.findOne({shopId:actor.shopId,$or:[{supplierId:supplierIdValue},{requestKey}]}).session(session);
+    if(existing){if(existing.requestKey!==requestKey||existing.requestHash!==requestHash)throw new apiError(409,'Supplier opening already confirmed or key reused');return {cutover:existing,replayed:true};}
+    const {receipts}=await supplierEvidence(actor,supplierIdValue,session);
+    if(input.evidenceDigest!==supplierDigest(receipts))throw new apiError(409,'Supplier evidence changed; obtain a fresh cutover preview');
+    if(receipts.length!==reviews.length||receipts.some(r=>r.accountingStatus!=='DEFERRED'||r.occurredAt>cutoffAt))throw new apiError(409,'Review all deferred receipts and choose a cutoff at or after every existing receipt');
+    let total=BigInt(input.otherOpeningMinor);
+    for(const receipt of receipts){const review=reviews.find((r:any)=>r.receiptId===String(receipt._id));if(!review||review.unpaidMinor>receipt.totalMinor)throw new apiError(400,'Receipt unpaid amount must be explicitly reviewed and cannot exceed its value');total+=BigInt(review.unpaidMinor);}
+    if(total!==BigInt(input.openingBalanceMinor))throw new apiError(400,'Opening must equal reviewed unpaid receipts plus other declared historical debt');
+    const payable=await accountInShop(actor,input.payableAccountId,session),offset=await accountInShop(actor,input.offsetAccountId,session),equity=await accountInShop(actor,input.equityAccountId,session);
+    if(payable.kind!=='SUPPLIER_PAYABLE'||String(payable.entityId)!==supplierIdValue||offset.kind!=='PURCHASES_CLEARING'||equity.kind!=='OPENING_EQUITY'||[payable,offset,equity].some(a=>!a.isActive||a.authority!=='JOURNAL'))throw new apiError(400,'Active same-shop supplier payable, purchases clearing and opening equity accounts required');
+    if(payable.postingRevision!==0||await BusinessTransaction.exists({shopId:actor.shopId,'postings.accountId':payable._id}).session(session))throw new apiError(409,'Existing supplier account activity requires reconciliation; opening cannot overwrite it');
+    const [cutover]=await SupplierCutover.create([{...input,shopId:actor.shopId,requestKey,requestHash,createdBy:user._id,createdByName:user.username,createdByRole:'OWNER',ownerConfirmedAt:new Date(),recordedAt:new Date()}],{session});
+    if(input.openingBalanceMinor>0)await post(actor,{requestKey:'supplier-opening-'+cutover!._id,reason,occurredAt:input.cutoffAt,postings:[{accountId:input.equityAccountId,debitMinor:input.openingBalanceMinor,creditMinor:0},{accountId:input.payableAccountId,debitMinor:0,creditMinor:input.openingBalanceMinor}]},session,{kind:'SUPPLIER_OPENING',referenceId:String(cutover!._id)},true);
+    return {cutover,replayed:false};
+}
+
+// No repair/backfill: any unreviewed deferred evidence or unexpected posting closes access.
+export async function reconcileSupplier(actor:Actor,supplierId:string,session:Session,excludeReceiptId?:string){
+    const {entity,receipts}=await supplierEvidence(actor,supplierId,session);
+    const cutover=await SupplierCutover.findOne({shopId:actor.shopId,supplierId:entity._id}).session(session);
+    const issues:{reference:string,problem:string}[]=[];
+    if(!cutover)return {authoritative:false,cutover:null,issues:[{reference:String(entity._id),problem:'Supplier payable cutover requires explicit owner review'}],deferredCount:receipts.filter(r=>r.accountingStatus==='DEFERRED').length};
+    const payable=await accountInShop(actor,String(cutover.payableAccountId),session),offset=await accountInShop(actor,String(cutover.offsetAccountId),session),equity=await accountInShop(actor,String(cutover.equityAccountId),session);
+    if(payable.kind!=='SUPPLIER_PAYABLE'||String(payable.entityId)!==String(entity._id)||offset.kind!=='PURCHASES_CLEARING'||equity.kind!=='OPENING_EQUITY'||[payable,offset,equity].some(a=>!a.isActive))issues.push({reference:String(cutover._id),problem:'Supplier accounts unavailable or inconsistent'});
+    const journals=await BusinessTransaction.find({shopId:actor.shopId,$or:[{'postings.accountId':payable._id},{'source.kind':'PURCHASE_RECEIPT','source.referenceId':{$in:receipts.map(r=>r._id)}}]}).session(session);
+    const expected=new Set<string>();let expectedBalance=BigInt(cutover.openingBalanceMinor);
+    function check(kind:string,referenceId:string,value:number,at:Date,debitAccount:any){
+        const matched=journals.filter(j=>j.source.kind===kind&&String(j.source.referenceId)===referenceId);
+        for(const j of matched)expected.add(String(j._id));
+        if(value===0){if(matched.length)issues.push({reference:referenceId,problem:'Unexpected zero-value posting'});return;}
+        const journal=matched[0],dr=journal?.postings.find(p=>String(p.accountId)===String(debitAccount)),cr=journal?.postings.find(p=>String(p.accountId)===String(payable._id));
+        if(matched.length!==1||!journal||+journal.occurredAt!==+at||journal.currency!=='PKR'||journal.postings.length!==2||dr?.debitMinor!==value||dr?.creditMinor!==0||cr?.creditMinor!==value||cr?.debitMinor!==0)issues.push({reference:referenceId,problem:'Missing or inconsistent supplier journal'});
+    }
+    check('SUPPLIER_OPENING',String(cutover._id),cutover.openingBalanceMinor,cutover.cutoffAt,equity._id);
+    for(const review of cutover.reviews)if(!receipts.some(r=>String(r._id)===String(review.receiptId)))issues.push({reference:String(review.receiptId),problem:'Reviewed receipt is missing'});
+    for(const receipt of receipts){
+        if(String(receipt._id)===excludeReceiptId)continue;
+        if(receipt.accountingStatus==='DEFERRED'){
+            if(receipt.occurredAt>cutover.cutoffAt||!cutover.reviews.some(r=>String(r.receiptId)===String(receipt._id)))issues.push({reference:receipt.reference,problem:'Unreviewed deferred receipt; explicit reconciliation required'});
+            if(journals.some(j=>j.source.kind==='PURCHASE_RECEIPT'&&String(j.source.referenceId)===String(receipt._id)))issues.push({reference:receipt.reference,problem:'Deferred receipt must not be reposted'});
+        }else{
+            if(receipt.occurredAt<=cutover.cutoffAt||String(receipt.supplierCutoverId)!==String(cutover._id)||receipt.accountingStatus!==(receipt.totalMinor===0?'NO_PAYABLE':'POSTED'))issues.push({reference:receipt.reference,problem:'Receipt outside approved supplier cutover'});
+            const sum=receipt.items.reduce((n,r)=>n+BigInt(r.quantity)*BigInt(r.unitCostMinor),0n);
+            if(sum!==BigInt(receipt.totalMinor))issues.push({reference:receipt.reference,problem:'Receipt amount inconsistent'});
+            check('PURCHASE_RECEIPT',String(receipt._id),receipt.totalMinor,receipt.occurredAt,offset._id);expectedBalance+=BigInt(receipt.totalMinor);
+        }
+    }
+    for(const journal of journals)if(!expected.has(String(journal._id))&&!(journal.source.kind==='PURCHASE_RECEIPT'&&String(journal.source.referenceId)===excludeReceiptId))issues.push({reference:String(journal._id),problem:'Unexpected supplier posting'});
+    const actual=await journalBalance(actor.shopId,payable,session);
+    if(BigInt(actual)!==expectedBalance)issues.push({reference:String(payable._id),problem:'Supplier journal balance does not reconcile'});
+    return {authoritative:invoiceAccountingEnabled()&&issues.length===0,cutover,accountId:payable._id,balanceMinor:issues.length===0&&invoiceAccountingEnabled()?actual:null,currency:'PKR',issues,deferredCount:receipts.filter(r=>r.accountingStatus==='DEFERRED').length};
+}
+export async function requireSupplierPayable(actor:Actor,supplierId:string,session:Session){
+    supplierAccountingEnabled();const result=await reconcileSupplier(actor,supplierId,session);
+    if(!result.authoritative||!result.cutover)throw new apiError(409,'Supplier payable cutover or reconciliation incomplete; authoritative balance unavailable');
+    return result;
+}
+export async function postSupplierReceipt(actor:Actor,receiptId:string,session:Session){
+    supplierAccountingEnabled();await owner(actor,session,true);
+    const receipt=await GoodsReceipt.findOne({_id:id(receiptId),shopId:actor.shopId}).session(session);
+    if(!receipt||receipt.accountingStatus==='DEFERRED')throw new apiError(409,'Historical deferred receipts cannot be posted');
+    const existing=await BusinessTransaction.findOne({shopId:actor.shopId,'source.kind':'PURCHASE_RECEIPT','source.referenceId':receipt._id}).session(session);
+    if(existing){await requireSupplierPayable(actor,String(receipt.supplierId),session);return existing;}
+    const result=await reconcileSupplier(actor,String(receipt.supplierId),session,String(receipt._id)),cutover=result.cutover;
+    if(!result.authoritative||!cutover||receipt.occurredAt<=cutover.cutoffAt||String(receipt.supplierCutoverId)!==String(cutover._id))throw new apiError(409,'Supplier payable cutover or reconciliation incomplete');
+    if(receipt.totalMinor===0){if(receipt.accountingStatus!=='NO_PAYABLE')throw new apiError(409,'Invalid zero-value receipt');return;}
+    if(receipt.accountingStatus!=='POSTED'||receipt.currency!=='PKR'||receipt.items.reduce((n,r)=>n+BigInt(r.quantity)*BigInt(r.unitCostMinor),0n)!==BigInt(receipt.totalMinor))throw new apiError(409,'Receipt value requires reconciliation');
+    const purchase=await PurchaseOrder.findOne({_id:receipt.purchaseOrderId,shopId:actor.shopId,supplierId:receipt.supplierId}).session(session);
+    const logs=await StockLog.find({shopId:actor.shopId,purchaseReceiptId:receipt._id,reason:'PURCHASE_RECEIVED'}).session(session);
+    if(!purchase||logs.length!==receipt.items.length||receipt.items.some(r=>!purchase.items.some(p=>String(p.productId)===String(r.productId)&&p.unitCostMinor===r.unitCostMinor)||!logs.some(l=>String(l.productId)===String(r.productId)&&l.quantityDelta===r.quantity)))throw new apiError(409,'Receipt purchase and stock audit require reconciliation');
+    return post(actor,{requestKey:'supplier-receipt-'+receipt._id,reason:'Received goods '+receipt.reference,occurredAt:receipt.occurredAt.toISOString(),postings:[{accountId:String(cutover.offsetAccountId),debitMinor:receipt.totalMinor,creditMinor:0},{accountId:String(cutover.payableAccountId),debitMinor:0,creditMinor:receipt.totalMinor}]},session,{kind:'PURCHASE_RECEIPT',referenceId:String(receipt._id)});
+}
 function id(value: unknown): string {
     if (typeof value !== 'string' || !/^[a-f\d]{24}$/i.test(value)) throw new apiError(400, 'Valid record selection required');
     return value.toLowerCase();
@@ -224,8 +331,8 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     const range: any = {};
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
     if(type)range['source.kind']=type;
-    if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)}]}];
-    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
+    if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)}]}];
+    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'receipt.reference':pattern}, {'receipt.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
     const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), ...invoiceSourceLookup(actor.shopId),
         {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
@@ -262,8 +369,8 @@ export async function getBusinessTransactions(actor:Actor,input:{page?:number,li
     if(from||to)scope.occurredAt={...(from?{$gte:from}:{}),...(to?{$lt:to}:{})};
     if(type)scope['source.kind']=type;
     const selection:any={};
-    if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
-    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
+    if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
+    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
     const [result]=await BusinessTransaction.aggregate([{$match:scope},...invoiceSourceLookup(actor.shopId),{$match:selection},{$sort:{occurredAt:1,_id:1}},{$facet:{entries:[{$skip:(page-1)*limit},{$limit:limit}],count:[{$count:'value'}]}}]).session(session).option({maxTimeMS:5000});
     const count=result.count[0]?.value??0;
     return {coverage:journalCoverage,entries:await journalViews(actor.shopId,result.entries,session),pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};
@@ -302,7 +409,7 @@ export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryI
 
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
-async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER', referenceId?: string}, confirmed = false) {
+async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT', referenceId?: string}, confirmed = false) {
     const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
     if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
     const user = await owner(actor, session, false, cashierSale);
@@ -321,6 +428,8 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
     for (const account of accounts) {
         if (account.isActive === false) throw new apiError(409, 'Selected financial account is inactive');
         if (account.authority !== 'JOURNAL') throw new apiError(409, 'Customer debt and credit remain in the existing ledger; cutover is not enabled');
+        if (account.kind === 'PURCHASES_CLEARING' && source.kind !== 'PURCHASE_RECEIPT') throw new apiError(409, 'Purchases clearing requires a verified goods receipt');
+        if (account.kind === 'SUPPLIER_PAYABLE' && !['SUPPLIER_OPENING','PURCHASE_RECEIPT'].includes(source.kind) && await SupplierCutover.exists({shopId:actor.shopId,payableAccountId:account._id}).session(session)) throw new apiError(409, 'Initialized supplier payable requires a verified supplier event');
         if (account.kind === 'SETTLEMENT_CLEARING' && !['INVOICE_RECEIPT', 'INVOICE_REFUND'].includes(source.kind)) throw new apiError(409, 'Settlement clearing requires a verified invoice cash event');
         if (account.cashCutoverId && ['MANUAL', 'OPENING'].includes(source.kind)) throw new apiError(409, 'Prepared cash accounts require source-linked integration or transfers');
         if (account.entityId) await getBusinessEntity(actor, String(account.entityId), session);
@@ -357,7 +466,7 @@ export async function reverseBusinessJournal(actor: Actor, input: {transactionId
     await owner(actor, session);
     const original = await BusinessTransaction.findOne({_id: id(input.transactionId), shopId: actor.shopId}).session(session);
     if (!original || original.source.kind === 'REVERSAL') throw new apiError(400, 'Select an original transaction in this shop');
-    if (['INVOICE_RECEIPT', 'INVOICE_REFUND'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
+    if (['INVOICE_RECEIPT', 'INVOICE_REFUND', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
     if (original.source.kind === 'OPENING') {
         const target = await accountInShop(actor, String(original.source.referenceId), session);
         if (target.cashCutoverId) throw new apiError(409, 'Prepared opening cannot be reversed; reconcile before changing cutover');

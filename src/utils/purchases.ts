@@ -5,7 +5,7 @@ import {GoodsReceipt} from '../models/goodsReceipt.model.js';
 import {Product} from '../models/product.model.js';
 import {User} from '../models/user.model.js';
 import {StockLog} from '../models/stockLog.model.js';
-import {getBusinessEntity} from './businessAccounts.js';
+import {getBusinessEntity,requireSupplierPayable,postSupplierReceipt} from './businessAccounts.js';
 import {invoiceAccountingEnabled} from './invoiceAccountingIntegration.js';
 import {historyFilters} from './businessHistory.js';
 import {safeMinor} from './invoiceAccounting.js';
@@ -98,12 +98,12 @@ export async function receivePurchase(actor:Actor,orderId:string,body:any,sessio
     const input={orderId:id(orderId),expectedRevision:revision(body.expectedRevision),reference:reference(body.reference),items:lines(body.items,false)},requestKey=key(body.requestKey);
     const requestHash=hash({actorId:String(actor._id),...input});
     const existing=await GoodsReceipt.findOne({shopId:actor.shopId,requestKey}).session(session);
-    if(existing){if(existing.requestHash!==requestHash)throw new apiError(409,'Receiving request key already used for different details');return {receipt:existing,purchaseOrder:await order(actor,input.orderId,session),replayed:true,accounting};}
-    if(enabled)throw new apiError(409,'Supplier payable cutover is not approved; receiving with accounting enabled is unavailable');
+    if(existing){if(existing.requestHash!==requestHash)throw new apiError(409,'Receiving request key already used for different details');return {receipt:existing,purchaseOrder:await order(actor,input.orderId,session),replayed:true,accounting:{status:existing.accountingStatus,supplierBalanceAvailable:false,cashMovementMinor:0}};}
     const po=await order(actor,input.orderId,session);
     if(po.revision!==input.expectedRevision)throw new apiError(409,'Purchase changed; reload before receiving');
     if(!['CONFIRMED','PARTIALLY_RECEIVED'].includes(po.status))throw new apiError(409,'Only confirmed open purchases can receive goods');
     await supplier(actor,String(po.supplierId),session);
+    const payable=enabled?await requireSupplierPayable(actor,String(po.supplierId),session):null;
     const items=input.items.map(row=>{
         const line=po.items.find(p=>String(p.productId)===row.productId);
         if(!line)throw new apiError(400,'Received product is not on this purchase');
@@ -111,6 +111,7 @@ export async function receivePurchase(actor:Actor,orderId:string,body:any,sessio
         return {productId:line.productId,name:line.name,brand:line.brand,unit:line.unit,quantity:row.quantity,unitCostMinor:line.unitCostMinor,totalMinor:amount(BigInt(row.quantity)*BigInt(line.unitCostMinor))};
     });
     const totalMinor=amount(items.reduce((sum,row)=>sum+BigInt(row.totalMinor),0n)),receiptId=new mongoose.Types.ObjectId(),now=new Date(),actorFields=await actorSnapshot(actor,session);
+    if(payable?.cutover&&now<=payable.cutover.cutoffAt)throw new apiError(409,'New receiving must be strictly after supplier cutoff');
     for(const line of items){
         const product=await Product.findOne({_id:line.productId,shopId:actor.shopId}).session(session);
         if(!product)throw new apiError(404,'Product not found in shop');
@@ -120,13 +121,14 @@ export async function receivePurchase(actor:Actor,orderId:string,body:any,sessio
         await StockLog.create([{shopId:actor.shopId,productId:product._id,quantityDelta:line.quantity,reason:'PURCHASE_RECEIVED',purchaseReceiptId:receiptId,purchaseReference:po.reference,receivingReference:input.reference,createdBy:actorFields.createdBy,createdAt:now,updatedAt:now}],{session});
     }
     const [receipt]=await GoodsReceipt.create([{_id:receiptId,shopId:actor.shopId,purchaseOrderId:po._id,purchaseReference:po.reference,reference:input.reference,requestKey,requestHash,
-        supplierId:po.supplierId,supplierName:po.supplierName,items,totalMinor,obligationType:'RECEIVED_GOODS',accountingStatus:'DEFERRED',revisionBefore:po.revision,revisionAfter:po.revision+1,occurredAt:now,recordedAt:new Date(),...actorFields}],{session});
+        supplierId:po.supplierId,supplierName:po.supplierName,items,totalMinor,obligationType:'RECEIVED_GOODS',accountingStatus:enabled?(totalMinor===0?'NO_PAYABLE':'POSTED'):'DEFERRED',...(payable?.cutover?{supplierCutoverId:new mongoose.Types.ObjectId(String(payable.cutover._id))}:{}),revisionBefore:po.revision,revisionAfter:po.revision+1,occurredAt:now,recordedAt:new Date(),...actorFields}],{session});
     const updatedItems=po.items.map(line=>({...line.toObject(),receivedQuantity:line.receivedQuantity+(items.find(r=>String(r.productId)===String(line.productId))?.quantity??0)}));
     const status=updatedItems.every(line=>line.receivedQuantity===line.quantity)?'RECEIVED':'PARTIALLY_RECEIVED';
     const purchaseOrder=await PurchaseOrder.findOneAndUpdate({_id:po._id,shopId:actor.shopId,revision:input.expectedRevision,status:po.status},
         {$set:{items:updatedItems,status,receivedValueMinor:amount(BigInt(po.receivedValueMinor)+BigInt(totalMinor))},$inc:{revision:1}},{session,new:true,runValidators:true});
     if(!purchaseOrder)throw new apiError(409,'Purchase changed; retry the identical request');
-    return {receipt,purchaseOrder,replayed:false,accounting};
+    if(enabled)await postSupplierReceipt(actor,String(receipt!._id),session);
+    return {receipt,purchaseOrder,replayed:false,accounting:{status:receipt!.accountingStatus,supplierBalanceAvailable:enabled,cashMovementMinor:0}};
 }
 export async function getPurchase(actor:Actor,orderId:string,session:Session){return {purchaseOrder:await order(actor,orderId,session),accounting};}
 export async function listPurchases(actor:Actor,input:any,session:Session,orderId?:string){

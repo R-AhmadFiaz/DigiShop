@@ -5,7 +5,7 @@ export const accountKinds = {
     CASH: 'DEBIT', BANK: 'DEBIT', CUSTOMER_RECEIVABLE: 'DEBIT',
     SUPPLIER_PAYABLE: 'CREDIT', STORE_CREDIT_LIABILITY: 'CREDIT',
     INVENTORY: 'DEBIT', REVENUE: 'CREDIT', EXPENSE: 'DEBIT', OPENING_EQUITY: 'CREDIT',
-    SETTLEMENT_CLEARING: 'CREDIT'
+    SETTLEMENT_CLEARING: 'CREDIT', PURCHASES_CLEARING: 'DEBIT'
 } as const;
 export type AccountKind = keyof typeof accountKinds;
 export type Posting = {accountId: string, debitMinor: number, creditMinor: number};

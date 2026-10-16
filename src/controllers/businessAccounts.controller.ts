@@ -33,6 +33,7 @@ async function readableAccount(actor: any, accountId: string, session: mongoose.
     if (!account) throw new apiError(404, 'Account not found in shop');
     if (account.authority === 'JOURNAL') {
         enabled();
+        if(account.kind==='SUPPLIER_PAYABLE'){await accounts.requireSupplierPayable(actor,String(account.entityId),session);return account;}
         if (!['CASH', 'BANK'].includes(account.kind)) throw new apiError(409, 'This journal account has no approved live balance integration');
         const clearing = account.cashCutoverId && await FinancialAccount.findOne({_id: account.cashCutoverId, shopId: actor.shopId, kind: 'SETTLEMENT_CLEARING'}).session(session);
         if (!clearing?.cashIntegration || clearing.cashIntegration.state !== 'PREPARED' || clearing.cashIntegration.cutoffAt > new Date() || !clearing.cashIntegration.accountIds.some(id => String(id) === String(account._id))) throw new apiError(409, 'Prepared cash/bank cutover required; balance unavailable');
@@ -45,6 +46,10 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
     const actor = req.user, body = req.body ?? {};
     const data = await accounts.businessTransaction(actor, async session => {
         switch (operation) {
+            case 'supplierPreview':return accounts.previewSupplierCutover(actor,recordId(req.params.id),paging(req.query),session);
+            case 'supplierOpening':return accounts.initializeSupplierCutover(actor,recordId(req.params.id),body,session);
+            case 'supplierReconcile':return accounts.reconcileSupplier(actor,recordId(req.params.id),session);
+            case 'supplierBalance':return accounts.requireSupplierPayable(actor,recordId(req.params.id),session);
             case 'createEntity': {
                 if (typeof body.key !== 'string' || !body.key.trim() || body.key.length > 80 || (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 100)) || (body.phoneNo !== undefined && typeof body.phoneNo !== 'string')) throw new apiError(400, 'Valid identity and contact details required');
                 // Explicit keys handle retries; exact standalone name/contact matches
@@ -93,7 +98,7 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             case 'productLinks': return accounts.getProductBusinessLinks(actor, recordId(req.params.id), session);
             case 'createAccount':
                 enabled();
-                if (!['CASH', 'BANK', 'CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY', 'SUPPLIER_PAYABLE', 'OPENING_EQUITY', 'SETTLEMENT_CLEARING'].includes(body.kind)) throw new apiError(400, 'Unsupported account kind');
+                if (!['CASH', 'BANK', 'CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY', 'SUPPLIER_PAYABLE', 'OPENING_EQUITY', 'SETTLEMENT_CLEARING', 'PURCHASES_CLEARING'].includes(body.kind)) throw new apiError(400, 'Unsupported account kind');
                 return accounts.createFinancialAccount(actor, body, session);
             case 'accounts': {
                 const {page, limit} = paging(req.query), pattern = search(req.query.q);

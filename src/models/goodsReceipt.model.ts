@@ -8,7 +8,8 @@ const schema=new Schema({
     items:{type:[new Schema({productId:{type:Schema.Types.ObjectId,required:true,ref:'Product'},name:{type:String,required:true},brand:String,unit:String,
         quantity:{type:Number,required:true,min:1,validate:Number.isSafeInteger},unitCostMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},totalMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger}}, {_id:false})],required:true},
     totalMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},currency:{type:String,enum:['PKR'],default:'PKR'},
-    obligationType:{type:String,enum:['RECEIVED_GOODS'],required:true},accountingStatus:{type:String,enum:['DEFERRED'],required:true},
+    obligationType:{type:String,enum:['RECEIVED_GOODS'],required:true},accountingStatus:{type:String,enum:['DEFERRED','POSTED','NO_PAYABLE'],required:true},
+    supplierCutoverId:{type:Schema.Types.ObjectId,ref:'SupplierCutover'},
     revisionBefore:{type:Number,required:true},revisionAfter:{type:Number,required:true},
     createdBy:{type:Schema.Types.ObjectId,required:true},createdByName:{type:String,required:true},createdByRole:{type:String,enum:['OWNER'],required:true},
     occurredAt:{type:Date,required:true},recordedAt:{type:Date,required:true}

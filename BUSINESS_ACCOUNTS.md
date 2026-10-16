@@ -949,3 +949,144 @@ The receipt's DEFERRED accountingStatus records its status at creation and is
 immutable. A future approved posting must reference that source ID and derive
 posting status from verified journal linkage; it must not rewrite the original
 receipt or treat its value as evidence of an unpaid opening balance.
+
+
+## Phase 4C-1 - Supplier payable cutover (test integration only)
+
+This section supersedes Phase 4B's blanket rejection of enabled receiving.
+Accounting remains OFF by default. BUSINESS_ACCOUNTING_ENABLED=true is permitted
+only with NODE_ENV=test; production activation still returns 503. No historical
+migration, supplier payment, purchase return, inventory valuation or COGS workflow
+is added. Customer debt and store credit retain their existing authority.
+
+### Opening policy
+
+Each SUPPLIER BusinessEntity has a separate JOURNAL/SUPPLIER_PAYABLE account
+(normal credit). Multi-role entities retain separate customer receivables,
+store-credit liabilities and supplier payables; these balances are never netted.
+Create an active PURCHASES_CLEARING account (normal debit) and OPENING_EQUITY
+account through the existing test-only financial account API. Cash/bank cutover
+alone does not authorize supplier debt.
+
+The OWNER previews and explicitly reviews EVERY existing goods receipt for that
+supplier, including externally paid deliveries. Each receipt requires unpaidMinor
+between zero and its received value plus a review reason. Zero means no opening
+debt from that receipt; it is an owner attestation, not an invented payment event.
+Other historical debt is declared separately as otherOpeningMinor, with an opening
+reason explaining it. The exact integer-paisa equation is:
+
+openingBalanceMinor = sum(reviewed receipt unpaidMinor) + otherOpeningMinor.
+
+The owner must compare external payment records and verify that other debt does
+not overlap reviewed deliveries. DigiShop cannot prove an external settlement.
+No amounts are inferred or silently corrected. A fresh evidenceDigest prevents
+initializing from a stale receipt list. All existing receipts must be DEFERRED
+and dated AT OR BEFORE the canonical UTC cutoff. Existing receipts AFTER the
+cutoff block opening. Review supports at most 100 receipts per supplier; larger
+histories require a separately approved review workflow. Normal Express JSON size
+limits still apply. Preview is paginated: review all pages before confirmation.
+
+Immutable SupplierCutover records include accounts, cutoff, exact reviews,
+digest, reason, actor/name/OWNER snapshot and server confirmation/recording dates.
+Unique indexes: (shopId,supplierId), (shopId,payableAccountId), (shopId,requestKey).
+One opening only: exact request replay succeeds; changed details/key cannot reset
+it. Existing payable activity blocks initialization. Positive opening posts Dr
+OPENING_EQUITY / Cr SUPPLIER_PAYABLE, source SUPPLIER_OPENING referencing cutover.
+Zero opening has confirmation evidence but no fake zero journal. Shared equity
+keeps the posting engine's chronological guard: cutoff cannot precede its latest
+posting. Do not falsify historical dates to bypass that guard.
+
+### OWNER APIs
+
+Base: /api/v2/accounts. Existing JWT, OWNER, shop membership, manual-access and
+subscription middleware apply. Existing response envelope is retained.
+
+GET /suppliers/:id/cutover-preview?page=1&limit=20
+Returns supplier, cutover, evidenceDigest, paginated receipt entries, pagination,
+authoritative:false, reviewRequired:true and policy. Historical evidence only,
+not a payable balance; available with accounting disabled.
+
+POST /suppliers/:id/cutover
+Test-only atomic initialization. Example body (replace placeholder IDs/digest):
+
+{
+  "requestKey":"supplier-opening-confirm-001",
+  "confirmation":"CONFIRM SUPPLIER OPENING",
+  "cutoffAt":"2026-10-16T00:00:00.000Z",
+  "payableAccountId":"<own supplier payable>",
+  "offsetAccountId":"<own purchases clearing>",
+  "equityAccountId":"<own opening equity>",
+  "openingBalanceMinor":110000,
+  "otherOpeningMinor":10000,
+  "reviews":[{"receiptId":"<existing receipt>","unpaidMinor":100000,"reason":"Verified remaining debt after external settlement"}],
+  "evidenceDigest":"<fresh preview digest>",
+  "reason":"Reviewed supplier statement and payments; other debt is separate"
+}
+
+Returns cutover and replayed. Zero opening requires the same explicit confirmation.
+
+GET /suppliers/:id/reconciliation
+Returns authoritative, cutover, accountId, balanceMinor (null if incomplete/off),
+currency, issues (reference/problem) and deferredCount. Before initialization:
+no balance, explicit cutover issue. Never repairs or posts missing records.
+
+GET /suppliers/:id/balance
+Same reconciled result; 409 unless enabled, initialized and fully reconciled.
+
+GET /financial/:payableAccountId
+GET /financial/:payableAccountId/history
+GET /financial/:payableAccountId/history/:entryId
+Existing APIs now allow reconciled supplier accounts. Disabled accounting or any
+unresolved gap blocks these reads. Existing page/limit, UTC [from,to), type,
+sourceId and escaped reference search apply. Source IDs include receipt/PO IDs.
+
+### New receiving and dated statements
+
+Existing POST /api/v2/purchases/:id/receipts contract is unchanged. Enabled
+receiving requires a clean supplier cutover and SERVER receipt date STRICTLY
+AFTER cutoff. No client-controlled receiving timestamp. Actual quantities use
+agreed PO integer unit costs, never current product cost prices. Each positive
+receipt posts exactly one PURCHASE_RECEIPT journal: Dr PURCHASES_CLEARING / Cr
+SUPPLIER_PAYABLE for received value. Receipt, product increment, StockLog, PO
+revision, account revision and journal share one snapshot/majority transaction.
+Shop write claims, revision checks and unique source/request indexes protect
+concurrency and duplicate submissions. Any failure rolls back all changes.
+PO creation/confirmation still posts nothing; cash movement remains zero.
+
+New positive receipts are immutable POSTED records linked to the cutover.
+Zero-cost receipts are NO_PAYABLE: physical stock/logs change, no zero journal.
+The purchases clearing debit is an offset, NOT full inventory valuation or COGS.
+
+Statements reuse Phase 4A (occurredAt,_id) ordering, UTC range opening/closing
+balances, pagination and actor-role snapshots. Receipt rows identify goods receipt
+and PO references; details include received item/cost snapshots. Opening rows
+reference the cutoff confirmation. The global register counts journals once,
+not individual double-entry postings. Supplier liability increases are not cash:
+moneyInMinor/moneyOutMinor are null. Pre-cutoff statement balances describe this
+subledger only, not unavailable historical balances. Coverage remains test-only
+and incomplete for the whole business.
+
+### Deferred evidence and Phase 4C-2
+
+All old DEFERRED receipts stay unchanged and cannot be reposted, including retries.
+Reviewed unpaid portions appear ONCE through the confirmed opening. Reconciliation
+checks opening/receipt journals, amounts, dates, accounts, source links, missing
+reviewed evidence, unexpected postings and derived AP totals. Any unreviewed
+DEFERRED receipt or missing/inconsistent journal blocks authoritative balance and
+enabled receiving. Turning accounting off preserves ordinary receiving (DEFERRED).
+Turning it on again after such a gap fails closed; no automatic repair or second
+opening exists. Do not treat deferred receipt totals as authoritative debt.
+
+Phase 4C-2 must define deliberate immutable gap resolution, supplier payment
+sources, explicit cash/bank routing, AP debits, reversals and reconciliation to
+external statements. Advances/overpayments, purchase returns and full inventory
+valuation remain unsupported. Current payable is confirmed opening plus posted
+received obligations; no supplier payment is claimed or inferred. Production
+accounting stays disabled pending broader rollout approval.
+
+Tests: tests/supplier-payables-replica.test.mjs starts a disposable loopback-only
+MongoDB replica set and explicitly creates indexes. Actual HTTP and persistence
+checks cover openings, UTC boundaries, stock/journals, replay/concurrency, forced
+late rollback, statements, role/shop gates and customer separation. The existing
+permanent shop deletion transaction includes cutovers as the documented native
+collection-delete exception to immutable financial history.
