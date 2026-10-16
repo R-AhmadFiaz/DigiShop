@@ -5,7 +5,7 @@ import {balancedPostings} from '../utils/businessAccounting.js';
 const schema = new Schema({
     shopId: {type: Schema.Types.ObjectId, ref: 'Shop', required: true},
     requestKey: {type: String, required: true}, requestHash: {type: String, required: true},
-    source: {type: new Schema({kind: {type: String, enum: ['MANUAL', 'OPENING', 'REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'TRANSFER', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT'], required: true},
+    source: {type: new Schema({kind: {type: String, enum: ['MANUAL', 'OPENING', 'REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'TRANSFER', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REVERSAL'], required: true},
         referenceId: {type: Schema.Types.ObjectId, required: true}}, {_id: false}), required: true},
     occurredAt: {type: Date, required: true}, recordedAt: {type: Date, required: true, default: Date.now},
     reason: {type: String, required: true}, currency: {type: String, enum: ['PKR'], required: true, default: 'PKR'},

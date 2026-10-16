@@ -49,6 +49,10 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             case 'supplierPreview':return accounts.previewSupplierCutover(actor,recordId(req.params.id),paging(req.query),session);
             case 'supplierOpening':return accounts.initializeSupplierCutover(actor,recordId(req.params.id),body,session);
             case 'supplierReconcile':return accounts.reconcileSupplier(actor,recordId(req.params.id),session);
+            case 'supplierPayment':return accounts.settleSupplier(actor,recordId(req.params.id),body,'PAYMENT',session);
+            case 'supplierReturn':return accounts.settleSupplier(actor,recordId(req.params.id),body,'RETURN',session);
+            case 'supplierReverse':return accounts.settleSupplier(actor,recordId(req.params.id),body,'REVERSAL',session,recordId(req.params.eventId));
+            case 'supplierSettlements':return accounts.supplierSettlementHistory(actor,recordId(req.params.id),{...req.query,...paging(req.query)},session);
             case 'supplierBalance':return accounts.requireSupplierPayable(actor,recordId(req.params.id),session);
             case 'createEntity': {
                 if (typeof body.key !== 'string' || !body.key.trim() || body.key.length > 80 || (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 100)) || (body.phoneNo !== undefined && typeof body.phoneNo !== 'string')) throw new apiError(400, 'Valid identity and contact details required');

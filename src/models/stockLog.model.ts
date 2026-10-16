@@ -2,6 +2,8 @@ import { Schema, Types, model, Document } from "mongoose";
 import { timeStamp } from "node:console";
 
 export interface IStockLog extends Document{
+    supplierSettlementId?: Types.ObjectId,
+    sourceReceiptId?: Types.ObjectId,
     purchaseReceiptId?: Types.ObjectId,
     purchaseReference?: string,
     receivingReference?: string,
@@ -23,6 +25,8 @@ export interface IStockLog extends Document{
 
 const stockLogSchema = new Schema<IStockLog>(
     {
+        supplierSettlementId:{type:Schema.Types.ObjectId,ref:'SupplierSettlement'},
+        sourceReceiptId:{type:Schema.Types.ObjectId,ref:'GoodsReceipt'},
         purchaseReceiptId:{type:Schema.Types.ObjectId,ref:'GoodsReceipt'},
         purchaseReference:String,
         receivingReference:String,
@@ -68,6 +72,7 @@ const stockLogSchema = new Schema<IStockLog>(
         }
     }, {timestamps: true})
 
+    stockLogSchema.index({shopId:1,supplierSettlementId:1,productId:1},{unique:true,partialFilterExpression:{supplierSettlementId:{$type:'objectId'}}})
     stockLogSchema.index({productId: 1, createdAt: -1})
     stockLogSchema.index({shopId:1,purchaseReceiptId:1,productId:1},{unique:true,partialFilterExpression:{purchaseReceiptId:{$type:'objectId'}}})
 

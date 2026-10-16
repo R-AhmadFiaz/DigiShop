@@ -1090,3 +1090,192 @@ checks cover openings, UTC boundaries, stock/journals, replay/concurrency, force
 late rollback, statements, role/shop gates and customer separation. The existing
 permanent shop deletion transaction includes cutovers as the documented native
 collection-delete exception to immutable financial history.
+
+
+## Phase 4C-2 - Supplier settlements and purchase returns (test only)
+
+All new mutations remain disabled by default. They require
+BUSINESS_ACCOUNTING_ENABLED=true and NODE_ENV=test, authenticated OWNER, current
+shop membership, active manual access, valid subscription and a clean confirmed
+supplier cutover. Existing customer receivables/store credit, POS sales, returns,
+quotations and invoice settlement are unchanged. No historical payments or
+supplier balances are backfilled. Production activation remains prohibited.
+
+### Policy and authoritative balances
+
+Supplier payments are UNAPPLIED AT SUPPLIER LEVEL. The existing foundation cannot
+prove which invoice/receipt an old or new payment settles. No receipt allocation,
+opening-debt allocation, FIFO allocation or receipt-level paid/unpaid assertion is
+invented. Supplier payable is:
+
+confirmed opening + posted received goods - payments - accepted return credits
++ payment reversals + return reversals.
+
+All quantities are whole units. All financial inputs and snapshots use safe
+integer paisa; return value is exact quantity * ORIGINAL receipt unitCostMinor,
+checked with BigInt sums and safe-range bounds. Current Product costPrice is not
+used. Original goods receipt, purchase quantities and history remain unchanged;
+a purchase return does not reopen the original purchase order for receiving.
+
+Payment: Dr SUPPLIER_PAYABLE / Cr selected CASH or BANK. Requires an explicitly
+selected active prepared cash/bank account; preparation must use the existing
+cash cutover workflow. No account is silently selected. Supplier and cash cutoffs
+must precede the payment timestamp. Amount must be positive, no more than the
+reconciled payable, and no more than available cash/bank funds. Cash cannot go
+negative. This records an actual payment, not a promise to pay.
+
+Return credit: Dr SUPPLIER_PAYABLE / Cr PURCHASES_CLEARING. Physically returned
+quantities leave sellable stock and produce PURCHASE_RETURN logs. Returns do NOT
+increase cash, bank, customer store credit or a second supplier balance. They
+reduce the supplier-level payable, not an assumed unpaid amount on a receipt.
+Only post-cutover POSTED / zero-cost NO_PAYABLE receipts for the same supplier
+are eligible. Partial and multiple returns are supported. Net returned quantities
+(after explicit reversals) cannot exceed the original receipt quantities; stock
+cannot go negative. Creating a purchase order, confirming it, or paying a supplier
+does not change inventory.
+
+IMPORTANT DEFERRED SCENARIO: returns exceeding remaining supplier payable are
+rejected with 409 BEFORE any stock/history changes. This includes a positive-value
+return when the supplier has been fully paid. A supplier refund-due asset,
+carry-forward supplier credit, actual incoming refund and splitting a return
+between payable reduction/refund due are NOT implemented. Do not return goods
+physically under this workflow if the application rejects the settlement. A paid
+receipt can reduce other debt to the SAME supplier only when a positive supplier
+payable remains and the supplier accepts that credit; receipt allocation is not
+claimed. Never create negative AP or fictitious money received to force a return.
+
+Historical DEFERRED receipts (even reviewed at opening) remain immutable and are
+not eligible for this return workflow. They need an approved historical/gap
+reconciliation process. There is no automatic repair, second opening or repost.
+
+### Endpoints and request examples
+
+Base /api/v2/accounts. Existing authenticated OWNER middleware applies to every
+route; CASHIER and ADMIN cannot call supplier financial operations. JSON uses the
+existing response envelope. All mutations require stable requestKey, unique
+shop-wide reference, canonical nonfuture UTC occurredAt and reason. Unknown
+fields, including unsupported allocations or cash refund requests, are rejected.
+Client actor IDs/names and recorded timestamps are never accepted.
+
+POST /suppliers/:id/payments
+{
+  "requestKey":"supplier-payment-0001",
+  "reference":"PAY-0001",
+  "occurredAt":"2026-10-16T12:00:00.000Z",
+  "reason":"Bank transfer actually sent to supplier",
+  "amountMinor":20000,
+  "accountId":"<active prepared own-shop cash/bank account>"
+}
+
+POST /suppliers/:id/returns
+{
+  "requestKey":"supplier-return-0001",
+  "reference":"RET-0001",
+  "occurredAt":"2026-10-16T12:01:00.000Z",
+  "reason":"Supplier accepted returned goods as credit against payable",
+  "receiptId":"<original same-supplier posted receipt>",
+  "items":[{"productId":"<received product>","quantity":2}]
+}
+
+Both return data.settlement (immutable source) and data.replayed. Return snapshots
+include original receipt reference, purchase reference, product name, quantity,
+original unit cost and exact total. Source records identify payable and offset
+accounts, amountMinor/currency, business-effective occurredAt, server recordedAt,
+and authenticated actor ID/name/OWNER-role snapshot. Zero-cost returns still have
+stock/source history but deliberately no fake zero-value journal.
+
+POST /suppliers/:id/settlements/:eventId/reverse
+{
+  "requestKey":"supplier-reversal-0001",
+  "reference":"REV-0001",
+  "occurredAt":"2026-10-16T12:02:00.000Z",
+  "reason":"Confirmed original goods or funds have actually been restored",
+  "confirmation":"CONFIRM SUPPLIER REVERSAL"
+}
+
+Reversal is a full, exact, linked correction, once per original PAYMENT or RETURN.
+It never edits or deletes the original. PAYMENT reversal requires actual funds
+restored to the ORIGINAL active prepared payment account: Dr CASH/BANK, Cr AP.
+RETURN reversal requires original goods actually restored to stock: Dr purchases
+clearing, Cr AP, and PURCHASE_RETURN_REVERSAL stock logs. Original receipt return
+eligibility is restored. Reversals of reversals, alternate accounts, partial
+reversals and standalone generic-journal reversals of supplier sources are not
+allowed. Correct a mistaken amount by explicitly reversing the original and
+recording a new accurate event. Reversal confirmation is an owner attestation;
+DigiShop does not verify a bank transfer or physical delivery automatically.
+
+GET /suppliers/:id/settlements
+Supports page/limit (max100), UTC [from,to), escaped q reference/reason search,
+type=PAYMENT|RETURN|REVERSAL and sourceId (settlement, original settlement or
+receipt). Returns entries, pagination and allocation:UNAPPLIED_SUPPLIER_LEVEL.
+This includes zero-value physical returns, which have no journal row.
+
+GET /suppliers/:id/balance and /reconciliation retain Phase 4C-1 contracts.
+GET /financial/:payableAccountId/history and /history/:entryId retain Phase 4A
+contracts and include SUPPLIER_PAYMENT, SUPPLIER_RETURN and SUPPLIER_REVERSAL.
+Global /transactions counts one event per journal, not one per posting. It can
+search settlement/receipt/purchase references and receipt/original settlement IDs.
+Transaction details expose original/reversal relationships, source settlement and
+received-goods links, actor snapshots and item movements. Running and range
+opening/closing balances remain derived from authoritative posted journals in
+stable (occurredAt,_id) order. Filtered running balances retain the existing null
+semantics; range opening/closing balances describe the entire selected period.
+Cash posting moneyOutMinor reflects payments; payment reversals show moneyInMinor.
+Return credit has no cash posting and therefore is not described as cash received.
+Coverage is still an incomplete test subledger, not a complete production ledger.
+
+Example supplier statement in paisa:
+  Opening payable                         +100000
+  Received goods                           +50000
+  Payment from bank                        -20000
+  Goods returned as supplier payable credit -10000
+  Closing payable                          120000
+Cash/bank decreased by 20000 only; the 10000 return credit did not create cash.
+
+### Atomicity, idempotency and reconciliation
+
+SupplierSettlement is append-only with unique (shopId,requestKey),
+(shopId,reference) and partial (shopId,reversalOf) indexes. Chronological supplier
+and receipt indexes support history/eligibility. Each positive settlement has one
+unique balanced journal source referencing that event ID. Stock logs use separate
+supplierSettlementId/sourceReceiptId fields, never fake sale/invoice references,
+with a unique shop/event/product index. Source-derived journal request keys,
+account revision claims, conditional stock changes and the existing shop write
+claim serialize competing operations in snapshot/majority MongoDB transactions.
+Overpayment, over-return, duplicate references or late journal errors abort all
+settlement, stock, log, account and journal writes together.
+
+Retry an uncertain mutation with its IDENTICAL key and payload, never a fresh key.
+An exact replay returns its original source without applying another effect.
+Reused keys with changed details and competing mutations return controlled 409s.
+Effective timestamps cannot precede supplier/cash cutoffs, the original receipt
+or reversal source, or affected accounts' latest activity. They cannot be future
+or noncanonical. Recorded time and actor identity always come from the server.
+
+Supplier reconciliation verifies settlement journals, exact direction/accounts,
+amounts/dates, receipt cost and net returned quantities, reversal source snapshots,
+stock audits and final nonnegative AP. Missing or inconsistent evidence blocks
+balance reads and all new enabled supplier mutations; nothing is auto-repaired.
+Cash/bank reconciliation now separately includes supplierReconciliation and
+orphanedSupplierCashJournals, since supplier payments do not flow through invoice
+settlement clearing. Existing invoice reconciliation fields remain unchanged.
+The existing authorized deactivated-shop deletion cascades the new immutable
+collection inside the same transaction, preserving the established exception.
+
+### Remaining limitations / next work
+
+Supplier refund-due assets, cash/bank refunds received for purchase returns,
+advance payments, overpayments, receipt/opening-debt allocations and deferred
+history/gap settlement remain unsupported. Full inventory valuation/COGS remains
+out of scope. No production accounting activation, migration, frontend, payment
+gateway or automatic external verification is implemented. These policies need
+approval and dedicated tests before extending the supported settlement states.
+
+Real tests: tests/supplier-settlements-replica.test.mjs uses isolated loopback
+MongoDB with replica-set transactions and actual HTTP, not mocked financial
+responses. It covers partial/full cash/bank payments, duplicates, overpayment,
+insufficient funds, competing payments, partial/multiple/zero-cost returns,
+insufficient stock, paid-supplier rejection, reversals, original costs, forced
+late rollback, chronological statements, source links, permissions, shop isolation,
+missing evidence and disabled/production guards. Existing suites remain regression
+coverage for customer debt/credit, invoices, POS, purchase receiving and cutovers.
