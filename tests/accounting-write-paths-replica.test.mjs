@@ -490,6 +490,75 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
             assert.equal((await http('POST','/accounts/cutover/prepare',valid,foreign)).status,200);
             const read=await http('GET',`/accounts/financial/${otherTill._id}`,undefined,foreign);assert.equal(read.status,200);assert.equal(read.body.data.balanceMinor,0);
         });
+        let auditTransfers=[],auditAt,auditBefore;
+        await t.test('audit statements order tied timestamps deterministically and preserve range balances across pages',async()=>{
+            auditBefore=await balance(cash);auditAt=new Date().toISOString();
+            for(let i=0;i<3;i++)auditTransfers.push(await run(s=>accounts.transferCashBank(actor,{fromAccountId:String(cash._id),toAccountId:String(bank._id),amountMinor:125,requestKey:'audit-transfer-'+i,occurredAt:auditAt,reason:'Audit transfer'},s)));
+            const until=new Date(+new Date(auditAt)+1).toISOString(),ids=[];
+            for(let page=1;page<=3;page++){
+                const response=await http('GET',`/accounts/financial/${cash._id}/history?from=${auditAt}&to=${until}&limit=1&page=${page}`);assert.equal(response.status,200,JSON.stringify(response.body));const data=response.body.data;
+                assert.equal(data.rangeOpeningBalanceMinor,auditBefore);assert.equal(data.rangeClosingBalanceMinor,auditBefore-375);assert.equal(data.rangeNetChangeMinor,-375);assert.equal(data.pagination.recordCount,3);
+                assert.equal(data.openingBalanceMinor,auditBefore-125*(page-1));assert.equal(data.entries[0].runningBalanceMinor,auditBefore-125*page);ids.push(data.entries[0]._id);
+                const standard=data.transactions[0];assert.equal(standard.eventId,data.entries[0]._id);assert.equal(standard.eventType,'TRANSFER');assert.equal(standard.currency,'PKR');assert.equal(standard.actor.role,'OWNER');assert.equal(standard.accountPosting.moneyOutMinor,125);assert.equal(standard.accountPosting.debitMinor,0);assert.equal(standard.accountPosting.balanceDeltaMinor,-125);assert.equal(standard.recordedAt!==null,true);
+            }
+            assert.deepEqual(ids,auditTransfers.map(t=>String(t._id)).sort());
+            const filtered=await http('GET',`/accounts/financial/${cash._id}/history?from=${auditAt}&to=${until}&type=TRANSFER&q=Audit`);assert.equal(filtered.status,200);assert.equal(filtered.body.data.rangeClosingBalanceMinor,auditBefore-375);assert.equal(filtered.body.data.entries[0].runningBalanceMinor,null);
+            const excluded=await http('GET',`/accounts/financial/${cash._id}/history?to=${auditAt}&limit=1`);assert.equal(excluded.body.data.rangeClosingBalanceMinor,auditBefore);
+        });
+        await t.test('shop register counts journal events once rather than doubling balanced account postings',async()=>{
+            const before=await BusinessTransaction.countDocuments(),result=await http('GET',`/accounts/transactions?from=${auditAt}&type=TRANSFER&limit=1`);assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.data.pagination.recordCount,3);assert.equal(result.body.data.entries.length,1);assert.equal(result.body.data.entries[0].postings.length,2);assert.equal(result.body.data.entries[0].amountMinor,125);assert.equal(result.body.data.coverage.complete,false);assert.equal(result.body.data.coverage.livePostingEnabled,false);
+            const second=await http('GET',`/accounts/transactions?from=${auditAt}&type=TRANSFER&limit=1&page=2`);assert.notEqual(second.body.data.entries[0].eventId,result.body.data.entries[0].eventId);
+            const found=await http('GET',`/accounts/transactions?sourceId=${auditTransfers[0]._id}`);assert.equal(found.body.data.pagination.recordCount,1);
+            const linked=await http('GET',`/accounts/transactions?q=${encodeURIComponent(paid.order.invoiceNo)}`);assert.ok(linked.body.data.entries.some(e=>e.sourceDocument?.orderId===paid.order._id));
+            const account=await http('GET',`/accounts/transactions?from=${auditAt}&type=TRANSFER&accountId=${cash._id}`);assert.equal(account.body.data.pagination.recordCount,3);assert.equal(await BusinessTransaction.countDocuments(),before);
+        });
+        await t.test('transaction details preserve reversal relationships, snapshots and original source event effects',async()=>{
+            const original=auditTransfers[0],before=await BusinessTransaction.countDocuments();
+            const reversed=await run(s=>accounts.reverseBusinessJournal(actor,{transactionId:String(original._id),requestKey:'audit-reversal',occurredAt:new Date().toISOString(),reason:'Correct transfer'},s));
+            const again=await run(s=>accounts.reverseBusinessJournal(actor,{transactionId:String(original._id),requestKey:'audit-reversal',occurredAt:reversed.occurredAt.toISOString(),reason:'Correct transfer'},s));assert.equal(String(again._id),String(reversed._id));
+            const detail=await http('GET',`/accounts/transactions/${original._id}`);assert.equal(detail.status,200);assert.equal(detail.body.data.transaction.reversedBy[0]._id,String(reversed._id));assert.equal(detail.body.data.transaction.reason,'Audit transfer');
+            const reverse=await http('GET',`/accounts/transactions/${reversed._id}`);assert.equal(reverse.body.data.transaction.reversalOf,String(original._id));assert.equal(reverse.body.data.originalTransaction.eventId,String(original._id));assert.equal(await BusinessTransaction.countDocuments(),before+1);
+            const source=await BusinessTransaction.findOne({shopId:shop._id,'source.kind':'INVOICE_RECEIPT'});const receipt=await http('GET',`/accounts/transactions/${source._id}`);assert.equal(receipt.status,200);assert.ok(receipt.body.data.transaction.sourceDocument.orderId);assert.ok(receipt.body.data.transaction.businessAction.financial.cashReceivedMinor>0);assert.ok(!Object.hasOwn(receipt.body.data.transaction,'requestHash'));
+            const scoped=await http('GET',`/accounts/financial/${cash._id}/history/${original._id}`);assert.equal(scoped.status,200);assert.equal(scoped.body.data.transaction.eventId,String(original._id));
+            assert.equal((await http('GET',`/accounts/financial/${empty._id}/history/${original._id}`)).status,404);
+        });
+        await t.test('legacy customer transaction views retain debt/credit separation without fabricated timestamps or role',async()=>{
+            const account=await FinancialAccount.findOne({shopId:shop._id,code:'CUSTOMER_RECEIVABLE'}),result=await http('GET',`/accounts/financial/${account._id}/history?type=PURCHASE`);assert.equal(result.status,200);assert.ok(result.body.data.transactions.length);
+            const view=result.body.data.transactions[0];assert.equal(view.recordKind,'CUSTOMER_LEDGER');assert.equal(view.occurredAt,null);assert.ok(view.recordedAt);assert.equal(view.actor.role,null);assert.equal(view.postings[0].moneyInMinor,null);assert.equal(view.postings[0].moneyOutMinor,null);assert.equal(view.postings[0].debitMinor,8000);assert.equal(result.body.data.rangeClosingBalanceMinor,8000);
+            const detail=await http('GET',`/accounts/financial/${account._id}/history/${view.eventId}`);assert.equal(detail.status,200);assert.equal(detail.body.data.transaction.eventId,view.eventId);
+            const credit=await FinancialAccount.findOne({shopId:shop._id,code:'STORE_CREDIT_LIABILITY'});assert.equal((await http('GET',`/accounts/financial/${credit._id}/history/${view.eventId}`)).status,404);
+            const wallet=await http('GET',`/accounts/financial/${credit._id}/history`);assert.equal(wallet.body.data.rangeClosingBalanceMinor,10000);assert.equal(wallet.body.data.transactions[0].postings[0].creditMinor,10000);assert.equal(wallet.body.data.transactions[0].postings[0].debitMinor,0);assert.equal(wallet.body.data.transactions[0].postings[0].moneyInMinor,null);assert.ok(wallet.body.data.transactions[0].occurredAt);assert.equal(wallet.body.data.transactions[0].actor.role,'OWNER');
+        });
+        await t.test('old journal metadata stays unknown instead of using current owner name or role',async()=>{
+            const source=auditTransfers[1],saved=await BusinessTransaction.findById(source._id).lean();
+            await BusinessTransaction.collection.updateOne({_id:source._id},{$unset:{createdByRole:'',recordedAt:''}});await User.updateOne({_id:owner._id},{$set:{username:'renamed owner'}});
+            try{const detail=await http('GET',`/accounts/transactions/${source._id}`);assert.equal(detail.status,200);assert.equal(detail.body.data.transaction.actor.role,null);assert.equal(detail.body.data.transaction.actor.name,saved.createdByName);assert.equal(detail.body.data.transaction.recordedAt,null);assert.equal((await BusinessTransaction.collection.findOne({_id:source._id})).recordedAt,undefined);}finally{await BusinessTransaction.collection.updateOne({_id:source._id},{$set:{createdByRole:saved.createdByRole,recordedAt:saved.recordedAt}});await User.updateOne({_id:owner._id},{$set:{username:owner.username}});}
+            const cashierJournal=await BusinessTransaction.findOne({shopId:shop._id,createdBy:cashier._id,'source.kind':'INVOICE_RECEIPT'}).lean();assert.equal(cashierJournal.createdByRole,'CASHIER');
+            await BusinessTransaction.collection.updateOne({_id:cashierJournal._id},{$unset:{createdByRole:''}});
+            try{const detail=await http('GET',`/accounts/transactions/${cashierJournal._id}`);assert.equal(detail.body.data.transaction.actor.role,'CASHIER');assert.equal(detail.body.data.transaction.actor._id,String(cashier._id));assert.equal((await BusinessTransaction.collection.findOne({_id:cashierJournal._id})).createdByRole,undefined);}finally{await BusinessTransaction.collection.updateOne({_id:cashierJournal._id},{$set:{createdByRole:'CASHIER'}});}
+        });
+        await t.test('audit APIs reject malformed filters, foreign records, unauthorized roles and disabled accounting',async()=>{
+            for(const suffix of ['?limit=101','?page=0','?type=BOGUS','?sourceId=bad','?accountId=bad','?from=invalid','?from=2026-01-02T00:00:00.000Z&to=2026-01-01T00:00:00.000Z','?q='+('a'.repeat(101))])assert.equal((await http('GET','/accounts/transactions'+suffix)).status,400,suffix);
+            assert.equal((await http('GET','/accounts/transactions/not-an-id')).status,400);
+            assert.equal((await http('GET','/accounts/transactions?q=%5B')).status,200);
+            assert.equal((await http('GET','/accounts/transactions?from=3000-01-01T00:00:00.000Z')).status,400);
+            for(const user of [cashier,admin])for(const route of ['/accounts/transactions',`/accounts/transactions/${auditTransfers[0]._id}`,`/accounts/financial/${cash._id}/history/${auditTransfers[0]._id}`])assert.equal((await http('GET',route,undefined,user)).status,403);
+            assert.equal((await http('GET',`/accounts/transactions/${auditTransfers[0]._id}`,undefined,foreign)).status,404);
+            const filtered=await http('GET',`/accounts/transactions?sourceId=${auditTransfers[0]._id}`,undefined,foreign);assert.equal(filtered.status,200);assert.equal(filtered.body.data.entries.length,0);
+            assert.equal((await http('GET',`/accounts/transactions?accountId=${cash._id}`,undefined,foreign)).status,404);
+            delete process.env.BUSINESS_ACCOUNTING_ENABLED;try{assert.equal((await http('GET','/accounts/transactions')).status,409);assert.equal((await http('GET',`/accounts/transactions/${auditTransfers[0]._id}`)).status,409);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
+            const original=await Shop.findById(shop._id);try{await Shop.updateOne({_id:shop._id},{$set:{subscriptionExpiry:new Date(0)}});assert.equal((await http('GET','/accounts/transactions')).status,403);await Shop.updateOne({_id:shop._id},{$set:{isActive:false}});assert.equal((await http('GET','/accounts/transactions')).body.message,'Shop has been deactivated. Contact administrator.');}finally{await Shop.updateOne({_id:shop._id},{$set:{isActive:true,subscriptionExpiry:original.subscriptionExpiry}});}
+        });
+        await t.test('audit reads never expose an uncommitted or rolled-back posting',async()=>{
+            const before=await balance(cash),session=await mongoose.startSession();session.startTransaction({readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
+            let pending;
+            try{
+                pending=await accounts.transferCashBank(actor,{fromAccountId:String(cash._id),toAccountId:String(bank._id),amountMinor:1,requestKey:'uncommitted-audit',occurredAt:new Date().toISOString(),reason:'Will roll back'},session);
+                assert.equal((await http('GET',`/accounts/transactions/${pending._id}`)).status,404);
+                const register=await http('GET',`/accounts/transactions?sourceId=${pending._id}`);assert.equal(register.status,200);assert.equal(register.body.data.pagination.recordCount,0);
+            }finally{if(session.inTransaction())await session.abortTransaction();await session.endSession();}
+            assert.equal((await http('GET',`/accounts/transactions/${pending._id}`)).status,404);assert.equal(await balance(cash),before);
+        });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;
         if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));

@@ -10,6 +10,7 @@ const schema = new Schema({
     occurredAt: {type: Date, required: true}, recordedAt: {type: Date, required: true, default: Date.now},
     reason: {type: String, required: true}, currency: {type: String, enum: ['PKR'], required: true, default: 'PKR'},
     createdBy: {type: Schema.Types.ObjectId, ref: 'User', required: true}, createdByName: {type: String, required: true},
+    createdByRole: {type: String, enum: ['OWNER', 'CASHIER']},
     postings: {type: [new Schema({accountId: {type: Schema.Types.ObjectId, ref: 'FinancialAccount', required: true},
         debitMinor: {type: Number, required: true}, creditMinor: {type: Number, required: true}}, {_id: false})], required: true},
     ownerConfirmedAt: Date

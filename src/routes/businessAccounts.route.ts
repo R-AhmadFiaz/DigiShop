@@ -16,6 +16,9 @@ businessAccountsRouter.route('/products/:id/brand').get(businessAccounts('produc
 businessAccountsRouter.route('/financial').get(businessAccounts('accounts')).post(businessAccounts('createAccount'));
 businessAccountsRouter.route('/financial/:id').get(businessAccounts('account'));
 businessAccountsRouter.route('/financial/:id/history').get(businessAccounts('history'));
+businessAccountsRouter.route('/financial/:id/history/:entryId').get(businessAccounts('historyEntry'));
+businessAccountsRouter.route('/transactions').get(businessAccounts('transactions'));
+businessAccountsRouter.route('/transactions/:id').get(businessAccounts('transaction'));
 businessAccountsRouter.route('/financial/:id/opening').post(businessAccounts('opening'));
 businessAccountsRouter.route('/cutover/prepare').post(businessAccounts('cutover'));
 businessAccountsRouter.route('/reconciliation').get(businessAccounts('reconcile'));

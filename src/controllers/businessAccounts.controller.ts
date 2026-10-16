@@ -110,7 +110,13 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             }
             case 'history':
                 await readableAccount(actor, recordId(req.params.id), session);
-                return accounts.getAccountStatement(actor, {accountId: recordId(req.params.id), ...paging(req.query), ...(req.query.from !== undefined ? {from: req.query.from as string} : {}), ...(req.query.to !== undefined ? {to: req.query.to as string} : {}), ...(req.query.q !== undefined ? {q: req.query.q as string} : {})}, session);
+                return accounts.getAccountStatement(actor, {accountId: recordId(req.params.id), ...paging(req.query), ...(req.query.from !== undefined ? {from: req.query.from as string} : {}), ...(req.query.to !== undefined ? {to: req.query.to as string} : {}), ...(req.query.q !== undefined ? {q: req.query.q as string} : {}), ...(req.query.type !== undefined ? {type: req.query.type as string} : {}), ...(req.query.sourceId !== undefined ? {sourceId: req.query.sourceId as string} : {})}, session);
+            case 'historyEntry':
+                await readableAccount(actor,recordId(req.params.id),session);
+                return accounts.getAccountHistoryEntry(actor,recordId(req.params.id),recordId(req.params.entryId),session);
+            case 'transactions':
+                return accounts.getBusinessTransactions(actor,{...paging(req.query),...(Object.fromEntries(['from','to','q','type','sourceId','accountId'].filter(k=>req.query[k]!==undefined).map(k=>[k,req.query[k]])) as any)},session);
+            case 'transaction':return accounts.getBusinessTransaction(actor,recordId(req.params.id),session);
             case 'opening':
                 enabled();
                 if (!await FinancialAccount.exists({_id: recordId(req.params.id), shopId: actor.shopId, kind: {$in: ['CASH', 'BANK']}}).session(session)) throw new apiError(400, 'Select a cash or bank account in this shop');

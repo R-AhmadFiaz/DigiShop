@@ -16,6 +16,8 @@ import {checkedCustomer, signedLedgerMinor, verifiedInvoiceFunding} from './invo
 import {moneyMinor, safeMinor} from './invoiceAccounting.js';
 import {accountKinds, balancedPostings, signedBalance} from './businessAccounting.js';
 import type {AccountKind, Posting} from './businessAccounting.js';
+import {historyFilters, invoiceSourceLookup, journalCoverage, journalTypes, journalViews, legacyTypes, legacyViews} from './businessHistory.js';
+import {invoiceAccountingEnabled} from './invoiceAccountingIntegration.js';
 
 type Actor = {_id: any, shopId: any, role: string};
 type Session = mongoose.ClientSession;
@@ -166,7 +168,7 @@ const sumStage = {$group: {_id: null, debit: {$sum: {$toDecimal: '$debitMinor'}}
 function sumBalance(row: any, side: 'DEBIT' | 'CREDIT') { return signedBalance(BigInt(row?.debit?.toString() ?? '0'), BigInt(row?.credit?.toString() ?? '0'), side); }
 function journalRows(shopId: any, accountId: any): any[] {
     return [{$match: {shopId: new mongoose.Types.ObjectId(String(shopId)), 'postings.accountId': accountId}}, {$unwind: '$postings'}, {$match: {'postings.accountId': accountId}},
-        {$project: {occurredAt: 1, recordedAt: 1, source: 1, reason: 1, createdBy: 1, createdByName: 1, debitMinor: '$postings.debitMinor', creditMinor: '$postings.creditMinor'}}];
+        {$project: {occurredAt: 1, recordedAt: 1, source: 1, reason: 1, createdBy: 1, createdByName: 1, createdByRole: 1, currency: 1, debitMinor: '$postings.debitMinor', creditMinor: '$postings.creditMinor'}}];
 }
 async function journalBalance(shopId: any, account: any, session: Session) {
     const rows = await BusinessTransaction.aggregate([...journalRows(shopId, account._id), sumStage]).session(session).option({maxTimeMS: 5000});
@@ -184,16 +186,14 @@ export async function getAccountBalance(actor: Actor, accountId: string, session
     return {authority: 'JOURNAL', balanceMinor: await journalBalance(actor.shopId, account, session), currency: 'PKR'};
 }
 
-export async function getAccountStatement(actor: Actor, input: {accountId: string, page?: number, limit?: number, from?: string, to?: string, q?: string}, session: Session) {
+export async function getAccountStatement(actor: Actor, input: {accountId: string, page?: number, limit?: number, from?: string, to?: string, q?: string, type?: string, sourceId?: string}, session: Session) {
     await owner(actor, session);
     const account = await accountInShop(actor, input.accountId, session);
     const page = input.page ?? 1, limit = input.limit ?? 20;
     if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new apiError(400, 'Invalid statement pagination');
-    const from = input.from === undefined ? null : utcDate(input.from), to = input.to === undefined ? null : utcDate(input.to);
-    if (from && to && from >= to) throw new apiError(400, 'Statement end must follow its start');
+    const {from,to,pattern,type,sourceId}=historyFilters(input,account.authority==='LEGACY_CUSTOMER'?legacyTypes:journalTypes);
+    const filtered=!!(pattern||type||sourceId);
     const skip = (page - 1) * limit, side = account.normalSide as 'DEBIT' | 'CREDIT';
-    if (input.q !== undefined && (typeof input.q !== 'string' || input.q.length > 100)) throw new apiError(400, 'Invalid statement search');
-    const pattern = input.q?.trim() ? new RegExp(input.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
     const balance = await getAccountBalance(actor, input.accountId, session);
     if (account.authority === 'LEGACY_CUSTOMER') {
         const entity = await getBusinessEntity(actor, String(account.entityId), session);
@@ -204,7 +204,7 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
         else filter.$or = [{balanceType: 'DEBT'}, {balanceType: {$exists: false}}];
         const rows = await CustomerLedger.find(filter).sort({createdAt: 1, _id: 1}).session(session).lean();
         let running = 0n, opening = 0n;
-        const inRange = rows.filter(row => (!from || row.createdAt >= from) && (!to || row.createdAt < to) && (!pattern || pattern.test([row.description, row.referenceId, row.invoiceNo].join(' '))));
+        const inRange = rows.filter(row => (!from || row.createdAt >= from) && (!to || row.createdAt < to) && (!pattern || pattern.test([row.description, row.referenceId, row.adjustmentId, row.invoiceNo].join(' '))) && (!type||row.description===type) && (!sourceId||[String(row.referenceId),String(row.adjustmentId)].includes(sourceId)));
         const pageIds = new Set(inRange.slice(skip, skip + limit).map(row => String(row._id)));
         const precedingIds = new Set(inRange.slice(0, skip).map(row => String(row._id)));
         const entries = [];
@@ -213,30 +213,90 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
             running += BigInt(signedLedgerMinor(row));
             if (pageIds.has(String(row._id))) entries.push({...row, runningBalanceMinor: signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)});
         }
-        return {...balance, ...(pattern ? {openingBalanceMinor: null} : {openingBalanceMinor: signedBalance(side === 'DEBIT' ? opening : 0n, side === 'CREDIT' ? opening : 0n, side)}), entries, pagination: {currentPage: page, limit, recordCount: inRange.length, totalPages: Math.ceil(inRange.length / limit)}};
+        const rangeOpeningBalanceMinor=signedBalance(rows.filter(r=>from&&r.createdAt<from).reduce((sum,r)=>sum+BigInt(signedLedgerMinor(r)),0n),0n,'DEBIT');
+        const rangeClosingBalanceMinor=signedBalance(rows.filter(r=>!to||r.createdAt<to).reduce((sum,r)=>sum+BigInt(signedLedgerMinor(r)),0n),0n,'DEBIT');
+        return {...balance, openingBalanceMinor:filtered?null:signedBalance(opening,0n,'DEBIT'),rangeOpeningBalanceMinor,rangeClosingBalanceMinor,
+            rangeNetChangeMinor:signedBalance(BigInt(rangeClosingBalanceMinor),BigInt(rangeOpeningBalanceMinor),'DEBIT'),
+            coverage:{complete:false,livePostingEnabled:false,records:'CUSTOMER_LEDGER',rangeTimestampBasis:'RECORDED_ONLY'},
+            transactions:await legacyViews(actor.shopId,account,entity,entries,session),entries, pagination: {currentPage: page, limit, recordCount: inRange.length, totalPages: Math.ceil(inRange.length / limit)}};
     }
     const range: any = {};
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
+    if(type)range['source.kind']=type;
+    if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)}]}];
     if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
-    const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id),
-        {$lookup: {from: InvoiceAdjustment.collection.name, let: {event: '$source.referenceId'}, pipeline: [
-            {$match: {shopId: new mongoose.Types.ObjectId(String(actor.shopId)), $expr: {$eq: ['$_id', '$$event']}}},
-            {$project: {invoiceNo: 1, orderId: 1}}
-        ], as: 'invoiceSource'}}, {$set: {invoice: {$arrayElemAt: ['$invoiceSource', 0]}}}, {$unset: 'invoiceSource'},
+    const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), ...invoiceSourceLookup(actor.shopId),
         {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
         prior: from ? [{$match: {occurredAt: {$lt: from}}}, sumStage] : [{$match: {$expr: {$eq: [1, 0]}}}],
-        pagePrior: skip ? [{$match: range}, {$limit: skip}, sumStage] : [{$match: {$expr: {$eq: [1, 0]}}}]
+        pagePrior: skip ? [{$match: range}, {$limit: skip}, sumStage] : [{$match: {$expr: {$eq: [1, 0]}}}],
+        rangeOpening:from?[{$match:{occurredAt:{$lt:from}}},sumStage]:[{$match:{$expr:{$eq:[1,0]}}}],
+        rangeClosing:[...(to?[{$match:{occurredAt:{$lt:to}}}]:[]),sumStage]
     }}]).session(session).option({maxTimeMS: 5000});
     const openingNet = BigInt(sumBalance(result.prior[0], side)) + BigInt(sumBalance(result.pagePrior[0], side));
     const openingBalanceMinor = signedBalance(openingNet, 0n, 'DEBIT');
     let running = BigInt(openingBalanceMinor);
     const entries = result.entries.map((row: any) => {
         running += side === 'DEBIT' ? BigInt(row.debitMinor) - BigInt(row.creditMinor) : BigInt(row.creditMinor) - BigInt(row.debitMinor);
-        return {...row, runningBalanceMinor: pattern ? null : signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)};
+        return {...row, runningBalanceMinor: filtered ? null : signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)};
     });
     const count = result.count[0]?.value ?? 0;
-    return {...balance, openingBalanceMinor: pattern ? null : openingBalanceMinor, entries, pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)}};
+    const documents=await BusinessTransaction.find({shopId:actor.shopId,_id:{$in:entries.map((r:any)=>r._id)}}).session(session).lean();
+    const views=await journalViews(actor.shopId,documents,session);
+    const rangeOpeningBalanceMinor=sumBalance(result.rangeOpening[0],side), rangeClosingBalanceMinor=sumBalance(result.rangeClosing[0],side);
+    return {...balance, openingBalanceMinor: filtered ? null : openingBalanceMinor,rangeOpeningBalanceMinor,rangeClosingBalanceMinor,
+        rangeNetChangeMinor:signedBalance(BigInt(rangeClosingBalanceMinor),BigInt(rangeOpeningBalanceMinor),'DEBIT'),coverage:journalCoverage,
+        transactions:entries.map((r:any)=>{const view=views.find(v=>String(v.eventId)===String(r._id))!;return {...view,accountPosting:view.postings.find(p=>p.accountId===String(account._id)),runningBalanceMinor:r.runningBalanceMinor};}),
+        entries, pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)}};
+}
+
+export async function getBusinessTransactions(actor:Actor,input:{page?:number,limit?:number,from?:string,to?:string,q?:string,type?:string,sourceId?:string,accountId?:string},session:Session) {
+    await owner(actor,session);
+    if(!invoiceAccountingEnabled())throw new apiError(409,'Accounting is disabled; posted test journal register is unavailable');
+    const page=input.page??1,limit=input.limit??20;
+    if(!Number.isSafeInteger(page)||page<1||page>100000||!Number.isSafeInteger(limit)||limit<1||limit>100)throw new apiError(400,'Invalid transaction pagination');
+    const {from,to,pattern,type,sourceId}=historyFilters(input,journalTypes);
+    const scope:any={shopId:new mongoose.Types.ObjectId(String(actor.shopId))};
+    if(input.accountId!==undefined){const account=await accountInShop(actor,id(input.accountId),session);scope['postings.accountId']=account._id;}
+    if(from||to)scope.occurredAt={...(from?{$gte:from}:{}),...(to?{$lt:to}:{})};
+    if(type)scope['source.kind']=type;
+    const selection:any={};
+    if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
+    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
+    const [result]=await BusinessTransaction.aggregate([{$match:scope},...invoiceSourceLookup(actor.shopId),{$match:selection},{$sort:{occurredAt:1,_id:1}},{$facet:{entries:[{$skip:(page-1)*limit},{$limit:limit}],count:[{$count:'value'}]}}]).session(session).option({maxTimeMS:5000});
+    const count=result.count[0]?.value??0;
+    return {coverage:journalCoverage,entries:await journalViews(actor.shopId,result.entries,session),pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};
+}
+
+export async function getBusinessTransaction(actor:Actor,transactionId:string,session:Session) {
+    await owner(actor,session);
+    if(!invoiceAccountingEnabled())throw new apiError(409,'Accounting is disabled; posted test journal detail is unavailable');
+    const journal=await BusinessTransaction.findOne({_id:id(transactionId),shopId:actor.shopId}).session(session).lean();
+    if(!journal)throw new apiError(404,'Transaction not found in shop');
+    const [transaction]=await journalViews(actor.shopId,[journal],session,true);
+    let originalTransaction=null;
+    if(journal.source.kind==='REVERSAL'){
+        const original=await BusinessTransaction.findOne({_id:journal.source.referenceId,shopId:actor.shopId}).session(session).lean();
+        if(original)originalTransaction=(await journalViews(actor.shopId,[original],session))[0]??null;
+    }
+    return {coverage:journalCoverage,transaction,originalTransaction};
+}
+
+export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryId:string,session:Session) {
+    await owner(actor,session);
+    const account=await accountInShop(actor,accountId,session);
+    if(account.authority==='JOURNAL'){
+        const journal=await BusinessTransaction.findOne({_id:id(entryId),shopId:actor.shopId,'postings.accountId':account._id}).session(session).lean();
+        if(!journal)throw new apiError(404,'Transaction not found for account');
+        return getBusinessTransaction(actor,entryId,session);
+    }
+    await getAccountBalance(actor,accountId,session);
+    const entity=await getBusinessEntity(actor,String(account.entityId),session);
+    const filter:any={_id:id(entryId),shopId:actor.shopId,customerId:entity.customerId,
+        ...(account.kind==='STORE_CREDIT_LIABILITY'?{balanceType:'CREDIT'}:{$or:[{balanceType:'DEBT'},{balanceType:{$exists:false}}]})};
+    const row=await CustomerLedger.findOne(filter).session(session).lean();
+    if(!row)throw new apiError(404,'Transaction not found for account');
+    return {coverage:{complete:false,livePostingEnabled:false,records:'CUSTOMER_LEDGER'},transaction:(await legacyViews(actor.shopId,account,entity,[row],session))[0]};
 }
 
 // Private posting engine. Only the fixed adapters below can supply invoice cash
@@ -277,7 +337,7 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
         if (claim.modifiedCount !== 1) throw new apiError(409, 'Account changed; retry the identical request');
     }
     const transactionId = new mongoose.Types.ObjectId();
-    const [transaction] = await BusinessTransaction.create([{_id: transactionId, shopId: actor.shopId, requestKey, requestHash: hash, source: {kind: source.kind, referenceId: source.referenceId ?? transactionId}, occurredAt, reason, createdBy: user._id, createdByName: user.username, postings, ...(confirmed ? {ownerConfirmedAt: new Date()} : {})}], {session});
+    const [transaction] = await BusinessTransaction.create([{_id: transactionId, shopId: actor.shopId, requestKey, requestHash: hash, source: {kind: source.kind, referenceId: source.referenceId ?? transactionId}, occurredAt, reason, createdBy: user._id, createdByName: user.username, createdByRole:user.role as 'OWNER'|'CASHIER', postings, ...(confirmed ? {ownerConfirmedAt: new Date()} : {})}], {session});
     return transaction!;
 }
 export function postBusinessJournal(actor: Actor, input: JournalInput, session: Session) { return post(actor, input, session, {kind: 'MANUAL'}); }

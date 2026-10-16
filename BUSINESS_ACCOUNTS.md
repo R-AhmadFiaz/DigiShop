@@ -613,3 +613,172 @@ The expected list must match the current links; stale changes return 409. Exact
 replays return the saved links. All linked entities are verified within the shop,
 maximum 20, and updates use the existing transaction and shop-write claim.
 Product.brand and product financial behavior remain unchanged.
+
+## Phase 4A — Transaction history and audit read foundation
+
+No accounting activation or new financial mutation endpoints. Existing settlement,
+stock, invoice and customer authorities remain unchanged. No history is rewritten.
+New optional BusinessTransaction.createdByRole records the verified database actor's
+role for newly posted journals. Existing journal/adjustment append-only hooks and
+unique source/idempotency indexes remain in force. No migration is required.
+The existing shop/date/_id and shop/account/date indexes support deterministic
+chronology; source-kind/reference and request-key uniqueness prevent duplicate
+postings. Index deployment verification remains required before any live rollout.
+
+### OWNER-only routes
+
+All use existing JWT, verifyShopUser and verifyOwner, plus the existing verified
+shop/user transaction wrapper. Responses have Cache-Control:no-store and use the
+existing `{statusCode:200,data:...,messege:"Success"}` envelope.
+
+- `GET /api/v2/accounts/transactions`: posted-journal register; page,limit,q,type,
+  from,to,sourceId,accountId. One row per BusinessTransaction, not per posting.
+- `GET /api/v2/accounts/transactions/:id`: journal detail and linked original
+  transaction when this is a reversal.
+- `GET /api/v2/accounts/financial/:id/history/:entryId`: detail restricted to that
+  account's own journal posting or legacy customer debt/credit ledger entry.
+- Existing `GET /api/v2/accounts/financial/:id/history` retains entries, balanceMinor,
+  openingBalanceMinor and pagination. It adds normalized transactions,
+  rangeOpeningBalanceMinor, rangeClosingBalanceMinor, rangeNetChangeMinor, coverage,
+  and optional type/sourceId filters. Existing Phase 3B frontend reads remain valid.
+
+CASHIER/ADMIN cannot access these owner financial routes. Manual deactivation and
+subscription expiry remain enforced first. Journal register/detail require the
+existing enabled test flag; disabled gives 409, true outside NODE_ENV=test gives
+503. Cash/bank statement/detail still require prepared cutover. Legacy customer
+statements/details remain available without accounting activation, using verified
+existing customer debt and wallet records. Supplier/unintegrated account statements
+remain unavailable; this does not invent purchasing or supplier payments.
+
+### Standard transaction representation
+
+Journal register entries and `history.transactions` use:
+
+```json
+{
+  "eventId": "<immutable-record-id>",
+  "recordKind": "BUSINESS_JOURNAL",
+  "eventType": "INVOICE_RECEIPT",
+  "currency": "PKR",
+  "occurredAt": "2026-10-16T10:00:00.000Z",
+  "recordedAt": "2026-10-16T10:00:00.100Z",
+  "timestampBasis": "EFFECTIVE_AND_RECORDED",
+  "actor": {"_id":"<actor-id>","name":"Ali","role":"CASHIER"},
+  "source": {"kind":"INVOICE_RECEIPT","referenceId":"<invoice-event-id>"},
+  "sourceDocument": {"orderId":"<invoice-id>","invoiceNo":"INV-10","eventId":"<invoice-event-id>","eventType":"SALE","sourceQuotationId":null},
+  "counterparty": {"customerId":"<customer-id>","name":"Customer name","entityId":null},
+  "amountMinor": 5000,
+  "postings": [
+    {"accountId":"<cash-id>","account":{"_id":"<cash-id>","name":"Counter cash","kind":"CASH","normalSide":"DEBIT"},"businessEntity":null,"debitMinor":5000,"creditMinor":0,"balanceDeltaMinor":5000,"moneyInMinor":5000,"moneyOutMinor":0},
+    {"accountId":"<clearing-id>","account":{"_id":"<clearing-id>","name":"Settlement control","kind":"SETTLEMENT_CLEARING","normalSide":"CREDIT"},"businessEntity":null,"debitMinor":0,"creditMinor":5000,"balanceDeltaMinor":5000,"moneyInMinor":null,"moneyOutMinor":null}
+  ],
+  "reversalOf": null,
+  "reversedBy": [],
+  "runningBalanceMinor": null
+}
+```
+
+Metadata unavailable in a legacy source is null, never a current-user substitute.
+Names/roles of journal actors use immutable snapshots. If a legacy journal lacks
+its role, an existing same-actor source-event role snapshot may supply it; today's
+User role is never consulted. Legacy customer PURCHASE actor names may use the
+same-actor invoice creator snapshot. Other absent actor names/roles remain null.
+Account/entity/counterparty labels are current same-shop directory metadata, not
+newly invented historical name snapshots. Missing linked account/entity records
+fail closed for reconciliation; missing source documents/metadata are not fabricated.
+All enrichment queries, including source quotation and reversal queries, are scoped
+to the authenticated shop. Actor IDs in old records do not imply the user still exists.
+
+Journal amountMinor is total debit counted ONCE for the balanced event; it is NOT
+revenue or net cash. Individual postings contain debitMinor,creditMinor and signed
+balanceDeltaMinor according to normalSide. Only CASH/BANK postings have non-null
+moneyInMinor/moneyOutMinor. Receivables, store-credit liability and clearing are
+not physical money. A transfer is one event with two account effects, not two sales.
+A return/exchange can produce both receipt and refund journals linked to the SAME
+invoice action. They are distinct money directions, not repeated sales/return totals.
+Do not sum an invoice action's financial summary once per linked journal.
+
+Journal details return `{coverage,transaction,originalTransaction}`. The transaction
+also includes businessAction when a verified source event exists: eventId,eventType,
+occurredAt,financial,movements,revisionBefore,revisionAfter. This traces original
+payments, added/returned units, refunds, cancellation and credit effects through
+existing immutable InvoiceAdjustment, without creating another authority.
+reversalOf points to the original journal; the original exposes reversedBy records.
+Invoice financial corrections remain separate dated invoice events, not journal
+rewrites. No standalone reversal mutation route is added.
+
+Legacy normalized records use recordKind=CUSTOMER_LEDGER, eventType=description,
+a single account effect and existing source invoice/event references. They are NOT
+new double-entry postings. An effective timestamp is supplied only from a verified
+linked invoice event. Otherwise occurredAt=null, recordedAt=existing createdAt and
+timestampBasis=RECORDED_ONLY. No original-sale time is guessed from invoice identity.
+Legacy correctionEventId identifies a linked adjustment/cancellation when known;
+unknown original/reversal relationships remain null/empty. Legacy detail responses
+contain `{coverage,transaction}` and do not invent a historical running balance.
+
+### Filters, order and balances
+
+Ordering is oldest-first (occurredAt,_id) for journals, (createdAt,_id) for legacy
+statements; the ID breaks equal-timestamp ties deterministically. Each request uses
+a MongoDB snapshot, but separate page requests do not freeze a changing database.
+Client refresh is needed if concurrent postings change the selected dataset.
+page=1..100000, limit=1..100 (default20). q is escaped text, maximum100 characters.
+from/to are canonical UTC ISO timestamps, inclusive start/exclusive end, non-future;
+invalid ranges/types/source IDs return400. sourceId/accountId must be ObjectIds.
+
+Journal type filters: MANUAL, OPENING, REVERSAL, INVOICE_RECEIPT, INVOICE_REFUND,
+TRANSFER. Legacy type filters: PURCHASE,CANCELLATION,PAYMENT,ADJUSTMENT,CREDIT_ISSUED,
+CREDIT_REDEEMED,CREDIT_RESTORED, limited to the selected debt/credit account.
+Journal search matches reason, actor-name snapshot, journal type, invoice number
+and exact journal/source IDs. sourceId matches source invoice event/invoice ID in
+statements and additionally journal ID in the register. Legacy search matches
+stored description/invoice number/reference/event ID; sourceId matches original
+invoice or adjustment reference. Nothing searches across shops.
+
+Statement rangeOpeningBalanceMinor is the complete authoritative balance strictly
+before from (zero when omitted); rangeClosingBalanceMinor is the complete balance
+strictly before to (current balance when omitted). rangeNetChangeMinor is their
+checked integer difference. These fields depend only on account/date range, NOT
+page, search or type filters. They are not totals of filtered search matches.
+Legacy ranges use RECORDED timestamps because complete historical effective dates
+are unavailable. Existing openingBalanceMinor remains the compatibility page-start
+balance, not the new date-range opening; it is null when journal filters omit rows.
+Unfiltered journal running balances include all preceding postings. Filtered journal
+running balances remain null, never sums of only matching rows. Legacy running
+balances include the complete preceding ledger, even when search/type hides entries.
+Current balanceMinor is separate from range/page balances. All money remains safe
+integer paisa; accumulation/checked output uses existing BigInt/Decimal128 utilities.
+
+Example register query:
+`GET /accounts/transactions?type=INVOICE_REFUND&from=2026-10-01T00:00:00.000Z&limit=20&page=1`.
+Example statement: `GET /accounts/financial/<id>/history?sourceId=<invoice-id>`.
+Register data is `{coverage,entries,pagination}`; statement data retains raw entries
+and additionally normalized transactions. For a selected journal statement,
+normalized rows also include accountPosting and the applicable runningBalanceMinor.
+No client should compute a shop-wide running balance by combining different accounts.
+
+### Coverage and frontend readiness
+
+The global register coverage is explicitly `{mode:"INTEGRATION_TEST",complete:false,
+livePostingEnabled:false,records:"BUSINESS_JOURNAL",excludes:[...]}`. It does NOT merge
+legacy customer rows, unposted historical sales, noncash settlement events without
+journals, or unsupported supplier activity into a fake complete financial register.
+Current invoice-event detail remains the source for those noncash financial effects.
+Reconciliation continues detecting missing/duplicate source postings and existing
+wallet/debt discrepancies; these read APIs never repair or synthesize absent events.
+Existing journal indexes, transaction idempotency and append-only hooks are reused.
+
+Ready for a professional transaction-history frontend for this SUPPORTED subset.
+Use coverage and null metadata explicitly, distinguish event rows from postings,
+use range balances rather than the compatibility page opening, and request details
+by eventId/recordKind (account-history detail for legacy entries). Preserve customer
+debt/store credit separation and the test-only gates. No frontend, production data,
+LIVE accounting, migration or supplier workflow is changed in Phase 4A.
+
+Phase 4A verification also checks that separate snapshot reads cannot observe an
+uncommitted journal and that aborted postings remain absent from details/register
+and balances. Existing write-path rollback/concurrency regression tests still run.
+Legacy CustomerLedger continues its existing model/append-by-service behavior;
+Phase 4A does not add journal-style mutation hooks to that model or change platform
+shop deletion. These read APIs expose no ledger edit/delete route. Database-level
+administrators are outside application append-only protections.
