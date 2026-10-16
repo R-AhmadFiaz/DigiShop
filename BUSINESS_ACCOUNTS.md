@@ -1279,3 +1279,69 @@ insufficient stock, paid-supplier rejection, reversals, original costs, forced
 late rollback, chronological statements, source links, permissions, shop isolation,
 missing evidence and disabled/production guards. Existing suites remain regression
 coverage for customer debt/credit, invoices, POS, purchase receiving and cutovers.
+
+
+## Phase 5A - verified local supplier integration (2026-10-16)
+
+The supported supplier workflow passed against real Express HTTP, production-built
+React, Chrome, cookie authentication and disposable MongoDB 8.3.4 replica-set
+transactions (Node v24.15.0). tests/supplier-browser.integration.mjs creates its
+own verified loopback database and temporary Vite preview. It disables dotenv
+loading of the real environment, never imports production database startup, uses
+test-only accounting, and removes its owned temporary database/processes afterward.
+No Atlas connection, production write, migration or accounting activation occurred.
+
+Twelve supplier browser/API scenario groups passed: supplier and product setup;
+purchase creation/confirmation; partial and complete deferred deliveries; reviewed
+supplier opening; post-cutoff payable posting; cash payment with a committed but
+truncated HTTP response and exact-key recovery; original-cost returns; bank
+payments and payment reversal; statements/register/details; concurrent receiving
+and injected late transaction rollback; role/shop isolation; missing openings,
+deferred gaps, refresh, responsive layout and final reconciliation.
+
+Verified main scenario (PKR; stock in units):
+
+| Evidence | Result |
+| --- | --- |
+| Reviewed pre-cutoff receipts | 10 units, PKR 100; PKR 80 unpaid opening and PKR 20 externally settled evidence |
+| Confirmed opening cash / bank | 100 / 500 |
+| Post-cutoff receipt | 5 units at PKR 20; payable increases by 100 |
+| Cash supplier payment | 30 |
+| Return at original received cost | 2 units at PKR 20, despite current product cost changing to 99 |
+| Net bank payment after traced reversal | 10 |
+| Final stock | 13 |
+| Final supplier payable | 100 |
+| Final cash / bank | 70 / 490 |
+
+The payable equation is 80 + 100 - 30 - 40 - 10 - 100 + 100 = 100.
+Three main supplier receipts, five settlement records, seven payable journal
+events and four product stock logs were verified. All persisted journals balance;
+stock agrees with stock-log movements. Supplier and cash/bank reconciliation agree.
+Seeded customer debt and store credit are unchanged; no CustomerLedger entry was
+created. Historical deferred receipts remain deferred, without automatic reposting.
+
+Executed verification:
+- Backend TypeScript build: passed.
+- Complete backend suite, serialized: 343 passed, zero failures/skips.
+- Focused purchase/payable/settlement replica suites: 56 passed, zero failures/skips
+  (a subset rerun, not 56 additional distinct backend tests).
+- New real supplier browser runner: 12 scenario groups passed.
+- Existing real invoice/POS browser runner: 19 scenario groups passed, including
+  returns, refunds, credit, cancellation, quotations, legacy compatibility and
+  dated/AI summaries. External AI provider calls are not part of this verification.
+- Frontend lint and production build: passed; frontend tests: 56 passed.
+
+Repeat after npm run build with node tests/supplier-browser.integration.mjs.
+The runner requires the existing local mongod, Chrome and installed dependencies;
+it does not install packages. Local evidence is written to the gitignored
+ tests/artifacts/supplier-phase5a-evidence.json and verification logs. No runtime
+application correction was necessary; only the repeatable integration test and
+verification documentation were added.
+
+Phase 5A is complete for supported local workflows. This is not approval to enable
+production accounting. Accounting stays disabled by default and NODE_ENV=test-only.
+Receipt allocations, supplier refund-due assets, incoming purchase refunds and
+carry-forward supplier credits remain unsupported. Returns above remaining payable
+are rejected. Unresolved historical receipt overlap/gaps still require explicit
+review. Production configuration, Atlas backups/indexes and any future activation
+require separate approval and verification; none were inspected remotely here.
