@@ -43,4 +43,32 @@ Manual subscription payment instructions are public receiving details only. Ther
 - User-scoped session storage retains uncertain supplier requests with their original body, timestamp, revision and key. Retry uses that exact request. No automatic retry or new key is generated after an uncertain response. Definite validation/conflict errors require refreshed review.
 - The register counts server events once, not postings. Cash/bank movements are distinct from accounting debits/credits. Zero-cost physical returns have settlement history without a fake zero journal. Display dates use Asia/Karachi; reporting filters explicitly remain UTC.
 - A return source may have a purchase reference without a document ID. The UI links to purchase search by that reference, without inventing a receipt endpoint. Existing settlement reversal events are displayed; initiating reversals is outside this frontend pass.
-- Authenticated browser-write tests use isolated contract responses. No financial requests are submitted to production Atlas. Real accounting integration requires the approved disposable local replica-set setup.
+- Fixture browser smoke tests use isolated contract responses. Phase 5A additionally verifies the real supplier workflow through Chrome, loopback Express and a disposable local MongoDB replica set. No financial requests are submitted to production Atlas.
+
+
+### Phase 5A - real local integration verification (2026-10-16)
+
+- Twelve real supplier browser/API scenario groups passed using production-built
+  React, actual cookie authentication and disposable MongoDB transactions. Purchase
+  creation, partial/full receiving, reviewed supplier opening, post-cutoff posting,
+  cash/bank payments, original-cost returns, reversal history and reconciliation
+  were verified. No mocked financial responses were used in this runner.
+- The main supplier finishes with 13 units in stock, PKR 100 payable, PKR 70 cash
+  and PKR 490 bank. Customer debt/store credit remain unchanged. Unavailable
+  accounting is displayed as unavailable rather than zero.
+- Tests also cover a committed payment with a lost/truncated response and exact-key
+  recovery, duplicate/concurrent receiving, late transaction rollback, missing
+  openings, deferred gaps, over-receiving/returns/payment, insufficient funds,
+  shop/role isolation, browser refresh, search, history pagination, transaction
+  details, Pakistan-local display timestamps and responsive layout.
+- Existing real invoice/POS browser regressions: 19 groups passed. Backend full
+  suite: 343 passed; focused real replica subset rerun: 56 passed. Frontend tests:
+  56 passed; lint and production build passed. No application defect was found;
+  no frontend runtime code or backend accounting guard changed.
+- Accounting remains disabled by default and test-only. Unsupported supplier
+  refund-due, incoming refunds, carry-forward credit and receipt payment allocation
+  remain unavailable. Production activation and historical reconciliation are not
+  authorized by this local verification. No production database was contacted.
+- Repeatable supplier runner and local evidence are in the backend repository:
+  tests/supplier-browser.integration.mjs and gitignored
+  tests/artifacts/supplier-phase5a-evidence.json.
