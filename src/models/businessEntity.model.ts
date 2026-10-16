@@ -1,6 +1,6 @@
 import {Schema, model} from 'mongoose';
 
-export const businessRoles = ['CUSTOMER', 'SUPPLIER', 'MANUFACTURER', 'OTHER'] as const;
+export const businessRoles = ['CUSTOMER', 'SUPPLIER', 'COMPANY', 'MANUFACTURER', 'OTHER'] as const;
 const schema = new Schema({
     shopId: {type: Schema.Types.ObjectId, ref: 'Shop', required: true, immutable: true},
     key: {type: String, required: true, immutable: true},

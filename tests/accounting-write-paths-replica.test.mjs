@@ -24,6 +24,8 @@ const {Product}=await import('../dist/models/product.model.js');
 const {StockLog}=await import('../dist/models/stockLog.model.js');
 const {InvoiceAdjustment}=await import('../dist/models/invoiceAdjustment.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
+const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
+const {BusinessBrand,ProductBrandLink}=await import('../dist/models/businessBrand.model.js');
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
 const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -37,7 +39,7 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
         for(let n=0;;n++){try{await mongoose.connect(`mongodb://127.0.0.1:${port}/accounting_http_test?directConnection=true`,{serverSelectionTimeoutMS:500,autoCreate:false,autoIndex:false});break;}catch(error){if(n>40)throw error;await sleep(100);}}
         await mongoose.connection.db.admin().command({replSetInitiate:{_id:'accountingHttp',members:[{_id:0,host:`127.0.0.1:${port}`}]}});
         for(let n=0;!(await mongoose.connection.db.admin().command({hello:1})).isWritablePrimary;n++){if(n>200)throw Error('No primary');await sleep(100);}
-        for(const Model of [Shop,User,Customer,CustomerLedger,Order,Product,StockLog,InvoiceAdjustment,FinancialAccount,BusinessTransaction]){await Model.createCollection();await Model.createIndexes();}
+        for(const Model of [Shop,User,Customer,CustomerLedger,Order,Product,StockLog,InvoiceAdjustment,FinancialAccount,BusinessTransaction,BusinessEntity,BusinessBrand,ProductBrandLink]){await Model.createCollection();await Model.createIndexes();}
         const ownerId=new mongoose.Types.ObjectId(),foreignId=new mongoose.Types.ObjectId();
         const shop=await Shop.create({name:'HTTP Accounting Shop',ownerId,address:'Test',contactNo:'03111111111',subscriptionActive:true,subscriptionExpiry:new Date(Date.now()+86400000)});
         const foreignShop=await Shop.create({name:'Other Shop',ownerId:foreignId,address:'Test',contactNo:'03222222222',subscriptionActive:true,subscriptionExpiry:new Date(Date.now()+86400000)});
@@ -389,6 +391,104 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
             let row=r.entries.find(e=>e.eventId===String(event._id));if(!row){r=await run(s=>accounts.reconcileCashBank(actor,{clearingAccountId:String(clearing._id),limit:100,page:2},s));row=r.entries.find(e=>e.eventId===String(event._id));}assert.ok(row);assert.deepEqual(row.issues,[]);
             const ledger=await CustomerLedger.findOne({referenceId:order._id,description:'CREDIT_REDEEMED'}).lean();
             try{await CustomerLedger.collection.updateOne({_id:ledger._id},{$set:{amountMinor:ledger.amountMinor+1}});const mismatch=await run(s=>accounts.reconcileBusinessCustomer(actor,String(buyer._id),s));assert.equal(mismatch.reconciled,false);assert.equal((await CustomerLedger.collection.findOne({_id:ledger._id})).amountMinor,ledger.amountMinor+1);}finally{await CustomerLedger.collection.updateOne({_id:ledger._id},{$set:{amountMinor:ledger.amountMinor}});}
+        });
+        let entity;
+        await t.test('Accounts APIs create multiple-role entities, replay identity keys and reject duplicates',async()=>{
+            const body={key:'eagle-company',name:'Eagle Cables',roles:['COMPANY','SUPPLIER'],phoneNo:'03001234567'};
+            const first=await http('POST','/accounts/entities',body);assert.equal(first.status,200,JSON.stringify(first.body));entity=first.body.data;
+            const again=await http('POST','/accounts/entities',body);assert.equal(again.status,200);assert.equal(again.body.data._id,entity._id);
+            assert.equal((await http('POST','/accounts/entities',{...body,key:'duplicate'})).status,409);
+            assert.equal((await http('POST','/accounts/entities',{...body,key:'invalid',roles:['BOGUS'],name:'Other',phoneNo:''})).status,400);
+            const results=await http('GET','/accounts/entities?q=Eagle&role=COMPANY&limit=1');assert.equal(results.status,200);assert.equal(results.body.data.entries.length,1);
+            assert.equal((await http('GET','/accounts/entities?q=%5B')).status,200);
+            assert.equal((await http('GET','/accounts/entities?limit=101')).status,400);
+        });
+        await t.test('Accounts APIs resolve linked customers without duplicating financial identities and safely link brands',async()=>{
+            const buyer=await customer(),before=await Customer.countDocuments();
+            const linked=await http('POST','/accounts/entities',{key:'linked-buyer',customerId:String(buyer._id),roles:['CUSTOMER','SUPPLIER']});assert.equal(linked.status,200);
+            const detail=await http('GET',`/accounts/entities/${linked.body.data._id}`);assert.equal(detail.body.data.name,buyer.name);assert.equal(await Customer.countDocuments(),before);
+            assert.equal((await http('GET',`/accounts/entities?q=${encodeURIComponent(buyer.name)}`)).body.data.entries.length,1);
+            assert.equal((await http('POST','/accounts/entities',{key:'duplicate-buyer',customerId:String(buyer._id),roles:['CUSTOMER']})).status,409);
+            const p=await product(),brand=await http('POST','/accounts/brands',{name:p.brand,entityIds:[entity._id]});assert.equal(brand.status,200);
+            const links={entityIds:[entity._id,linked.body.data._id],expectedEntityIds:[entity._id]};
+            assert.equal((await http('PATCH',`/accounts/brands/${brand.body.data._id}/entities`,links)).status,200);
+            assert.equal((await http('PATCH',`/accounts/brands/${brand.body.data._id}/entities`,links)).status,200);
+            assert.equal((await http('PATCH',`/accounts/brands/${brand.body.data._id}/entities`,{entityIds:[],expectedEntityIds:[]})).status,409);
+            assert.equal((await http('PUT',`/accounts/products/${p._id}/brand`,{brandId:brand.body.data._id})).status,200);
+            assert.ok((await http('GET',`/accounts/products/${p._id}/brand`)).body.data.entities.some(row=>row._id===entity._id));
+            const roles=await http('PATCH',`/accounts/entities/${entity._id}/roles`,{roles:['COMPANY','SUPPLIER','OTHER'],expectedRevision:0});assert.equal(roles.status,200);
+            assert.equal((await http('PATCH',`/accounts/entities/${entity._id}/roles`,{roles:['COMPANY'],expectedRevision:0})).status,409);
+        });
+        await t.test('Accounts APIs expose prepared balances, paginated searchable history and read-only reconciliation',async()=>{
+            const detail=await http('GET',`/accounts/financial/${cash._id}`);assert.equal(detail.status,200);assert.equal(detail.body.data.balanceMinor,await balance(cash));assert.equal(detail.body.data.livePostingEnabled,false);
+            const list=await http('GET','/accounts/financial?q=CASH&limit=1');assert.equal(list.status,200);assert.ok(!Object.hasOwn(list.body.data.entries[0],'balanceMinor'));
+            const history=await http('GET',`/accounts/financial/${cash._id}/history?limit=2`);assert.equal(history.status,200);assert.equal(history.body.data.entries.length,2);assert.equal(typeof history.body.data.entries[0].runningBalanceMinor,'number');
+            const filtered=await http('GET',`/accounts/financial/${cash._id}/history?q=INVOICE_RECEIPT&limit=1`);assert.equal(filtered.status,200);assert.equal(filtered.body.data.entries[0].source.kind,'INVOICE_RECEIPT');assert.equal(filtered.body.data.entries[0].runningBalanceMinor,null);assert.equal(filtered.body.data.openingBalanceMinor,null);
+            const invoiceSearch=await http('GET',`/accounts/financial/${cash._id}/history?q=${encodeURIComponent(paid.order.invoiceNo)}`);assert.equal(invoiceSearch.status,200);assert.ok(invoiceSearch.body.data.entries.some(row=>row.invoice?.orderId===paid.order._id));
+            const dated=await http('GET',`/accounts/financial/${cash._id}/history?from=${cutoffAt}&to=${new Date().toISOString()}&limit=1`);assert.equal(dated.status,200);assert.equal(dated.body.data.entries.length,1);
+            assert.equal((await http('GET',`/accounts/financial/${cash._id}/history?from=invalid`)).status,400);
+            const count=await BusinessTransaction.countDocuments();const r=await http('GET',`/accounts/reconciliation?clearingAccountId=${clearing._id}&limit=2`);assert.equal(r.status,200);assert.equal(r.body.data.livePostingEnabled,false);assert.equal(await BusinessTransaction.countDocuments(),count);
+        });
+        await t.test('Accounts APIs retain authoritative customer debt and credit as separate accounts',async()=>{
+            const buyer=await fundedCustomer();await sale({paidAmount:20,customerId:String(buyer._id)});
+            const party=await http('POST','/accounts/entities',{key:'separate-balances',customerId:String(buyer._id),roles:['CUSTOMER']});
+            for(const kind of ['CUSTOMER_RECEIVABLE','STORE_CREDIT_LIABILITY']){
+                const created=await http('POST','/accounts/financial',{code:kind,name:kind,kind,entityId:party.body.data._id});assert.equal(created.status,200,JSON.stringify(created.body));
+                const read=await http('GET',`/accounts/financial/${created.body.data._id}`);assert.equal(read.status,200);assert.equal(read.body.data.authority,'LEGACY_CUSTOMER');assert.equal(read.body.data.balanceMinor,kind==='CUSTOMER_RECEIVABLE'?8000:10000);
+                delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+                try{assert.equal((await http('GET',`/accounts/financial/${created.body.data._id}`)).status,200);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
+            }
+            assert.equal((await Customer.findById(buyer._id)).remainingMoney,80);assert.equal((await Customer.findById(buyer._id)).storeCreditBalanceMinor,10000);
+            assert.equal((await http('GET',`/accounts/customers/${buyer._id}/reconciliation`)).status,200);
+        });
+        await t.test('Accounts APIs enforce owner permissions and foreign-shop isolation',async()=>{
+            for(const user of [cashier,admin]) for(const [method,url,body] of [['GET','/accounts/entities'],['GET','/accounts/financial'],['POST','/accounts/entities',{key:'forbidden',name:'Forbidden',roles:['COMPANY']}],['POST',`/accounts/financial/${cash._id}/opening`,{}],['GET',`/accounts/reconciliation?clearingAccountId=${clearing._id}`]]) assert.equal((await http(method,url,body,user)).status,403);
+            assert.equal((await http('GET',`/accounts/entities/${entity._id}`,undefined,foreign)).status,404);
+            assert.equal((await http('GET',`/accounts/financial/${cash._id}`,undefined,foreign)).status,404);
+            assert.equal((await http('GET',`/accounts/customers/${(await customer())._id}/reconciliation`,undefined,foreign)).status,404);
+            assert.equal((await http('PUT',`/accounts/products/${(await product())._id}/brand`,{brandId:entity._id},foreign)).status,400);
+        });
+        await t.test('all Accounts APIs reject expired and manually deactivated shops before financial persistence',async()=>{
+            const paths=[['GET','/accounts/entities'],['POST','/accounts/entities',{}],['GET',`/accounts/entities/${entity._id}`],['PATCH',`/accounts/entities/${entity._id}/roles`,{}],['PATCH',`/accounts/entities/${entity._id}/customer`,{}],['GET','/accounts/brands'],['POST','/accounts/brands',{}],['GET',`/accounts/products/${entity._id}/brand`],['PUT',`/accounts/products/${entity._id}/brand`,{}],['GET','/accounts/financial'],['POST','/accounts/financial',{}],['GET',`/accounts/financial/${cash._id}`],['GET',`/accounts/financial/${cash._id}/history`],['POST',`/accounts/financial/${cash._id}/opening`,{}],['POST','/accounts/cutover/prepare',{}],['GET',`/accounts/reconciliation?clearingAccountId=${clearing._id}`],['GET',`/accounts/customers/${entity._id}/reconciliation`]];
+            const original=await Shop.findById(shop._id);const before=await BusinessTransaction.countDocuments();
+            try{
+                for(const state of [{subscriptionExpiry:new Date(0)},{isActive:false}]){
+                    await Shop.updateOne({_id:shop._id},{$set:state});
+                    for(const [method,url,body] of paths){const result=await http(method,url,body);assert.equal(result.status,403,url);assert.equal(result.body.message,state.isActive===false?'Shop has been deactivated. Contact administrator.':'Subscription expired or inactive');}
+                }
+                assert.equal(await BusinessTransaction.countDocuments(),before);
+            }finally{await Shop.updateOne({_id:shop._id},{$set:{isActive:true,subscriptionExpiry:original.subscriptionExpiry}});}
+        });
+        await t.test('concurrent entity creation cannot create duplicate shop identities',async()=>{
+            const results=await Promise.all(['company-a','company-b'].map(key=>http('POST','/accounts/entities',{key,name:'Unique simultaneous supplier',roles:['SUPPLIER']})));
+            assert.equal(results.filter(row=>row.status===200).length,1);assert.equal(results.filter(row=>row.status===409).length,1);assert.equal(await BusinessEntity.countDocuments({shopId:shop._id,name:'Unique simultaneous supplier'}),1);
+        });
+        await t.test('Accounts APIs create confirmed openings once and reject incomplete balances and unsafe activation',async()=>{
+            const created=await http('POST','/accounts/financial',{code:'API_TILL',name:'New till',kind:'CASH'});assert.equal(created.status,200);const id=created.body.data._id;
+            const body={requestKey:'api-opening-key',equityAccountId:String(equity._id),amountMinor:1000,occurredAt:new Date().toISOString(),reason:'Counted till',confirmation:'CONFIRM OPENING BALANCE'};
+            assert.equal((await http('POST',`/accounts/financial/${id}/opening`,{...body,confirmation:'no'})).status,400);
+            assert.equal((await http('POST',`/accounts/financial/${id}/opening`,body)).status,200);assert.equal((await http('POST',`/accounts/financial/${id}/opening`,body)).status,200);
+            assert.equal((await http('GET',`/accounts/financial/${id}`)).status,409);
+            delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+            try{assert.equal((await http('GET',`/accounts/financial/${cash._id}`)).status,409);assert.equal((await http('POST','/accounts/financial',{code:'BLOCKED',name:'Blocked',kind:'BANK'})).status,409);assert.equal((await http('GET','/accounts/entities')).status,200);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
+            process.env.NODE_ENV='production';try{assert.equal((await http('POST',`/accounts/financial/${id}/opening`,body)).status,503);}finally{process.env.NODE_ENV='test';}
+        });
+        await t.test('public cutover preparation rolls back invalid evidence and permits only confirmed test balances',async()=>{
+            const till=(await http('POST','/accounts/financial',{code:'PREVIEW_TILL',name:'Prepared till',kind:'CASH'})).body.data;
+            const control=(await http('POST','/accounts/financial',{code:'PREVIEW_CONTROL',name:'Other control',kind:'SETTLEMENT_CLEARING'},foreign)).body.data;
+            // A second clearing account in one shop is rejected, not silently reused.
+            assert.equal((await http('POST','/accounts/financial',{code:'ANOTHER_CONTROL',name:'Another',kind:'SETTLEMENT_CLEARING'})).status,409);
+            const when=new Date().toISOString();
+            const preparation={clearingAccountId:String(control._id),cutoffAt:when,confirmation:'PREPARE CASH BANK CUTOVER',accounts:[{accountId:till._id,confirmedBalanceMinor:0}]};
+            assert.equal((await http('POST','/accounts/cutover/prepare',preparation)).status,404);
+            assert.equal((await FinancialAccount.findById(till._id)).cashCutoverId,undefined);
+            assert.equal((await http('POST','/accounts/cutover/prepare',{...preparation,accounts:[null]})).status,400);
+            assert.equal((await http('POST',`/accounts/financial/${equity._id}/opening`,{})).status,400);
+            const otherTill=(await http('POST','/accounts/financial',{code:'OTHER_TILL',name:'Other till',kind:'CASH'},foreign)).body.data;
+            const valid={...preparation,accounts:[{accountId:otherTill._id,confirmedBalanceMinor:0}]};
+            assert.equal((await http('POST','/accounts/cutover/prepare',valid,foreign)).status,200);
+            assert.equal((await http('POST','/accounts/cutover/prepare',valid,foreign)).status,200);
+            const read=await http('GET',`/accounts/financial/${otherTill._id}`,undefined,foreign);assert.equal(read.status,200);assert.equal(read.body.data.balanceMinor,0);
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;

@@ -494,3 +494,122 @@ not guessed. All required indexes and every reconciliation page must be verified
 before any approved cutover. Follow the Phase 2B freeze/drain, confirmed openings,
 UTC cutoff and downgrade procedure; do not simply remove the test-only guard.
 No production migration, historical repair or production enablement is included.
+
+## Phase 3A: OWNER account-management and read APIs
+
+All paths below are relative to `/api/v2/accounts`. All use verifyJWT,
+verifyShopUser (manual access and subscription checks), and verifyOwner. Every
+operation re-verifies the database user/shop through businessTransaction and uses
+one snapshot/majority MongoDB transaction. Responses use the existing envelope:
+`{statusCode:200,data:...,messege:"Success"}` and `Cache-Control: no-store`.
+CASHIER and ADMIN receive 403. CASHIER retains only the existing balance-free
+`GET /api/v2/orders/payment-accounts` for permitted POS/conversion routing.
+
+| Method | Path | Request / purpose |
+| --- | --- | --- |
+| POST | /entities | key, roles, and standalone name/optional phoneNo,address; or existing customerId with CUSTOMER role |
+| GET | /entities | q, role, page, limit; search name/contact/key including linked Customer details |
+| GET | /entities/:id | Own-shop identity with live linked customer details |
+| PATCH | /entities/:id/roles | roles, expectedRevision; retain linked CUSTOMER and existing supplier-account role |
+| PATCH | /entities/:id/customer | customerId, expectedRevision, confirmation="LINK EXISTING CUSTOMER" |
+| POST | /brands | name, entityIds; explicit company/brand links, not inferred supplier identity |
+| GET | /brands | q, page, limit |
+| PUT | /products/:id/brand | brandId; existing Product.brand must match, same shop only |
+| GET | /products/:id/brand | Explicit matching brand and linked entities, or null |
+| POST | /financial | code, name, kind, optional entityId; test-enabled only |
+| GET | /financial | q, entityId, page, limit; metadata only, no misleading inferred balances |
+| GET | /financial/:id | Metadata plus authoritative balanceMinor/currency/authority |
+| GET | /financial/:id/history | q, from, to, page, limit; account statement |
+| POST | /financial/:id/opening | requestKey,equityAccountId,amountMinor,occurredAt,reason,confirmation="CONFIRM OPENING BALANCE"; test-enabled only |
+| POST | /cutover/prepare | clearingAccountId,cutoffAt,accounts:[{accountId,confirmedBalanceMinor}],confirmation="PREPARE CASH BANK CUTOVER"; test-enabled only |
+| GET | /reconciliation | clearingAccountId,page,limit; test-enabled prepared-cutover preview, never repair |
+| GET | /customers/:id/reconciliation | Existing verified customer debt/store-credit reconciliation, never repair |
+
+### Identity and account rules
+
+COMPANY is added alongside CUSTOMER, SUPPLIER, MANUFACTURER and OTHER. Roles can
+coexist. CUSTOMER must link an existing same-shop Customer; no duplicate Customer
+or second financial identity is created. Customer details are resolved live.
+Identity keys are stable, case-normalized and unique within the shop; exact
+standalone name/contact conflicts with another key require review (409). Linked
+customer uniqueness is additionally enforced by the existing unique index. Name
+similarity is not a safe automatic merge; intentional homonyms require review.
+Role edits use expectedRevision. Links cannot replace an already linked customer.
+Existing brand services keep Product.brand distinct and unchanged.
+
+Example create: `POST /entities` with
+`{"key":"eagle-cables","name":"Eagle Cables","roles":["COMPANY","SUPPLIER"]}`.
+Example linked identity:
+`{"key":"existing-buyer","customerId":"<existing-customer-id>","roles":["CUSTOMER","SUPPLIER"]}`.
+Repeat identical key/details returns the existing record; differing details conflict.
+No generic entity deletion, journal editing, journal posting or historical repair
+endpoint is exposed.
+
+Financial account creation supports CASH, BANK, CUSTOMER_RECEIVABLE,
+STORE_CREDIT_LIABILITY, SUPPLIER_PAYABLE, OPENING_EQUITY and SETTLEMENT_CLEARING.
+Party kinds require a valid linked entity and role. Customer accounts always use
+LEGACY_CUSTOMER authority. Existing code/entity-kind indexes prevent duplicates.
+Example: `{"code":"TILL_1","name":"Counter cash","kind":"CASH"}`.
+All financial setup/opening/cutover mutations require
+BUSINESS_ACCOUNTING_ENABLED=true AND NODE_ENV=test. Disabled mode returns a clear
+409; a true flag outside test returns 503. No production accounting is enabled.
+
+### Balance and history contract
+
+Money is integer paisa, currency PKR. Customer receivable and credit balances are
+separate verified reads of existing Customer/CustomerLedger, never journal copies.
+Example account detail data:
+`{account:{...},authority:"LEGACY_CUSTOMER",balanceMinor:125000,currency:"PKR",livePostingEnabled:false}`.
+Journal cash/bank detail/history requires the test flag and membership in a
+prepared cutover. Unprepared accounts return 409, not a fictitious zero live balance.
+Supplier and other unintegrated journal balances/history return 409 until their
+posting/cutover coverage is approved; their metadata remains listable.
+Historical inactive prepared cash/bank accounts remain readable by OWNER.
+
+List responses contain entries and pagination:
+`{currentPage:1,limit:20,recordCount:42,totalPages:3}`. Maximum limit=100;
+page is 1..100000, q is at most 100 characters and regex-escaped. Statements are
+oldest-first. from/to are canonical UTC ISO strings (inclusive/exclusive,
+non-future); omitted dates include all available records. Journal search matches
+reason, source kind and actor-name snapshot. Customer history search matches
+description, invoice number and source reference. Source references are stable
+IDs, not fabricated invoice numbers; clients can use existing invoice APIs.
+Journal entries return occurredAt/recordedAt, source, actor snapshot and separate
+debitMinor/creditMinor. Legacy entries retain their stored signed amount,
+description, invoiceNo, referenceId, actor ID and createdAt; no missing actor name
+or historical timestamp is invented.
+
+Unfiltered statements provide exact opening/running balances. Search-filtered
+journal history returns null openingBalanceMinor and runningBalanceMinor rather
+than summing only matching entries as if they were the complete history. Legacy
+running balances still include every original row; its search opening is null.
+Current balance remains separately available and never means the filtered total.
+Existing full legacy-ledger reconciliation scans remain a known scaling limit.
+
+### Frontend integration and remaining rollout limits
+
+Use credentials/include, existing role protection, and handle 403/409/503 plainly.
+Retain stable identity keys, account codes and opening requestKey for retries;
+never retry a financial operation with a new key after an uncertain result.
+Opening amounts and cutover confirmations require explicit owner review. Customer
+opening balances remain forbidden; they are already authoritative legacy records.
+Cash/bank openings and cutover must use the identical confirmed UTC cutoff, before
+any integrated financial activity. The existing services enforce this evidence.
+All reconciliation pages must be inspected; a single clean page is not complete
+reconciliation. No read request repairs or creates historical financial events.
+
+Safe for local Accounts frontend integration: identity/brand metadata and customer
+reconciliation/read APIs; account setup, prepared cash/bank reads, opening and
+cash reconciliation only in explicitly enabled disposable test environments.
+No LIVE rollout, supplier purchases/payments, historical import, account-status
+mutation, general-ledger mutation or production cutover is implemented here.
+Phase 3B can build the frontend against these contracts without enabling live
+accounting. Production opening/cutover requires the separately approved rollout
+and reconciliation process documented above.
+
+Existing brand company links can also be edited through OWNER-only
+`PATCH /brands/:id/entities` with `{entityIds:[...],expectedEntityIds:[...]}`.
+The expected list must match the current links; stale changes return 409. Exact
+replays return the saved links. All linked entities are verified within the shop,
+maximum 20, and updates use the existing transaction and shop-write claim.
+Product.brand and product financial behavior remain unchanged.

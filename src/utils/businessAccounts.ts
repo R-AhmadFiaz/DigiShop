@@ -184,7 +184,7 @@ export async function getAccountBalance(actor: Actor, accountId: string, session
     return {authority: 'JOURNAL', balanceMinor: await journalBalance(actor.shopId, account, session), currency: 'PKR'};
 }
 
-export async function getAccountStatement(actor: Actor, input: {accountId: string, page?: number, limit?: number, from?: string, to?: string}, session: Session) {
+export async function getAccountStatement(actor: Actor, input: {accountId: string, page?: number, limit?: number, from?: string, to?: string, q?: string}, session: Session) {
     await owner(actor, session);
     const account = await accountInShop(actor, input.accountId, session);
     const page = input.page ?? 1, limit = input.limit ?? 20;
@@ -192,6 +192,8 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     const from = input.from === undefined ? null : utcDate(input.from), to = input.to === undefined ? null : utcDate(input.to);
     if (from && to && from >= to) throw new apiError(400, 'Statement end must follow its start');
     const skip = (page - 1) * limit, side = account.normalSide as 'DEBIT' | 'CREDIT';
+    if (input.q !== undefined && (typeof input.q !== 'string' || input.q.length > 100)) throw new apiError(400, 'Invalid statement search');
+    const pattern = input.q?.trim() ? new RegExp(input.q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
     const balance = await getAccountBalance(actor, input.accountId, session);
     if (account.authority === 'LEGACY_CUSTOMER') {
         const entity = await getBusinessEntity(actor, String(account.entityId), session);
@@ -202,7 +204,7 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
         else filter.$or = [{balanceType: 'DEBT'}, {balanceType: {$exists: false}}];
         const rows = await CustomerLedger.find(filter).sort({createdAt: 1, _id: 1}).session(session).lean();
         let running = 0n, opening = 0n;
-        const inRange = rows.filter(row => (!from || row.createdAt >= from) && (!to || row.createdAt < to));
+        const inRange = rows.filter(row => (!from || row.createdAt >= from) && (!to || row.createdAt < to) && (!pattern || pattern.test([row.description, row.referenceId, row.invoiceNo].join(' '))));
         const pageIds = new Set(inRange.slice(skip, skip + limit).map(row => String(row._id)));
         const precedingIds = new Set(inRange.slice(0, skip).map(row => String(row._id)));
         const entries = [];
@@ -211,11 +213,17 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
             running += BigInt(signedLedgerMinor(row));
             if (pageIds.has(String(row._id))) entries.push({...row, runningBalanceMinor: signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)});
         }
-        return {...balance, openingBalanceMinor: signedBalance(side === 'DEBIT' ? opening : 0n, side === 'CREDIT' ? opening : 0n, side), entries, pagination: {currentPage: page, limit, recordCount: inRange.length, totalPages: Math.ceil(inRange.length / limit)}};
+        return {...balance, ...(pattern ? {openingBalanceMinor: null} : {openingBalanceMinor: signedBalance(side === 'DEBIT' ? opening : 0n, side === 'CREDIT' ? opening : 0n, side)}), entries, pagination: {currentPage: page, limit, recordCount: inRange.length, totalPages: Math.ceil(inRange.length / limit)}};
     }
     const range: any = {};
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
-    const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
+    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
+    const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id),
+        {$lookup: {from: InvoiceAdjustment.collection.name, let: {event: '$source.referenceId'}, pipeline: [
+            {$match: {shopId: new mongoose.Types.ObjectId(String(actor.shopId)), $expr: {$eq: ['$_id', '$$event']}}},
+            {$project: {invoiceNo: 1, orderId: 1}}
+        ], as: 'invoiceSource'}}, {$set: {invoice: {$arrayElemAt: ['$invoiceSource', 0]}}}, {$unset: 'invoiceSource'},
+        {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
         prior: from ? [{$match: {occurredAt: {$lt: from}}}, sumStage] : [{$match: {$expr: {$eq: [1, 0]}}}],
         pagePrior: skip ? [{$match: range}, {$limit: skip}, sumStage] : [{$match: {$expr: {$eq: [1, 0]}}}]
@@ -225,10 +233,10 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     let running = BigInt(openingBalanceMinor);
     const entries = result.entries.map((row: any) => {
         running += side === 'DEBIT' ? BigInt(row.debitMinor) - BigInt(row.creditMinor) : BigInt(row.creditMinor) - BigInt(row.debitMinor);
-        return {...row, runningBalanceMinor: signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)};
+        return {...row, runningBalanceMinor: pattern ? null : signedBalance(side === 'DEBIT' ? running : 0n, side === 'CREDIT' ? running : 0n, side)};
     });
     const count = result.count[0]?.value ?? 0;
-    return {...balance, openingBalanceMinor, entries, pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)}};
+    return {...balance, openingBalanceMinor: pattern ? null : openingBalanceMinor, entries, pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)}};
 }
 
 // Private posting engine. Only the fixed adapters below can supply invoice cash
@@ -564,6 +572,21 @@ export async function createBusinessBrand(actor: Actor, input: {name: string, en
     await owner(actor, session, true);
     const [brand] = await BusinessBrand.create([{shopId: actor.shopId, name, nameKey, entityIds}], {session});
     return brand!;
+}
+export async function setBusinessBrandEntities(actor: Actor, brandId: string, entityIds: string[], expectedEntityIds: string[], session: Session) {
+    await owner(actor, session);
+    if (!Array.isArray(entityIds) || !Array.isArray(expectedEntityIds) || entityIds.length > 20 || expectedEntityIds.length > 20) throw new apiError(400, 'Valid current and replacement business links required');
+    const desired = entityIds.map(id).sort(), expected = expectedEntityIds.map(id).sort();
+    if (new Set(desired).size !== desired.length || new Set(expected).size !== expected.length) throw new apiError(400, 'Duplicate business links');
+    const brand = await BusinessBrand.findOne({_id: id(brandId), shopId: actor.shopId}).session(session);
+    if (!brand) throw new apiError(404, 'Brand not found in shop');
+    for (const entityId of desired) await getBusinessEntity(actor, entityId, session);
+    if (brand.entityIds.map(String).sort().join() === desired.join()) return brand;
+    if (brand.entityIds.map(String).sort().join() !== expected.join()) throw new apiError(409, 'Brand links changed; reload before editing');
+    await owner(actor, session, true);
+    const result = await BusinessBrand.findOneAndUpdate({_id: brand._id, shopId: actor.shopId, entityIds: brand.entityIds}, {$set: {entityIds: desired}}, {session, new: true, runValidators: true});
+    if (!result) throw new apiError(409, 'Brand links changed; reload before editing');
+    return result;
 }
 export async function linkProductBrand(actor: Actor, productId: string, brandId: string, session: Session) {
     await owner(actor, session);
