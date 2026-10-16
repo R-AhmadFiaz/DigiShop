@@ -782,3 +782,170 @@ Legacy CustomerLedger continues its existing model/append-by-service behavior;
 Phase 4A does not add journal-style mutation hooks to that model or change platform
 shop deletion. These read APIs expose no ledger edit/delete route. Database-level
 administrators are outside application append-only protections.
+
+## Phase 4B — Supplier purchase orders and actual goods receiving
+
+### Implemented boundary and accounting policy
+
+Purchasing/stock receiving works with accounting disabled (the unchanged default).
+Receipt documents preserve evidence of the original received-goods obligation,
+not a second authoritative supplier balance. Full payable integration is deliberately
+DEFERRED: the existing system has no approved supplier opening/cutover or complete
+purchase inventory valuation coverage. Do not reuse the cash cutover as approval
+for supplier payable integration or treat customer debt/store credit as supplier debt.
+
+- Drafting or confirming an order changes NO stock, customer debt, credit, payable
+  balance or cash. It only records an agreed order and confirmation history.
+- Physically received quantities create an immutable GoodsReceipt and matching
+  stock movements. Received quantity times original agreed cost is captured in paisa.
+  That receipt is the permanent source event for later payable posting/reconciliation.
+- GoodsReceipt.accountingStatus is DEFERRED and obligationType is RECEIVED_GOODS.
+  Receipt totalMinor and PO receivedValueMinor are received-goods COST VALUE, not
+  proof of today's unpaid supplier balance. External payments or prior supplier
+  arrangements are unknown; none are invented or inferred.
+- No FinancialAccount balance, BusinessTransaction journal, Customer.remainingMoney,
+  store-credit wallet or CustomerLedger entry is changed by these purchase APIs.
+  Supplier account balance/history APIs retain their existing unavailable response.
+- If BUSINESS_ACCOUNTING_ENABLED=true in NODE_ENV=test, a NEW receipt fails with409:
+  "Supplier payable cutover is not approved; receiving with accounting enabled is unavailable".
+  Thus stock cannot commit while required enabled-mode accounting is skipped.
+  An exact replay of an already committed deferred receipt returns that original
+  record without new stock/postings. True outside test retains the existing503 guard.
+- Payment fields (paidAmount/paymentAmount/cashAmount/creditAmount and payment or
+  cash-account routing) are rejected. Supplier payments and purchase returns are NOT
+  implemented. Viewing orders/receipts does not imply payment or activate accounting.
+
+### OWNER APIs
+
+Relative to `/api/v2/purchases`. Existing JWT, verifyShopUser and verifyOwner apply;
+CASHIER/ADMIN cannot use these APIs. Owner identity and shop membership are verified
+again inside the existing snapshot/majority businessTransaction. Mutations claim
+a real shop write to conflict with concurrent shop deletion/deactivation. Existing
+callers keep unchanged behavior; the wrapper's new write opt-in defaults to false.
+All responses use `{statusCode:200,data:...,messege:"Success"}`, Cache-Control:no-store.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | / | Create draft, never receive stock |
+| GET | / | Paginated purchase-order history |
+| GET | /:id | Original ordered items, received counts/value, revision and actions |
+| POST | /:id/confirm | Confirm a draft at its expected revision |
+| POST | /:id/cancel | Cancel draft or outstanding remainder; never return received stock |
+| POST | /:id/receipts | Record one actual delivery |
+| GET | /:id/receipts | Paginated immutable delivery history |
+
+Create body:
+```json
+{"requestKey":"purchase-create-unique","reference":"PO-100","supplierId":"<same-shop-supplier-entity>","items":[{"productId":"<same-shop-product>","quantity":10,"unitCostMinor":1234}]}
+```
+Confirm body: `{"requestKey":"confirm-po-100","expectedRevision":0}`.
+Receive body:
+```json
+{"requestKey":"delivery-unique-key","reference":"GR-100-A","expectedRevision":1,"items":[{"productId":"<ordered-product>","quantity":4}]}
+```
+Cancel body:
+`{"requestKey":"cancel-po-100","expectedRevision":2,"reason":"Remaining delivery no longer required"}`.
+
+Supplier must already be an existing same-shop SUPPLIER BusinessEntity; COMPANY
+and CUSTOMER can coexist. Linked customer identity is reused without copying any
+financial balances. Supplier role cannot be removed once purchase history exists.
+One product per order/receipt line, 1..100 lines, whole positive safe-integer quantities.
+All costs are explicitly nonnegative integer paisa, not floating-point PKR inputs:
+1234 means PKR12.34. Free items (zero cost) retain a zero-value source, not fictional
+money. BigInt multiplication/sums are checked before safe-integer storage. No taxes,
+freight, purchase discounts, fractional units, cost averaging or currency conversion
+are silently added. Existing Product.costPrice and selling prices are NOT overwritten.
+Products with ambiguous fractional/overflowing stock must be reconciled first.
+
+References are explicit shop-local unique references (1..50 letters/numbers/slashes/
+dashes/underscores), trimmed and uppercased. They are not shared invoice counters.
+Request keys are stable 8..100 word/dash characters. Do not submit a new key after
+an uncertain response: retry the identical body/key. Changed payload/key reuse gives
+409. Items are canonicalized by product ID for retry identity. Actor and timestamps
+come from the verified database user/server, ignoring forged creator/date input.
+Receipt unit costs and product snapshots always come from the original purchase,
+never the receive request or today's changed Product cost.
+
+### States and recorded structures
+
+DRAFT -> CONFIRMED -> PARTIALLY_RECEIVED -> RECEIVED. A single complete delivery
+can go directly CONFIRMED -> RECEIVED. Each mutation increments revision. Confirm
+and cancel append dated actor-snapshotted actions with their stable request identity.
+CANCELLED locks new deliveries. Cancelling a partly received order cancels ONLY
+its outstanding remainder: prior received quantities, receipts, stock and original
+obligation evidence stay intact. Fully received orders cannot be cancelled; a
+future purchase-return workflow will be needed. Draft editing is not implemented;
+cancel an incorrect draft and create a replacement. Agreed products/quantities/costs
+are never edited by these endpoints.
+
+PurchaseOrder contains shop/reference, supplier ID/name snapshot, original product
+name/brand/unit snapshots, quantity,unitCostMinor,totalMinor,receivedQuantity per line,
+totalMinor,receivedValueMinor,currency,status,revision, creator ID/name/role, createdAt,
+updatedAt and confirmation/cancellation actions. GoodsReceipt contains its own ID
+and reference, source purchase ID/reference, supplier snapshot, actual received
+items/costs, totalMinor/currency, DEFERRED obligation status, revisionBefore/After,
+creator ID/name/role, occurredAt and recordedAt (server UTC dates).
+
+Mutation data returns `{purchaseOrder,replayed,accounting}` or for receiving
+`{receipt,purchaseOrder,replayed,accounting}`. Read detail is `{purchaseOrder,accounting}`.
+Accounting explicitly returns
+`{status:"DEFERRED",supplierBalanceAvailable:false,cashMovementMinor:0}`.
+A replay returns the ORIGINAL immutable receipt and the CURRENT purchase state;
+its revision may have advanced after subsequent deliveries.
+
+Lists return `{entries,pagination,accounting}` with pagination
+`{currentPage,limit,recordCount,totalPages}`. page=1..100000, limit=1..100 (default20).
+Filters: q (escaped reference/supplier-snapshot name, max100), supplierId, from,to;
+PO lists additionally support status. UTC from is inclusive, to exclusive, canonical
+ISO and non-future. Orders sort (createdAt desc,_id desc), receipts (occurredAt desc,
+_id desc). No unbounded receiving-history response is embedded in a detail request.
+
+### Atomicity, audit and indexes
+
+One MongoDB transaction contains receipt insert, every conditional product increment,
+per-product StockLog, PO received summaries and revision/status transition. Over-receipt,
+stale revision, missing/foreign records and any late failure abort all changes.
+Concurrent receipts conflict on shop, purchase and product writes; retry only after
+checking current state. Same-key receipt replay never restocks twice. Unique shop
+receipt reference also prevents an accidental duplicate delivery under a new key.
+A genuinely identical delivery submitted under BOTH a new key and a different new
+reference cannot be recognized as the same physical event; the owner must not do so.
+
+GoodsReceipt has journal-style append-only save/update/delete/bulk guards. Corrections
+must not edit receipts. StockLog uses reason PURCHASE_RECEIVED, purchaseReceiptId,
+purchaseReference and receivingReference, with the server receipt event date.
+It does not fake Order.referenceId, invoiceNo or saleType to satisfy sales schemas.
+New optional fields preserve existing sale/manual stock-history behavior.
+
+Required indexes: PurchaseOrder unique(shopId,reference), unique(shopId,requestKey),
+(shopId,createdAt desc,_id desc), (shopId,supplierId,createdAt desc,_id desc),
+(shopId,status,createdAt desc,_id desc). GoodsReceipt unique(shopId,reference),
+unique(shopId,requestKey), (shopId,purchaseOrderId,occurredAt desc,_id desc),
+(shopId,supplierId,occurredAt desc,_id desc). StockLog has partial unique
+(shopId,purchaseReceiptId,productId), only when purchaseReceiptId is an ObjectId.
+Verify these indexes before enabling public receiving. No migration/backfill runs.
+Existing ADMIN permanent deletion now includes new purchase orders and receipts
+inside its existing transaction, without changing deactivation/authorization rules.
+This remains the sole platform deletion exception for immutable receipt records.
+
+### Verification and Phase 4C dependency
+
+Disposable loopback MongoDB replica tests use actual HTTP and persisted data,
+including partial/full deliveries, historical agreed prices, changed products,
+replay, over-receiving, concurrent revisions, duplicate delivery references, late
+rollback, owner-only/cross-shop gates, subscription/manual access and shop deletion.
+Existing POS/invoice/return/credit and journal tests remain regression coverage.
+
+Before Phase 4C can pay suppliers: approve supplier payable/inventory valuation
+cutover and opening policy; reconcile deferred receipts against externally settled
+amounts without fabricating payment history; implement source-unique balanced
+purchase posting in the same receiving transaction; and verify balances/reversal
+policy. Never sum these deferred receipts and label that an authoritative payable.
+Existing prepared cash accounts alone do NOT approve supplier integration.
+No supplier payments, purchase returns, LIVE accounting, frontend, production data,
+commits, pushes, deployment or automatic follow-on phase is included here.
+
+The receipt's DEFERRED accountingStatus records its status at creation and is
+immutable. A future approved posting must reference that source ID and derive
+posting status from verified journal linkage; it must not rewrite the original
+receipt or treat its value as evidence of an unpaid opening balance.

@@ -23,6 +23,8 @@ const {BusinessEntity} = await import('../dist/models/businessEntity.model.js');
 const {FinancialAccount} = await import('../dist/models/financialAccount.model.js');
 const {BusinessTransaction} = await import('../dist/models/businessTransaction.model.js');
 const {BusinessBrand, ProductBrandLink} = await import('../dist/models/businessBrand.model.js');
+const {PurchaseOrder}=await import('../dist/models/purchaseOrder.model.js');
+const {GoodsReceipt}=await import('../dist/models/goodsReceipt.model.js');
 const id = n => n.toString(16).padStart(24, '0');
 const shopId = id(1), otherId = id(2), adminId = id(3), ownerId = id(4), cashierId = id(5);
 let db, commits, aborts, ends, failure, concurrentReactivation;
@@ -34,7 +36,7 @@ function reset(isActive = false) {
     users: [{ _id: adminId, role: 'ADMIN', shopId }, { _id: ownerId, role: 'OWNER', shopId },
       { _id: cashierId, role: 'CASHIER', shopId }, { _id: id(6), role: 'OWNER', shopId: otherId }],
   };
-  for (const key of ['categories', 'products', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks'])
+  for (const key of ['categories', 'products', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts'])
     db[key] = [{ _id: id(10), shopId }, { _id: id(11), shopId: otherId }];
   db.orders = [{ _id: id(12), shopId, type: 'INVOICE' }, { _id: id(13), shopId, type: 'QUOTATION' },
     { _id: id(14), shopId: otherId, type: 'INVOICE' }];
@@ -66,7 +68,7 @@ Shop.deleteOne = async (filter, { session }) => {
   return { deletedCount: count - session.pending.shops.length };
 };
 for (const [Model, key] of [[Category, 'categories'], [Product, 'products'], [Order, 'orders'],
-  [Customer, 'customers'], [StockLog, 'logs'], [CustomerLedger, 'ledgers'], [InvoiceAdjustment, 'adjustments'], [User, 'users'], [BusinessEntity, 'entities'], [FinancialAccount, 'accounts'], [BusinessBrand, 'brands'], [ProductBrandLink, 'brandlinks'], [BusinessTransaction.collection, 'journals']]) {
+  [Customer, 'customers'], [StockLog, 'logs'], [CustomerLedger, 'ledgers'], [InvoiceAdjustment, 'adjustments'], [User, 'users'], [BusinessEntity, 'entities'], [FinancialAccount, 'accounts'], [BusinessBrand, 'brands'], [ProductBrandLink, 'brandlinks'], [BusinessTransaction.collection, 'journals'],[PurchaseOrder,'purchases'],[GoodsReceipt.collection,'receipts']]) {
   Model.deleteMany = async (filter, { session }) => {
     assert.equal(String(filter.shopId), shopId);
     assert.ok(session?.pending, 'every deletion participates in the transaction');
@@ -90,7 +92,7 @@ try {
     reset(); const before = structuredClone(db);
     assert.equal((await remove()).status, 200);
     assert.equal(db.shops.some(s => s._id === shopId), false);
-    for (const key of ['categories', 'products', 'orders', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks']) {
+    for (const key of ['categories', 'products', 'orders', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts']) {
       assert.equal(db[key].some(row => row.shopId === shopId), false, key);
       assert.deepEqual(db[key], before[key].filter(row => row.shopId === otherId));
     }
@@ -121,7 +123,7 @@ try {
     assert.deepEqual(db, before); assert.equal(commits, 0);
   });
   await test('failure at any cascade step rolls back the shop and all associated deletions', async () => {
-    for (const key of ['ledgers', 'adjustments', 'logs', 'orders', 'customers', 'products', 'categories', 'users', 'entities', 'accounts', 'journals', 'brands', 'brandlinks']) {
+    for (const key of ['ledgers', 'adjustments', 'logs', 'orders', 'customers', 'products', 'categories', 'users', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts']) {
       reset(); failure = key; const before = structuredClone(db);
       assert.equal((await remove()).status, 500);
       assert.deepEqual(db, before); assert.equal(commits, 0); assert.equal(aborts, 1); assert.equal(ends, 1);

@@ -12,6 +12,7 @@ import { customerRouter } from "./routes/customer.route.js";
 import { aiRouter } from "./routes/ai.route.js";
 import { adminRouter } from "./routes/admin.route.js";
 import {businessAccountsRouter} from './routes/businessAccounts.route.js';
+import {purchaseRouter} from './routes/purchase.route.js';
 
 const app = express()
 
@@ -32,6 +33,7 @@ app.use('/api/v2/customers', customerRouter)
 app.use('/api/v2/ai', aiRouter)
 app.use('/api/v2/admin', adminRouter)
 app.use('/api/v2/accounts', businessAccountsRouter)
+app.use('/api/v2/purchases', purchaseRouter)
 
 app.use((err: apiError, req: Request, res: Response, next: NextFunction) => {
 

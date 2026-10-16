@@ -11,6 +11,7 @@ import {BusinessEntity, businessRoles} from '../models/businessEntity.model.js';
 import {FinancialAccount} from '../models/financialAccount.model.js';
 import {BusinessTransaction} from '../models/businessTransaction.model.js';
 import {BusinessBrand, ProductBrandLink} from '../models/businessBrand.model.js';
+import {PurchaseOrder} from '../models/purchaseOrder.model.js';
 import {apiError} from './apiError.js';
 import {checkedCustomer, signedLedgerMinor, verifiedInvoiceFunding} from './invoiceSettlement.js';
 import {moneyMinor, safeMinor} from './invoiceAccounting.js';
@@ -58,11 +59,11 @@ async function owner(actor: Actor, session: Session, write = false, cashierSale 
 
 // Internal only. Future inventory adapters must pass THIS session to all stock
 // and financial writes. No automatic financial retry or public route is added.
-export async function businessTransaction<T>(actor: Actor, work: (session: Session) => Promise<T>): Promise<T> {
+export async function businessTransaction<T>(actor: Actor, work: (session: Session) => Promise<T>, write=false): Promise<T> {
     const session = await mongoose.startSession();
     session.startTransaction({readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}});
     try {
-        await owner(actor, session);
+        await owner(actor, session, write);
         const result = await work(session);
         await session.commitTransaction();
         return result;
@@ -114,7 +115,7 @@ export async function setBusinessRoles(actor: Actor, entityId: string, roles: st
     await owner(actor, session);
     const entity = await getBusinessEntity(actor, entityId, session);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !Array.isArray(roles) || !roles.length || new Set(roles).size !== roles.length || roles.some(r => !businessRoles.includes(r as any)) || roles.includes('CUSTOMER') !== !!entity.customerId) throw new apiError(400, 'Retain the linked customer identity and valid roles');
-    if (!roles.includes('SUPPLIER') && await FinancialAccount.exists({shopId: actor.shopId, entityId: entity._id, kind: 'SUPPLIER_PAYABLE'}).session(session)) throw new apiError(409, 'Supplier account requires supplier role');
+    if (!roles.includes('SUPPLIER') && (await FinancialAccount.exists({shopId: actor.shopId, entityId: entity._id, kind: 'SUPPLIER_PAYABLE'}).session(session) || await PurchaseOrder.exists({shopId:actor.shopId,supplierId:entity._id}).session(session))) throw new apiError(409, 'Supplier account or purchase history requires supplier role');
     await owner(actor, session, true);
     const result = await BusinessEntity.findOneAndUpdate({_id: entity._id, shopId: actor.shopId, revision: expectedRevision}, {$set: {roles: [...roles].sort()}, $inc: {revision: 1}}, {session, new: true, runValidators: true});
     if (!result) throw new apiError(409, 'Business identity changed; reload before editing');
