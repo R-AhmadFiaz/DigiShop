@@ -19,6 +19,18 @@ test('drafts can be corrected, zeros are preserved and irreversible confirmation
 });
 test('historical opening equity and supplier reviews are not fabricated sales or investments',()=>{
   assert.match(source,/No historical payment is invented/);assert.match(source,/unallocated opening equity, not a partner investment/);
-  assert.match(source,/unpaidMinor:minorAmount/);assert.match(source,/otherOpeningMinor:minorAmount/);assert.match(source,/time\)/);
+  assert.match(source,/unpaidMinor:money/);assert.match(source,/otherOpeningMinor:money/);assert.match(source,/time\)/);
   assert.doesNotMatch(source,/create-order|\/capital'|\/expenses'/);
+});
+
+test('successful draft save retains the rendered page and shows the next confirmation step',()=>{
+  assert.match(source,/setSnapshot\(result\)/);assert.match(source,/onSaved\(result\)/);assert.match(source,/Draft saved\. Next: click Review for confirmation below/);
+  assert.match(source,/Saved — awaiting confirmation/);assert.match(source,/row.declaredMinor!==null/);
+  const saveHandler=source.split('function saved(result)')[1].split('function changed')[0];assert.doesNotMatch(saveHandler,/view.reload/);
+});
+test('zero and empty inventory are explicit, while validation stays beside fields and Save',()=>{
+  assert.match(source,/0 is valid if this account has no opening money/);assert.match(source,/no products, quantity 0 and value PKR 0/);
+  assert.match(source,/name="inventoryReviewed"/);assert.match(source,/!inventoryReviewed/);assert.match(source,/form noValidate/);
+  assert.match(source,/fieldError\('cash-'\+row._id\)/);assert.match(source,/fieldError\('reason'\)/);assert.match(source,/fieldError\('expected'\)/);assert.match(source,/<Notice error={error} success={success}/);
+  assert.match(source,/busy\|\|locked\|\|dirty/);assert.match(source,/setPreview\(null\);setInventoryReviewed\(false\)/);
 });
