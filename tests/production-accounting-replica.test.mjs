@@ -414,6 +414,38 @@ await test('production activation: actual HTTP and disposable loopback replica s
       assert.equal(await mongoose.models.CustomerLedger.countDocuments({shopId,description:'PAYMENT'}),2);
       assert.equal((await http('GET','/orders/'+invoice._id,undefined,user)).body.data.eligibility.paymentEligible,false);
     });
+    await t.test('ACTIVE quotation conversion: 2 coils/8000 cash, exact replay, rollback and partial CASHIER payment',async()=>{
+      const user=await User.findOne({username:'zeroshopowner'}),shopId=user.shopId;
+      const till=await FinancialAccount.findOne({shopId,kind:'CASH'}),cashier=await User.findOne({shopId,role:'CASHIER'});
+      const p=await Product.create({shopId,name:'Quotation coil',slug:'quotation-coil',brand:'Eagle',category:new mongoose.Types.ObjectId(),unit:'coil',stockQuantity:10,costPrice:3000,retailPrice:4000});
+      const beforeCash=ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor;
+      const beforeInvoices=await Order.countDocuments({shopId,type:'INVOICE'});
+      const quotation=ok(await http('POST','/orders/quotation',{items:[{productId:String(p._id),quantity:2}],saleType:'RETAIL'},user)).quotation;
+      const path='/orders/'+quotation._id,body={paidAmount:8000,receiptAccountId:String(till._id),requestKey:'4a47c129-b8bd-497c-8945-2ae4d3a19462'};
+      assert.equal((await http('PATCH',path,{paidAmount:8000},user)).status,400);
+      assert.equal((await http('PATCH',path,{...body,receiptAccountId:String(bank._id)},user)).status,404);
+      assert.equal((await Product.findById(p._id)).stockQuantity,10);assert.equal(await Order.countDocuments({shopId,type:'INVOICE'}),beforeInvoices);
+      assert.equal((await Order.findById(quotation._id)).status,'DRAFT');assert.equal(ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor,beforeCash);
+      const results=await Promise.all([http('PATCH',path,body,user),http('PATCH',path,body,user)]);
+      assert.ok(results.some(r=>[200,201].includes(r.status)));assert.ok(results.every(r=>[200,201,409].includes(r.status)));
+      const invoice=ok(await http('PATCH',path,body,user)).createOrder;
+      assert.equal(invoice.totalPrice,8000);assert.equal(invoice.paidAmount,8000);assert.equal(invoice.amountDue,0);
+      assert.equal((await Product.findById(p._id)).stockQuantity,8);assert.equal(await Order.countDocuments({shopId,type:'INVOICE'}),beforeInvoices+1);
+      const event=await InvoiceAdjustment.findOne({shopId,sourceQuotationId:quotation._id,kind:'SALE'});
+      assert.equal(String(event.orderId),invoice._id);assert.equal(await InvoiceAdjustment.countDocuments({shopId,sourceQuotationId:quotation._id}),1);
+      assert.equal(await BusinessTransaction.countDocuments({shopId,'source.kind':'INVOICE_RECEIPT','source.referenceId':event._id}),1);
+      assert.equal(await mongoose.models.StockLog.countDocuments({shopId,referenceId:invoice._id}),1);
+      assert.equal(ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor,beforeCash+800000);
+      assert.equal((await http('PATCH',path,{...body,requestKey:'another-conversion-key'},user)).status,409);
+      assert.equal((await http('PATCH',path,body,a.owner)).status,404);
+      const buyer=await Customer.create({shopId,name:'Quotation buyer',phoneNo:'03009998887'});
+      const partial=ok(await http('POST','/orders/quotation',{items:[{productId:String(p._id),quantity:1}],saleType:'RETAIL'},cashier)).quotation;
+      const request={paidAmount:1000,customerId:String(buyer._id),receiptAccountId:String(till._id),requestKey:'partial-quotation-cashier'};
+      const converted=ok(await http('PATCH','/orders/'+partial._id,request,cashier)).createOrder;
+      assert.equal(converted.amountDue,3000);assert.equal(converted.paidAmount,1000);assert.equal((await Customer.findById(buyer._id)).remainingMoney,3000);
+      assert.equal(ok(await http('PATCH','/orders/'+partial._id,request,cashier)).createOrder._id,converted._id);
+      assert.equal((await Product.findById(p._id)).stockQuantity,7);assert.equal(ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor,beforeCash+900000);
+    });
   }finally{
     if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();
     await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));await fs.rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:150});

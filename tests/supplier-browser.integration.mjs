@@ -39,7 +39,7 @@ const {Order} = await import('../dist/models/order.model.js');
 const {CustomerLedger} = await import('../dist/models/customerLedger.model.js');
 const {StockLog} = await import('../dist/models/stockLog.model.js');
 const children = [], passed = [], errors = [];
-let httpServer,upstreamServer,socket,sequence=0,dropPaymentResponse=false,dropSaleResponse=false;
+let httpServer,upstreamServer,socket,sequence=0,dropPaymentResponse=false,dropSaleResponse=false,dropConversionResponse=false;
 const requests=[];const accounts=await import('../dist/utils/businessAccounts.js');
 const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
@@ -94,8 +94,8 @@ try{
   httpServer=http.createServer((req,res)=>{
     const entry={method:req.method,path:req.url,body:''};requests.push(entry);req.on('data',chunk=>entry.body+=chunk);
     const forward=http.request(upstreamBase+req.url,{method:req.method,headers:req.headers},upstream=>{
-      if(req.method==='POST'&&upstream.statusCode>=200&&upstream.statusCode<300&&((dropPaymentResponse&&req.url.endsWith('/payments'))||(dropSaleResponse&&req.url.endsWith('/create-order')))){
-        if(req.url.endsWith('/payments'))dropPaymentResponse=false;else dropSaleResponse=false;
+      if(upstream.statusCode>=200&&upstream.statusCode<300&&((req.method==='POST'&&((dropPaymentResponse&&req.url.endsWith('/payments'))||(dropSaleResponse&&req.url.endsWith('/create-order'))))||(dropConversionResponse&&req.method==='PATCH'&&/^\/api\/v2\/orders\/[a-f\d]{24}$/.test(req.url)))){
+        if(req.method==='PATCH')dropConversionResponse=false;else if(req.url.endsWith('/payments'))dropPaymentResponse=false;else dropSaleResponse=false;
         upstream.resume();upstream.on('end',()=>{
           // Deliver headers first so Chrome cannot silently retry a closed,
           // apparently unused connection. Then interrupt the real response body.
@@ -538,6 +538,27 @@ try{
   assert.equal(await CustomerLedger.countDocuments({shopId:zeroFixture.shop._id,description:'PAYMENT'}),2);
   await navigation('/owner/customers');await click('Balance details');await wait("document.querySelector('dialog').innerText.includes('Outstanding debt: PKR 0.00')");
   pass('OWNER customer Khata links to existing invoice payments: partial/full cash collection, preview/account confirmation, duplicate-safe history and no stock or new revenue');
+  const quoteProduct=ok(await browserHttp('POST','/products/create-product',{name:'3/29 Black Coil',brand:'Quote Brand',category:posCategory._id,unit:'coil',costPrice:3000,retailPrice:4000,stockQuantity:10,minStockThreshold:0})).product;
+  const conversionCashBefore=ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,conversionInvoicesBefore=await Order.countDocuments({shopId:zeroFixture.shop._id,type:'INVOICE'});
+  async function quoteFromBrowser(quantity){
+    await navigation('/owner/quotations');await fill('[aria-label="Search products by name or brand"]','Quote Brand');await wait("!!document.querySelector('.product-result:not(:disabled)')");await evaluate("document.querySelector('.product-result:not(:disabled)').click()");await fill('.cart-table .quantity',String(quantity));await click('Create quotation');await wait("document.body.innerText.includes('Quotation saved for this session.')");
+    const quotation=await Order.findOne({shopId:zeroFixture.shop._id,type:'QUOTATION'}).sort({createdAt:-1}).lean();await click('Make sale');await wait("!!document.querySelector('dialog')");return quotation;
+  }
+  const fullQuote=await quoteFromBrowser(2);assert.equal((await Product.findById(quoteProduct._id)).stockQuantity,10);
+  await fill('[aria-label="Conversion payment account"]',zeroCash._id);dropConversionResponse=true;
+  await evaluate("(()=>{const b=[...document.querySelectorAll('dialog button')].find(e=>e.textContent==='Complete sale');b.click();b.click();})()");await wait("document.body.innerText.includes('Retry same conversion')");
+  const convertedFull=await Order.findOne({shopId:zeroFixture.shop._id,type:'INVOICE'}).sort({createdAt:-1}).lean();
+  assert.equal(convertedFull.totalPrice,8000);assert.equal(convertedFull.paidAmount,8000);assert.equal(convertedFull.amountDue,0);
+  assert.equal((await Product.findById(quoteProduct._id)).stockQuantity,8);assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,conversionCashBefore+800000);
+  await send('Page.reload');await wait("document.body.innerText.includes('Retry same conversion')");await click('Retry same conversion');await wait("!document.querySelector('dialog')&&!!document.querySelector('.receipt')");
+  const conversionRequests=requests.filter(r=>r.method==='PATCH'&&r.path==='/api/v2/orders/'+fullQuote._id);assert.equal(conversionRequests.length,2);assert.equal(conversionRequests[0].body,conversionRequests[1].body);assert.match(JSON.parse(conversionRequests[0].body).requestKey,/^[\w-]{8,100}$/);
+  assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id,type:'INVOICE'}),conversionInvoicesBefore+1);assert.equal(await StockLog.countDocuments({referenceId:convertedFull._id}),1);
+  const conversionEvent=await mongoose.models.InvoiceAdjustment.findOne({shopId:zeroFixture.shop._id,sourceQuotationId:fullQuote._id});assert.equal(await BusinessTransaction.countDocuments({'source.referenceId':conversionEvent._id}),1);
+  assert.equal((await Product.findById(quoteProduct._id)).stockQuantity,8);assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,conversionCashBefore+800000);
+  const partQuote=await quoteFromBrowser(1);await label('Amount paid','1000');await fill('[aria-label="Conversion payment account"]',zeroCash._id);await wait("!!document.querySelector('.customer-result')");await evaluate("document.querySelector('.customer-result').click()");await click('Complete sale');await wait("!document.querySelector('dialog')&&!!document.querySelector('.receipt')");
+  assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,3000);assert.equal((await Product.findById(quoteProduct._id)).stockQuantity,7);assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,conversionCashBefore+900000);
+  const partialRequest=requests.filter(r=>r.method==='PATCH'&&r.path==='/api/v2/orders/'+partQuote._id).at(-1);ok(await browserHttp('PATCH','/orders/'+partQuote._id,JSON.parse(partialRequest.body)));assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,3000);
+  pass('ACTIVE quotation UI: 2 coils at 4000 / 8000 Main Cash, stock 10 to 8, one invoice/journal after duplicate clicks and lost-response refresh replay; partial conversion debt and replay');
   process.env.NODE_ENV='test';delete process.env.BUSINESS_ACCOUNTING_PRODUCTION_ALLOWED;await login(owner.username);
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
