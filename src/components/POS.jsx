@@ -27,6 +27,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     ),
     [paid, setPaid] = useState(savedDraft.paid ?? null),
     [credit, setCredit] = useState(savedDraft.credit ?? "0"),
+    [receiptAccountId, setReceiptAccountId] = useState(savedDraft.receiptAccountId ?? ""),
     [customer, setCustomer] = useState(savedDraft.customer ?? null),
     [busy, setBusy] = useState(false),
     [customerBusy, setCustomerBusy] = useState(false),
@@ -38,6 +39,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     "/products/search-product" + query({ search: literalSearch(term), category }),
   );
   const categories = useLoad("/categories/");
+  const paymentAccounts = useLoad("/orders/payment-accounts");
   const totals = saleTotals(cart, saleType, discountType, discountValue),
     creditAmount = quotation ? 0 : Number(credit),
     payment = salePayment(paid, creditAmount > 0 ? Math.max(0, Math.round((totals.total - creditAmount) * 100) / 100) : totals.total),
@@ -64,6 +66,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       discountValue,
       paid,
       credit,
+      receiptAccountId,
       customer,
       receipt,
     };
@@ -78,6 +81,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     discountValue,
     paid,
     credit,
+    receiptAccountId,
     customer,
     receipt,
   ]);
@@ -131,6 +135,16 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       setError(validation);
       return;
     }
+    if (!retry && !quotation) {
+      if (paymentAccounts.loading || paymentAccounts.error || typeof paymentAccounts.data?.accountingEnabled !== 'boolean') {
+        setError(paymentAccounts.error || 'Wait for payment accounts to load before completing the sale.');
+        return;
+      }
+      if (paymentAccounts.data.accountingEnabled && paidAmount > 0 && !paymentAccounts.data.accounts.some(a => a._id === receiptAccountId)) {
+        setError('Select the cash or bank account receiving this payment.');
+        return;
+      }
+    }
     lock.current = true;
     setBusy(true);
     try {
@@ -143,10 +157,11 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         discountType,
         discountValue: discountType === "NONE" ? 0 : Number(discountValue),
         ...(!quotation
-          ? { paidAmount, ...(customer ? { customerId: customer._id } : {}), ...(creditAmount > 0 ? { creditAmount, requestKey: requestKey() } : {}) }
+          ? { paidAmount, requestKey: requestKey(), ...(customer ? { customerId: customer._id } : {}), ...(creditAmount > 0 ? { creditAmount } : {}), ...(paymentAccounts.data?.accountingEnabled && paidAmount > 0 ? { receiptAccountId } : {}) }
           : {}),
       };
-      if (body.creditAmount > 0) {
+      const journaled = !quotation && (retry || paymentAccounts.data?.accountingEnabled || body.creditAmount > 0);
+      if (journaled) {
         savePending(storageKey, { body });
         setPending({ body });
       }
@@ -155,11 +170,11 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         { method: "POST", body },
       );
       const order = quotation ? result.quotation : result;
-      if (body.creditAmount > 0 && (!order?._id || order.type !== "INVOICE" || !Array.isArray(order.items) ||
+      if (journaled && (!order?._id || order.type !== "INVOICE" || !Array.isArray(order.items) ||
           [order.totalPrice, order.paidAmount, order.amountDue].some(value => !Number.isFinite(value))))
         throw new Error("The sale response is incomplete. Retry the same sale to confirm it.");
       const saved = receiptFrom(order, cart, quotation ? null : customer);
-      if (body.creditAmount > 0) { clearPending(storageKey); setPending(null); }
+      if (journaled) { clearPending(storageKey); setPending(null); }
       if (quotation)
         setQuotations((current) => [
           ...current,
@@ -192,9 +207,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     }
   }
   if (pending && !receipt) return <section className="panel">
-    <h2 className="h5">Confirm store-credit sale</h2>
+    <h2 className="h5">Confirm sale result</h2>
     <Notice error={error} />
-    <p>The sale result is not yet confirmed. Do not collect cash again or start another sale. Retry the exact saved request to retrieve its result without redeeming credit twice.</p>
+    <p>The sale result is not yet confirmed. Do not collect cash again or start another sale. Retry the exact saved request to retrieve its result without recording the sale twice.</p>
     <button className="btn btn-primary" disabled={busy} onClick={event => submit(event, true)}>{busy ? "Checking..." : "Retry same sale"}</button>
   </section>;
   if (receipt)
@@ -450,6 +465,13 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                     onChange={(e) => setPaid(e.target.value)}
                   />
                 </Field>
+                {paymentAccounts.data?.accountingEnabled && paidAmount > 0 && <Field label="Payment account">
+                  <select aria-label="Payment account" className="form-select" value={receiptAccountId} onChange={e => setReceiptAccountId(e.target.value)}>
+                    <option value="">Choose cash or bank</option>
+                    {paymentAccounts.data.accounts.map(a => <option key={a._id} value={a._id}>{a.name}</option>)}
+                  </select>
+                </Field>}
+                <Notice error={paymentAccounts.error} />
                 {customer && <Field label="Store credit to use" hint={`Available: ${money((customer.storeCreditBalanceMinor ?? 0) / 100)}. The server verifies the balance at checkout.`}>
                   <input className="form-control" type="number" min="0" step="0.01" max={Math.min(totals.total, (customer.storeCreditBalanceMinor ?? 0) / 100)} value={credit} onChange={e => setCredit(e.target.value)} />
                 </Field>}

@@ -300,6 +300,8 @@ async function mock(event) {
   else if (endpoint === "/customers/create-customer") {
     await sleep(250);
     data = { customer: { ...customer, ...body } };
+  } else if (endpoint === "/orders/payment-accounts") {
+    data = {accountingEnabled:false,accounts:[]};
   } else if (endpoint === "/orders/create-order") {
     if (body.creditAmount) {
       assert.ok(body.customerId);

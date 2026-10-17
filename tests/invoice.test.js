@@ -1,8 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from 'node:fs';
 import { adjustmentBody, amount, clearPending, journalKey, readPending, requestKey, savePending, uncertain } from "../src/api/invoice.js";
 const order = { revision: 4, items: [{ lineId: "original-line", quantity: 3, unitPrice: 50 }] };
 const input = { order, mode: "adjustments", key: "stable-request", reason: "Product returned", returns: {}, additions: [], discountType: "NONE", discountValue: "0", funds: { cashReceivedAmount: "0", creditRedeemedAmount: "0", cashRefundAmount: "0", creditIssueAmount: "0" } };
+
+test('POS accounting checkout sends a body key and explicit account, retaining the exact request for recovery',()=>{
+  const source=fs.readFileSync(new URL('../src/components/POS.jsx',import.meta.url),'utf8');
+  assert.match(source,/paidAmount, requestKey: requestKey\(\)/);
+  assert.match(requestKey(),/^[\w-]{8,100}$/);
+  assert.match(source,/useLoad\("\/orders\/payment-accounts"\)/);
+  assert.match(source,/retry \? pending\.body/);
+  assert.match(source,/const journaled = !quotation && \(retry \|\| paymentAccounts\.data\?\.accountingEnabled \|\| body\.creditAmount > 0\)/);
+  assert.match(source,/savePending\(storageKey, \{ body \}\)/);
+  assert.match(source,/paymentAccounts\.data\?\.accountingEnabled && paidAmount > 0 \? \{ receiptAccountId \}/);
+  assert.match(source,/if \(lock\.current \|\| customerBusy\) return/);
+});
 test("adjustment uses stable line identities, dispositions, revision and no client-supplied prices", () => {
   const body = adjustmentBody({ ...input, returns: { "original-line": { quantity: "2", disposition: "DAMAGED" } }, additions: [{ _id: "product", quantity: "2", retailPrice: 999 }] });
   assert.deepEqual(body.returns, [{ lineId: "original-line", quantity: 2, disposition: "DAMAGED" }]);
