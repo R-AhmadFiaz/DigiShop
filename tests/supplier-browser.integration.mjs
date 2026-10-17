@@ -39,7 +39,7 @@ const {Order} = await import('../dist/models/order.model.js');
 const {CustomerLedger} = await import('../dist/models/customerLedger.model.js');
 const {StockLog} = await import('../dist/models/stockLog.model.js');
 const children = [], passed = [], errors = [];
-let httpServer,upstreamServer,socket,sequence=0,dropPaymentResponse=false;
+let httpServer,upstreamServer,socket,sequence=0,dropPaymentResponse=false,dropSaleResponse=false;
 const requests=[];const accounts=await import('../dist/utils/businessAccounts.js');
 const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
@@ -94,8 +94,9 @@ try{
   httpServer=http.createServer((req,res)=>{
     const entry={method:req.method,path:req.url,body:''};requests.push(entry);req.on('data',chunk=>entry.body+=chunk);
     const forward=http.request(upstreamBase+req.url,{method:req.method,headers:req.headers},upstream=>{
-      if(dropPaymentResponse&&req.method==='POST'&&req.url.endsWith('/payments')&&upstream.statusCode===200){
-        dropPaymentResponse=false;upstream.resume();upstream.on('end',()=>{
+      if(req.method==='POST'&&upstream.statusCode>=200&&upstream.statusCode<300&&((dropPaymentResponse&&req.url.endsWith('/payments'))||(dropSaleResponse&&req.url.endsWith('/create-order')))){
+        if(req.url.endsWith('/payments'))dropPaymentResponse=false;else dropSaleResponse=false;
+        upstream.resume();upstream.on('end',()=>{
           // Deliver headers first so Chrome cannot silently retry a closed,
           // apparently unused connection. Then interrupt the real response body.
           res.writeHead(upstream.statusCode,upstream.headers);res.flushHeaders();res.write('{');setTimeout(()=>res.destroy(),50);
@@ -481,6 +482,40 @@ try{
   assert.equal(ok(await browserHttp('POST','/purchases/'+newPo._id+'/receipts',JSON.parse(sent.body))).replayed,true);
   assert.equal((await Product.findById(coil._id)).stockQuantity,10);assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:newPo._id}),2);
   pass('manual supplier account creation auto-selects and retains all dropdowns; confirmed zero opening unblocks existing PO, 5+5 receipt and duplicate replay');
+  await login(zeroFixture.user.username);
+  process.env.NODE_ENV='production';process.env.BUSINESS_ACCOUNTING_PRODUCTION_ALLOWED='true';
+  const activationPreview=ok(await browserHttp('POST','/accounts/activation/preview',{}));assert.equal(activationPreview.ready,true);
+  ok(await browserHttp('POST','/accounts/activation/confirm',{expectedRevision:activationPreview.expectedRevision,requestKey:crypto.randomUUID(),reason:'Disposable production-mode POS verification',confirmation:'ACTIVATE ACCOUNTING',previewToken:activationPreview.previewToken,expiresAt:activationPreview.expiresAt}));
+  const posCategory=ok(await browserHttp('POST','/categories/create-category',{name:'Coils'})).category;
+  const posCoil=ok(await browserHttp('POST','/products/create-product',{name:'3/29 Black Coil',brand:'Eagle',category:posCategory._id,unit:'coil',costPrice:3000,retailPrice:4000,stockQuantity:10,minStockThreshold:0})).product;
+  const posBuyer=ok(await browserHttp('POST','/customers/create-customer',{name:'First credit buyer',phoneNo:'03001112223'})).customer;
+  const noKey={items:[{productId:posCoil._id,quantity:2}],saleType:'RETAIL',paidAmount:5000,customerId:posBuyer._id,receiptAccountId:zeroCash._id};
+  assert.equal((await browserHttp('POST','/orders/create-order',noKey)).status,400);
+  assert.equal((await Product.findById(posCoil._id)).stockQuantity,10);assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,0);
+  assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),0);assert.equal(await CustomerLedger.countDocuments({shopId:zeroFixture.shop._id}),0);
+  await navigation('/owner/sales');await fill('[aria-label="Search products by name or brand"]','3/29 Black Coil');await wait("!!document.querySelector('.product-result:not(:disabled)')");await evaluate("document.querySelector('.product-result:not(:disabled)').click()");
+  await fill('.cart-table .quantity','2');await label('Amount paid','5000');await wait("!!document.querySelector('.customer-result')");await evaluate("document.querySelector('.customer-result').click()");
+  await click('Complete sale');await wait("document.body.innerText.includes('Select the cash or bank account receiving this payment.')");
+  assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),0);
+  await fill('[aria-label="Payment account"]',zeroCash._id);
+  dropSaleResponse=true;
+  await evaluate("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Complete sale');b.click();b.click();})()");
+  await wait("document.body.innerText.includes('Retry same sale')");
+  const posInvoice=await Order.findOne({shopId:zeroFixture.shop._id});assert.equal(posInvoice.totalPrice,8000);assert.equal(posInvoice.paidAmount,5000);assert.equal(posInvoice.amountDue,3000);assert.equal(posInvoice.accountingMode,'LIVE');
+  assert.equal((await Product.findById(posCoil._id)).stockQuantity,8);assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,3000);
+  assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,500000);
+  const salePath='/api/v2/orders/create-order',creditRequest=requests.filter(r=>r.path===salePath&&r.method==='POST'&&JSON.parse(r.body).requestKey).at(-1);
+  assert.match(JSON.parse(creditRequest.body).requestKey,/^[\w-]{8,100}$/);assert.equal(JSON.parse(creditRequest.body).receiptAccountId,zeroCash._id);
+  await send('Page.reload');await wait("document.body.innerText.includes('Retry same sale')");await click('Retry same sale');await wait("document.body.innerText.includes('Sale completed.')");
+  const creditRetry=requests.filter(r=>r.path===salePath&&r.method==='POST'&&JSON.parse(r.body).requestKey===JSON.parse(creditRequest.body).requestKey);
+  assert.equal(creditRetry.length,2);assert.equal(creditRetry[0].body,creditRetry[1].body);
+  assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),1);assert.equal(await StockLog.countDocuments({referenceId:posInvoice._id}),1);assert.equal(await CustomerLedger.countDocuments({shopId:zeroFixture.shop._id}),1);
+  assert.equal((await Product.findById(posCoil._id)).stockQuantity,8);assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,500000);
+  await click('Next sale');await wait("!!document.querySelector('.product-result:not(:disabled)')");await evaluate("document.querySelector('.product-result:not(:disabled)').click()");await fill('[aria-label="Payment account"]',zeroCash._id);await click('Complete sale');await wait("document.body.innerText.includes('Sale completed.')");
+  assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),2);assert.equal((await Product.findById(posCoil._id)).stockQuantity,7);assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,3000);
+  assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,900000);
+  pass('production ACTIVE first POS credit sale: automatic key, explicit account, 8000 total / 5000 cash / 3000 debt, duplicate clicks and lost-response reload retry; next cash sale');
+  process.env.NODE_ENV='test';delete process.env.BUSINESS_ACCOUNTING_PRODUCTION_ALLOWED;await login(owner.username);
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 }catch(error){console.error('SUPPLIER INTEGRATION FAILED:',error.stack);if(socket?.readyState===1)try{console.error('ACTUAL UI:',await evaluate('document.body.innerText'));}catch{}console.error('Passed:',passed);process.exitCode=1;}

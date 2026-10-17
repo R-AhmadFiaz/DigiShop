@@ -338,6 +338,39 @@ await test('production activation: actual HTTP and disposable loopback replica s
       assert.equal(ok(await http('GET',base+'/reconciliation',undefined,user)).authoritative,true);
       assert.equal((await http('POST',base+'/cutover',enrollment,a.owner)).status,404);
     });
+    await t.test('fresh active shop credit POS requires a body key, atomically posts 5000 cash/3000 debt and deduplicates retries',async()=>{
+      const user=await User.findOne({username:'zeroshopowner'}),shopId=user.shopId;
+      const product=await Product.findOne({shopId,name:'3/29 Black Coil'}),cash=await FinancialAccount.findOne({shopId,kind:'CASH'});
+      await Product.updateOne({_id:product._id},{$set:{retailPrice:4000}});
+      const customer=await Customer.create({shopId,name:'First buyer',phoneNo:'03001234567'});
+      const body={items:[{productId:String(product._id),quantity:2}],saleType:'RETAIL',paidAmount:5000,creditAmount:0,customerId:String(customer._id),receiptAccountId:String(cash._id)};
+      for(const requestKey of [undefined,'bad',42]){
+        const result=await http('POST','/orders/create-order',{...body,...(requestKey===undefined?{}:{requestKey})},user);
+        assert.equal(result.status,400);assert.match(result.body.message,/valid request key/);
+      }
+      assert.equal((await Product.findById(product._id)).stockQuantity,10);assert.equal((await Customer.findById(customer._id)).remainingMoney,0);
+      assert.equal(await Order.countDocuments({shopId}),0);assert.equal(await InvoiceAdjustment.countDocuments({shopId}),0);
+      const request={...body,requestKey:'fresh-credit-pos-first'};
+      const results=await Promise.all([http('POST','/orders/create-order',request,user),http('POST','/orders/create-order',request,user)]);
+      assert.ok(results.some(r=>[200,201].includes(r.status)));assert.ok(results.every(r=>[200,201,409].includes(r.status)));
+      const invoice=ok(await http('POST','/orders/create-order',request,user));
+      assert.equal(invoice.totalPrice,8000);assert.equal(invoice.paidAmount,5000);assert.equal(invoice.amountDue,3000);
+      assert.equal((await Product.findById(product._id)).stockQuantity,8);assert.equal((await Customer.findById(customer._id)).remainingMoney,3000);
+      assert.equal(ok(await http('GET','/accounts/financial/'+cash._id,undefined,user)).balanceMinor,500000);
+      assert.equal(await Order.countDocuments({shopId}),1);assert.equal(await InvoiceAdjustment.countDocuments({shopId,kind:'SALE'}),1);
+      const {CustomerLedger}=await import('../dist/models/customerLedger.model.js');
+      assert.equal(await CustomerLedger.countDocuments({shopId,referenceId:invoice._id}),1);
+      const before=await Product.findById(product._id);
+      assert.equal((await http('POST','/orders/create-order',{...request,requestKey:'wrong-account-credit-pos',receiptAccountId:String(bank._id)},user)).status,404);
+      assert.equal((await Product.findById(product._id)).stockQuantity,before.stockQuantity);assert.equal(await Order.countDocuments({shopId}),1);
+      assert.equal((await Customer.findById(customer._id)).remainingMoney,3000);
+      const cashier=await User.create({shopId,username:'freshposcashier',email:'freshposcashier@local.invalid',password:'testing123',role:'CASHIER'});
+      const full={items:[{productId:String(product._id),quantity:1}],saleType:'RETAIL',paidAmount:4000,requestKey:'fresh-cash-pos-next',receiptAccountId:String(cash._id)};
+      const cashSale=ok(await http('POST','/orders/create-order',full,cashier));assert.equal(cashSale.amountDue,0);
+      assert.equal(ok(await http('POST','/orders/create-order',full,cashier))._id,cashSale._id);
+      assert.equal((await Product.findById(product._id)).stockQuantity,7);assert.equal((await Customer.findById(customer._id)).remainingMoney,3000);
+      assert.equal(ok(await http('GET','/accounts/financial/'+cash._id,undefined,user)).balanceMinor,900000);
+    });
   }finally{
     if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();
     await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));await fs.rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:150});
