@@ -433,7 +433,7 @@ try{
   const oldCorrection=await GoodsReceipt.findOne({purchaseOrderId:correctionPo._id}).lean();assert.match(oldCorrection.reference,/^GR-AUTO-\d+$/);assert.equal(oldCorrection.accountingStatus,'DEFERRED');assert.equal(oldCorrection.notes,'Physically checked old delivery');assert.equal(oldCorrection.supplierDocumentNo,'CHALLAN-CORRECTION');
   const automaticRequest=requests.filter(r=>r.method==='POST'&&r.path==='/api/v2/purchases/').at(-1);assert.equal(ok(await browserHttp('POST','/purchases/',JSON.parse(automaticRequest.body))).replayed,true);
   pass('corrections: real purchase and partial-delivery UI generate references, preserve notes/challan and identical-key replay');
-  process.env.BUSINESS_ACCOUNTING_ENABLED='true';await navigation('/owner/accounts/suppliers/'+correctionCompany._id);await wait("document.body.innerText.includes('Review historical supplier opening')");await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Review historical supplier opening').click()");
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';await navigation('/owner/accounts/suppliers/'+correctionCompany._id);await wait("document.body.innerText.includes('Prepare supplier account / review opening')");await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Prepare supplier account / review opening').click()");
   await click('Create supplier payable account');await wait("[...document.querySelector('[name=SUPPLIER_PAYABLE]').options].length>1");const correctionAp=await FinancialAccount.findOne({shopId:shop._id,entityId:correctionCompany._id,kind:'SUPPLIER_PAYABLE'}).lean();assert.ok(correctionAp);
   await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));await fill('[name=PURCHASES_CLEARING]',String(offset._id));await fill('[name=OPENING_EQUITY]',String(equity._id));
   await label('Unpaid amount for '+oldCorrection.reference,'0.75');await label('Review / external payment evidence for '+oldCorrection.reference,'25 paisa paid outside DigiShop before opening');await label('Historical opening review note','Owner checked original challan and payment evidence');await evaluate("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('I verified every old delivery')).querySelector('input').click()");await click('Review supplier opening');await record();
@@ -443,6 +443,27 @@ try{
   assert.equal(await BusinessTransaction.countDocuments({shopId:shop._id,'source.kind':'PURCHASE_RECEIPT','source.referenceId':oldCorrection._id}),0);
   await navigation('/owner/reports');await wait("document.body.innerText.includes('Why cost and profit need reconciliation')");const costReport=ok(await get('/accounts/reports?from='+reportDay+'T00:00:00.000Z&to='+new Date(Date.parse(reportDay+'T00:00:00.000Z')+86400000).toISOString()));assert.equal(costReport.profit.status,'UNAVAILABLE');assert.equal(costReport.profit.evidence.costAtSaleSnapshots,false);
   await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});pass('corrections: owner-reviewed deferred opening, external-payment evidence, immutable replay, later receipt posting, blocked profit and unchanged existing balances');
+  const newSupplier=ok(await browserHttp('POST','/accounts/entities',{key:'new-zero-supplier',name:'New zero supplier',roles:['COMPANY','SUPPLIER']}));
+  await navigation('/owner/accounts/suppliers/'+newSupplier._id);
+  await wait("document.body.innerText.includes('Prepare supplier account / review opening')");
+  await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Prepare supplier account / review opening').click()");
+  await wait("document.body.innerText.includes('This is a new supplier')");
+  assert.equal(await evaluate("[...document.querySelectorAll('input[type=checkbox]')].find(e=>e.closest('label').textContent.includes('This is a new supplier')).checked"),false);
+  await evaluate("[...document.querySelectorAll('input[type=checkbox]')].find(e=>e.closest('label').textContent.includes('This is a new supplier')).click()");
+  await click('Review zero opening for new supplier');await record();
+  await wait("document.body.innerText.includes('Outstanding:')");
+  assert.equal(ok(await get('/accounts/suppliers/'+newSupplier._id+'/balance')).balanceMinor,0);
+  const coil=ok(await browserHttp('POST','/products/create-product',{name:'3/29 Black Coil',brand:'New Coil',category:category._id,unit:'coil',costPrice:3000,retailPrice:3500,stockQuantity:0,minStockThreshold:0})).product;
+  let newPo=ok(await browserHttp('POST','/purchases/',{requestKey:crypto.randomUUID(),supplierId:newSupplier._id,items:[{productId:coil._id,quantity:10,unitCostMinor:300000}]})).purchaseOrder;
+  newPo=ok(await browserHttp('POST','/purchases/'+newPo._id+'/confirm',{requestKey:crypto.randomUUID(),expectedRevision:newPo.revision})).purchaseOrder;
+  for(const expected of [5,10]){
+    await navigation('/owner/purchases/'+newPo._id);await fill('[aria-label="Delivered 3/29 Black Coil"]','5');await click('Review delivered quantities');await record();
+    await wait(`document.body.innerText.includes(${JSON.stringify(expected===5?'Partially received':'Received')})`);
+    assert.equal((await Product.findById(coil._id)).stockQuantity,expected);
+    assert.equal(ok(await get('/accounts/suppliers/'+newSupplier._id+'/balance')).balanceMinor,expected*300000);
+  }
+  assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:newPo._id}),2);
+  pass('new supplier zero-opening browser confirmation and 5+5 coil receiving post stock and payable exactly once');
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 }catch(error){console.error('SUPPLIER INTEGRATION FAILED:',error.stack);if(socket?.readyState===1)try{console.error('ACTUAL UI:',await evaluate('document.body.innerText'));}catch{}console.error('Passed:',passed);process.exitCode=1;}

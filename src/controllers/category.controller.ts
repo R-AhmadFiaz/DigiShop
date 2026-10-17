@@ -18,13 +18,13 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
 
     const {shopId} = req.user
 
-    if (!name || name.trim() == "") {
+    if (typeof name !== 'string' || name.trim() == "") {
         throw new apiError(400, 'Name is Missing')
     }
 
     const trimmedName = name.trim()
     
-    const slug = generateSlug(name)
+    const slug = generateSlug(trimmedName)
     
     if (!slug) {
         throw new apiError(400, 'Name is Missing')
@@ -32,22 +32,33 @@ export const createCategory = asyncHandler(async(req: Request, res: Response, ne
 
     const isValid = await Category.findOne({
         shopId,
-        $or: [{name}, {slug}]
+        $or: [{name: trimmedName}, {slug}]
     })
 
     if (isValid) {
-        throw new apiError(409, 'name and slug already exist in memory')
+        throw new apiError(409, 'This category name or an equivalent spelling is already used in your shop')
     }
 
 
     
 
-    const category = await Category.create({
-        name: trimmedName,
-        description,
-        slug,
-        shopId
-    }) 
+    let category;
+    try {
+        category = await Category.create({
+            name: trimmedName,
+            description,
+            slug,
+            shopId
+        })
+    } catch (error: any) {
+        if (error?.code === 11000) {
+            if (error.keyPattern && !Object.hasOwn(error.keyPattern, 'shopId')) {
+                throw new apiError(409, 'Category index configuration needs administrator maintenance. No category was created.')
+            }
+            throw new apiError(409, 'This category name or an equivalent spelling is already used in your shop')
+        }
+        throw error
+    }
 
     return res.status(200)
     .json(

@@ -59,11 +59,21 @@ export async function initializeSupplierCutover(actor:Actor,supplierId:string,bo
     if(!Array.isArray(body.reviews)||body.reviews.length>100)throw new apiError(400,'Review up to 100 existing receipts explicitly');
     const reviews=body.reviews.map((r:any)=>{safeMinor(r?.unpaidMinor);return {receiptId:id(r.receiptId),unpaidMinor:r.unpaidMinor,reason:text(r.reason,300,'receipt review reason')};}).sort((a:any,b:any)=>a.receiptId.localeCompare(b.receiptId));
     if(new Set(reviews.map((r:any)=>r.receiptId)).size!==reviews.length)throw new apiError(400,'Review each receipt once');
+    // Explicit owner enrollment, not automatic debt inference. Existing historical
+    // deliveries must still go through the full reviewed opening workflow.
+    if(body.enrollNewSupplier===true){
+        if(body.openingBalanceMinor!==0||body.otherOpeningMinor!==0||reviews.length||body.payableAccountId||body.offsetAccountId||body.equityAccountId)throw new apiError(400,'New supplier enrollment requires confirmed zero historical debt and no account overrides');
+        const payable=await FinancialAccount.findOne({shopId:actor.shopId,entityId:supplierIdValue,kind:'SUPPLIER_PAYABLE'}).session(session)??await createFinancialAccount(actor,{kind:'SUPPLIER_PAYABLE',code:'AP_'+supplierIdValue,name:'supplier payable',entityId:supplierIdValue},session);
+        const offset=await createFinancialAccount(actor,{kind:'PURCHASES_CLEARING',code:'RECEIVED_'+supplierIdValue,name:'purchases clearing'},session);
+        const equity=await createFinancialAccount(actor,{kind:'OPENING_EQUITY',code:'EQUITY_'+supplierIdValue,name:'opening equity'},session);
+        body={...body,payableAccountId:String(payable._id),offsetAccountId:String(offset._id),equityAccountId:String(equity._id)};
+    }
     const input={supplierId:supplierIdValue,cutoffAt:cutoffAt.toISOString(),payableAccountId:id(body.payableAccountId),offsetAccountId:id(body.offsetAccountId),equityAccountId:id(body.equityAccountId),openingBalanceMinor:body.openingBalanceMinor,otherOpeningMinor:body.otherOpeningMinor,reviews,evidenceDigest:body.evidenceDigest,reason};
     const requestHash=createHash('sha256').update(JSON.stringify({actorId:String(user._id),...input})).digest('hex');
     const existing=await SupplierCutover.findOne({shopId:actor.shopId,$or:[{supplierId:supplierIdValue},{requestKey}]}).session(session);
     if(existing){if(existing.requestKey!==requestKey||existing.requestHash!==requestHash)throw new apiError(409,'Supplier opening already confirmed or key reused');return {cutover:existing,replayed:true};}
     const {receipts}=await supplierEvidence(actor,supplierIdValue,session);
+    if(body.enrollNewSupplier===true&&receipts.length)throw new apiError(409,'Existing deliveries require the historical supplier opening review; new supplier enrollment is unavailable');
     if(input.evidenceDigest!==supplierDigest(receipts))throw new apiError(409,'Supplier evidence changed; obtain a fresh cutover preview');
     if(receipts.length!==reviews.length||receipts.some(r=>r.accountingStatus!=='DEFERRED'||r.occurredAt>cutoffAt))throw new apiError(409,'Review all deferred receipts and choose a cutoff at or after every existing receipt');
     let total=BigInt(input.otherOpeningMinor);

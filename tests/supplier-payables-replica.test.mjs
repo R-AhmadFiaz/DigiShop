@@ -69,6 +69,9 @@ await test('supplier payables: actual HTTP and disposable loopback replica set',
             opening={requestKey:'supplier-opening-confirm',confirmation:'CONFIRM SUPPLIER OPENING',cutoffAt:new Date().toISOString(),payableAccountId:String(ap._id),offsetAccountId:String(offset._id),equityAccountId:String(equity._id),openingBalanceMinor:1100,otherOpeningMinor:100,reviews:[{receiptId:old.receipt._id,unpaidMinor:1000,reason:'234 paisa externally settled; 1000 still owed'}],evidenceDigest:preview.evidenceDigest,reason:'Owner reviewed deliveries, external payments and other debt'};
             assert.equal((await http('POST',base+'/cutover',opening)).status,409);
             process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+            const accountCount=await FinancialAccount.countDocuments({shopId:a.shop._id});
+            assert.equal((await http('POST',base+'/cutover',{requestKey:'unsafe-new-enrollment',confirmation:'CONFIRM SUPPLIER OPENING',enrollNewSupplier:true,cutoffAt:new Date().toISOString(),openingBalanceMinor:0,otherOpeningMinor:0,reviews:[],evidenceDigest:preview.evidenceDigest,reason:'Cannot skip an existing delivery review'})).status,409);
+            assert.equal(await FinancialAccount.countDocuments({shopId:a.shop._id}),accountCount);
             assert.equal((await http('POST',base+'/cutover',{...opening,reviews:[]})).status,409);
             assert.equal((await http('POST',base+'/cutover',{...opening,openingBalanceMinor:1200})).status,400);
             assert.equal((await http('POST',base+'/cutover',{...opening,evidenceDigest:'stale'})).status,409);
