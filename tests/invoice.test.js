@@ -30,6 +30,19 @@ test('customer collection reuses invoice settlement and sends preview-bound cash
   assert.match(form,/confirmationToken: preview\.confirmationToken/);
   assert.match(form,/I have received/);
 });
+
+test('quotation conversion journals a UUID and explicit cash account, including recovery after the session list clears',()=>{
+  const source=fs.readFileSync(new URL('../src/pages/Quotations.jsx',import.meta.url),'utf8');
+  assert.match(source,/requestKey:requestKey\(\)/);
+  assert.match(source,/journalKey\(user,'quotation-conversion'\)/);
+  assert.match(source,/readPending\(storageKey\)/);
+  assert.match(source,/retry\?pending:/);
+  assert.match(source,/savePending\(storageKey,request\)/);
+  assert.match(source,/method: "PATCH",\s*body: request\.body/);
+  assert.match(source,/accountingEnabled&&amount>0\?\{receiptAccountId\}/);
+  assert.match(source,/busy=\{busy \|\| customerBusy \|\| !!pending\}/);
+  assert.match(source,/Retry same conversion/);
+});
 test("adjustment uses stable line identities, dispositions, revision and no client-supplied prices", () => {
   const body = adjustmentBody({ ...input, returns: { "original-line": { quantity: "2", disposition: "DAMAGED" } }, additions: [{ _id: "product", quantity: "2", retailPrice: 999 }] });
   assert.deepEqual(body.returns, [{ lineId: "original-line", quantity: 2, disposition: "DAMAGED" }]);
