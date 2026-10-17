@@ -5,7 +5,7 @@ import { useDebounce, useLoad } from '../api/hooks';
 import { activity, pakistanTime, pkr } from '../api/purchases';
 import { Empty, Field, Modal, Notice, Pagination } from './Common';
 
-const types=['MANUAL','OPENING','REVERSAL','INVOICE_RECEIPT','INVOICE_REFUND','TRANSFER','SUPPLIER_OPENING','PURCHASE_RECEIPT','SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REVERSAL','EXPENSE','EXPENSE_REVERSAL'];
+const types=['MANUAL','OPENING','REVERSAL','INVOICE_RECEIPT','INVOICE_REFUND','TRANSFER','SUPPLIER_OPENING','PURCHASE_RECEIPT','SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REFUND','SUPPLIER_CREDIT_APPLICATION','SUPPLIER_REVERSAL','EXPENSE','EXPENSE_REVERSAL','CAPITAL_CONTRIBUTION','CAPITAL_WITHDRAWAL','CAPITAL_REVERSAL'];
 function Source({event}){
   const doc=event.sourceDocument;
   return doc?.orderId?<Link to={'/owner/sales/'+doc.orderId}>{doc.invoiceNo||'View invoice'}</Link>:doc?.purchaseOrderId?<Link to={'/owner/purchases/'+doc.purchaseOrderId}>{doc.reference||doc.purchaseReference||'View purchase'}</Link>:<span>{doc?.reference||event.reason||activity(event.eventType)}{doc?.purchaseReference&&<Link className="d-block" to={'/owner/purchases?reference='+encodeURIComponent(doc.purchaseReference)}>Find {doc.purchaseReference}</Link>}</span>;

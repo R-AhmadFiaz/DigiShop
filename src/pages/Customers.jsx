@@ -13,7 +13,7 @@ import { CustomerForm } from "../components/CustomerPicker";
 import { useAuth } from '../auth/AuthContext';
 function CustomerBalances({ customer }) {
   const result = useLoad('/accounts/customers/' + customer._id + '/reconciliation');
-  return <><Notice loading={result.loading} error={result.error}/>{result.data && <><p>Outstanding debt: PKR {money(result.data.debtMinor / 100)}</p><p>Available store credit: PKR {money(result.data.storeCreditMinor / 100)}</p><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances match the recorded invoices and customer history.':'Balances need review. No financial records have been changed.'}</p></>}</>;
+  return <><Notice loading={result.loading} error={result.error}/>{result.data && <><p>Outstanding debt: PKR {money(result.data.debtMinor / 100)}</p><p>Available store credit: PKR {money(result.data.storeCreditMinor / 100)}</p><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances match the recorded invoices and customer history.':'Balances need review. No financial records have been changed.'}</p>{!result.data.reconciled&&<><p>Review the original invoices, payments and credit records before confirming any opening. Do not enter these balances again as a new sale or investment.</p><ul>{result.data.issues?.map((issue,i)=><li key={i}>{issue.code.replaceAll('_',' ').toLowerCase()}</li>)}</ul><p>Unverified historical balances remain blocked. No automatic repair or duplicate opening is permitted.</p></>}</>}</>;
 }
 export default function Customers() {
   const {user} = useAuth();

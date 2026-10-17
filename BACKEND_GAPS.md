@@ -105,3 +105,138 @@ Manual subscription payment instructions are public receiving details only. Ther
   and actor, reverses it with actual-funds confirmation, and displays server net
   totals. Cash reconciliation and existing supplier/customer/stock state agree.
   Financial writes used disposable loopback MongoDB replica sets, never Atlas.
+
+
+### Locked Step 1 - Partners & Capital
+
+- OWNER-only /owner/partners uses /accounts/partners and /accounts/capital APIs.
+  Reuses existing BusinessEntity identities, with optional customer/supplier/company
+  links through the PARTNER role. No duplicate login or customer balance is created.
+- Add/manage partners while accounting is disabled; financial balances show
+  Unavailable, not zero. Investments, withdrawals, histories and reversals require
+  prepared test-only accounting. Production activation remains prohibited.
+- All amounts and balances come from posted journals and immutable event evidence.
+  The page shows net contributions/withdrawals and total recorded partner capital,
+  independently of cash, sales, expenses, loans, wages or ownership percentages.
+- Existing opening cash/bank funds are not automatically allocated to partners.
+  Do not record old opening money as new investments. Historical capital allocation
+  needs a separate approved reconciliation/reclassification process, not this UI.
+- Explicit account selection, confirmation, retained exact-key retry, timestamps,
+  details and reversal links reuse existing financial UI patterns. Funds must have
+  actually moved; DigiShop neither sends nor verifies bank payments.
+- Only full inverse reversals are supported. Cash and partner capital cannot become
+  negative. Chronological/cutoff restrictions still apply. Archived partners must
+  be reactivated before posting. Archiving requires verified zero capital.
+- Linked Customer identity details are not edited in the partner form. Customer
+  debt, store credit, supplier payables, purchases and inventory remain unchanged.
+
+- Step 1 verification: backend build and 376 tests passed; focused capital replica
+  suite 18 passed; frontend lint/build and 64 tests passed; real Chrome integration
+  18 supplier/expense/capital scenario groups passed. Capital cash/equity movements
+  and both reversal directions were verified against persisted MongoDB journals,
+  while existing supplier, expense, customer and stock balances stayed unchanged.
+  All financial test writes used owned disposable loopback replica sets, not Atlas.
+
+
+### Locked Step 2 - Existing Business Setup
+
+- OWNER-only /owner/existing-setup uses GET/PUT /accounts/existing-setup plus
+  /preview and /confirm. It reviews stock, customer debt/credit, cash/bank and
+  supplier openings without creating fake sales, investments or historical payments.
+- Editable drafts are revision-safe. Confirmation requires a five-minute server
+  preview, unchanged source digest, typed CONFIRM EXISTING BUSINESS SETUP and an
+  idempotency key retained for uncertain retries. Confirmed openings are immutable.
+- Opening inventory uses current stock and Product.costPrice. No stock is added;
+  this does not implement ongoing inventory valuation, COGS or profit/loss.
+- Customer balances stay in the existing customer ledger; no duplicate AR or credit
+  journal is posted. Untraceable balances or missing identities block confirmation.
+  Paper customer debt/store-credit import needs a separately approved opening-ledger
+  reconciliation design; never create fake invoices as a substitute.
+- Cash/bank and supplier openings/cutovers reuse existing backend safeguards.
+  Existing valid openings are retained, deferred receipts are explicitly reviewed,
+  previous external settlements are not invented as payment records. A zero bank
+  opening is supported without a fake zero-value journal.
+- Net business value includes preserved customer debt/credit, while journal-backed
+  opening equity is shown separately. Equity stays unallocated and does not become
+  a new partner investment. Loans/fixed assets/ownership allocation are not covered.
+- Posted business activity, prior inventory value or conflicting existing cutovers
+  prevent resetting an active shop's books. Reconciliation is required instead.
+  The guided review is bounded; backend limits and the existing 16KB request limit
+  may require a separately reviewed process for larger businesses.
+- Draft review is available with accounting disabled; all financial confirmation
+  remains NODE_ENV=test-only. The UI cannot activate production accounting.
+- Verified: backend build, complete 390-test suite, final 20-test real setup/deletion
+  subset; frontend lint/build and 68 tests; 20 real Chrome integration groups using
+  disposable loopback MongoDB only. Source quantities/customer balances and existing
+  POS, supplier, expense and capital workflows remain consistent.
+
+
+## Locked Step 3 - Financial Reports
+
+OWNER /owner/reports reads GET /api/v2/accounts/reports using canonical UTC half-open
+ranges; the UI Through date includes that entire UTC day. Timestamps display Pakistan time.
+Sales/returns and expense activity are dated flows. Customer balances, supplier payables,
+partner capital and stock are clearly current snapshots. Cash/bank range balances are
+shown only after confirmed coverage; current prepared balances can remain visible when
+selected historical dates are uncovered. Full histories reuse existing statement screens.
+
+Profit/P&L is intentionally unavailable: historical unit costs and continuous costed stock
+movements do not exist. Current product cost is shown only as a provisional stock reference
+estimate, never historical valuation or profit. Confirmed opening setup remains a separately
+dated historical snapshot. No new cost snapshots or valuation workflow were introduced.
+
+Accounting sections remain prepared-test-only; disabled/unprepared/unreconciled amounts are
+unavailable, never zero. Supplier totals are unavailable if any supplier needs cutover or
+reconciliation. Customer discrepancies are explicitly provisional. Missing legacy sales
+metadata/untimed cancellations and bounded evidence scans can make reports incomplete.
+No accounting activation or mutations are performed by this page; CASHIER/ADMIN have no
+report navigation or access. Existing production financial history is not claimed complete.
+
+
+## Locked Step 4 - Supplier credit/refund support
+
+The previous limitation blocking returns above payable is superseded. OWNER Supplier
+Account now displays outstanding payable and one separate available credit/refund-due
+pool, refunds received and credit applications. Partial refunds and applications use the
+new /accounts/suppliers/:id/refunds and /credit-applications endpoints with explicit
+confirmation and retained idempotent requests. History supports confirmed corrections.
+Return entry explains payable-first allocation and excess credit; only an actual refund
+increases cash. Financial Reports and Transactions retain separate credit/payable effects.
+
+Still limited to confirmed supplier cutover and prepared test accounting. Deferred historical
+receipts remain blocked. No credit openings or automatic backfill, no automatic application
+on receiving, and no per-delivery payment/credit allocation are fabricated. Supplier-level
+credit/refund due is a single pool, not two assets. A consumed return credit must be restored
+before reversing that return. Existing cash-account preparation, chronology, stock and
+insufficient-balance checks remain authoritative. Production accounting is not enabled.
+
+Step 4 verification: frontend lint and production build passed; 74 frontend tests passed.
+The real browser runner passed 24 integration groups against disposable local MongoDB and
+actual Express/React, including supplier credit/refund forms, confirmed corrections and
+existing supplier, expense, capital, setup and reporting regressions. No production access
+or accounting activation, deployment, commits or pushes were performed.
+
+
+## Locked Step 5 - First corrections
+
+Business setup now edits existing roles through the revision-protected API; Supplier history
+is a distinct navigation action. Explicit product-to-registered-brand linking and current
+company-associated stock use existing link APIs and the new paginated entity-products read.
+No automatic migration of free-text product brands and no fabricated historical company sales.
+
+Purchase/delivery numbers generate automatically when left blank. Existing references stay
+valid. Optional notes and supplier invoice/challan identifiers are saved and displayed.
+Supplier Account exposes the existing immutable historical opening review, with explicit
+accounts, per-delivery unpaid/external-payment evidence and confirmed cutoff. Confirmation
+requires prepared test accounting. Deferred receipts are preserved, not reposted.
+
+Outstanding blockers: reliable COGS needs an approved valuation method, evidenced opening
+cutover and continuous costed movement/sale snapshots across ALL stock-changing workflows.
+No historical or future profit is enabled merely from current Product.costPrice. Financial
+Reports explain actual missing cost evidence. Unverifiable historical customer debt/credit
+still requires a separately approved source-linked reconciliation plan; existing authoritative
+customer balances are not duplicated or overwritten. See BUSINESS_ACCOUNTS.md Step 5.
+
+Verification: frontend lint/build passed; 79 tests passed; real local browser integration
+passed 27 groups, backed by disposable MongoDB/Express (not mocked balances). Full backend
+414 tests passed. No production accounting activation, data access, commits or deployment.

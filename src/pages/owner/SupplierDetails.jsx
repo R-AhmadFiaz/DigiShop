@@ -6,6 +6,7 @@ import { activity, minorAmount, pakistanTime, pkr } from '../../api/purchases';
 import { Empty, Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import PurchaseTable from '../../components/PurchaseTable';
 import SupplierAction from '../../components/SupplierAction';
+import SupplierOpening from '../../components/SupplierOpening';
 
 function PaymentEntry({account,balance,prepare,locked}){
   const result=useLoad('/accounts/financial/'+account._id),[error,setError]=useState('');
@@ -24,8 +25,35 @@ function SupplierPayment({supplierId,supplierName,balance,onChanged}){
     {selected&&<PaymentEntry key={selected._id} account={{...selected,supplierId,supplierName}} balance={balance} prepare={prepare} locked={locked}/>}
   </section>}</SupplierAction>;
 }
+function SupplierCredit({supplierId,supplierName,balance,onChanged}){
+  const [mode,setMode]=useState('REFUND'),[error,setError]=useState('');
+  const accounts=useLoad('/orders/payment-accounts');
+  function submit(event,prepare){
+    event.preventDefault();try{
+      const fields=new FormData(event.currentTarget),amountMinor=minorAmount(fields.get('amount'));
+      if(amountMinor<=0||amountMinor>balance.creditMinor)throw new Error('Enter an amount within the available supplier credit.');
+      if(mode==='CREDIT_APPLICATION'&&amountMinor>balance.balanceMinor)throw new Error('Credit application cannot exceed outstanding payable.');
+      const refund=mode==='REFUND';setError('');prepare({path:'/accounts/suppliers/'+supplierId+(refund?'/refunds':'/credit-applications'),title:refund?'Confirm supplier refund received':'Confirm supplier credit application',confirmLabel:refund?'Confirm money received':'Confirm credit applied',summary:supplierName+' — '+pkr(amountMinor)+'\n'+(refund?'Confirm this money has actually arrived in the selected cash/bank account. This is not sales revenue.':'This reduces supplier credit and outstanding payable. No cash moves.'),body:{requestKey:crypto.randomUUID(),reference:fields.get('reference'),reason:fields.get('reason'),occurredAt:new Date().toISOString(),amountMinor,...(refund?{accountId:fields.get('accountId')} : {}),confirmation:refund?'CONFIRM SUPPLIER REFUND RECEIVED':'CONFIRM SUPPLIER CREDIT APPLICATION'}});
+    }catch(e){setError(e.message);}
+  }
+  return <SupplierAction operation={'supplier-credit-'+supplierId} onChanged={onChanged}>{({prepare,locked})=><section className="panel mb-3"><h2 className="h5">Use supplier credit</h2>
+    <p>Available credit / refund due: <strong>{pkr(balance.creditMinor)}</strong>. This is one balance: amounts refunded or applied cannot be used again.</p>
+    {balance.creditMinor>0?<form onSubmit={e=>submit(e,prepare)}><fieldset disabled={locked}><Notice error={error}/>
+      <Field label="What happened?"><select aria-label="Credit action" className="form-select" value={mode} onChange={e=>setMode(e.target.value)}><option value="REFUND">Supplier refunded money</option><option value="CREDIT_APPLICATION">Apply credit to outstanding payable</option></select></Field>
+      {mode==='REFUND'&&<><Notice loading={accounts.loading} error={accounts.error}/><Field label="Refund received into"><select aria-label="Refund account" name="accountId" className="form-select" required disabled={!accounts.data}><option value="">Choose cash or bank</option>{accounts.data?.accounts?.map(a=><option key={a._id} value={a._id}>{a.name}</option>)}</select></Field></>}
+      <Field label="Credit amount (PKR)"><input name="amount" className="form-control" type="number" min="0.01" step="0.01" required/></Field>
+      <Field label="Credit transaction reference"><input name="reference" className="form-control" maxLength={50} pattern="[A-Za-z0-9][A-Za-z0-9/_-]*" required/></Field>
+      <Field label="Credit transaction note"><input name="reason" className="form-control" maxLength={300} required/></Field>
+      <button className="btn btn-primary" disabled={mode==='REFUND'&&!accounts.data} type="submit">Review supplier credit</button>
+    </fieldset></form>:<p className="text-body-secondary">No supplier credit is available.</p>}
+  </section>}</SupplierAction>;
+}
+function Correction({event,supplierId,onChanged,onClose}){
+  function submit(e,prepare){e.preventDefault();const fields=new FormData(e.currentTarget);prepare({path:'/accounts/suppliers/'+supplierId+'/settlements/'+event._id+'/reverse',title:'Confirm supplier correction',confirmLabel:'Confirm actual reversal',summary:event.reference+' — '+pkr(event.amountMinor)+'\nThis keeps the original record and posts its exact inverse. Confirm that any money or goods have actually been restored. Consumed return credit must be restored first.',body:{requestKey:crypto.randomUUID(),reference:fields.get('reference'),reason:fields.get('reason'),occurredAt:new Date().toISOString(),confirmation:'CONFIRM SUPPLIER REVERSAL'}});}
+  return <SupplierAction operation={'supplier-correction-'+supplierId} onChanged={()=>{onClose();onChanged();}}>{({prepare,locked})=><form className="mt-3" onSubmit={e=>submit(e,prepare)}><fieldset disabled={locked}><h3 className="h6">Correct {event.reference}</h3><Field label="Correction reference"><input name="reference" className="form-control" pattern="[A-Za-z0-9][A-Za-z0-9/_-]*" required maxLength={50}/></Field><Field label="Correction reason"><input name="reason" className="form-control" required maxLength={300}/></Field><button className="btn btn-outline-danger me-2" type="submit">Review reversal</button><button className="btn btn-outline-secondary" type="button" onClick={onClose}>Close correction</button></fieldset></form>}</SupplierAction>;
+}
 export default function SupplierDetails(){
-  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=useState(1),[historyPage,setHistoryPage]=useState(1);
+  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=useState(1),[historyPage,setHistoryPage]=useState(1),[correction,setCorrection]=useState(null);
   const entity=useLoad('/accounts/entities/'+supplierId),balance=useLoad('/accounts/suppliers/'+supplierId+'/balance'),reconciliation=useLoad('/accounts/suppliers/'+supplierId+'/reconciliation');
   const purchases=useLoad('/purchases/'+query({supplierId,page:purchasePage,limit:10})),history=useLoad('/accounts/suppliers/'+supplierId+'/settlements'+query({page:historyPage,limit:20}));
   const ready=entity.data?.roles.includes('SUPPLIER')&&balance.data?.authoritative===true&&Number.isSafeInteger(balance.data.balanceMinor);
@@ -35,7 +63,10 @@ export default function SupplierDetails(){
       <Notice error={reconciliation.error}/>{reconciliation.data&&<><p>Opening balance: {reconciliation.data.cutover?'Confirmed at '+pakistanTime(reconciliation.data.cutover.cutoffAt)+' (Pakistan)':'Owner-confirmed setup required'}</p>{reconciliation.data.issues?.map((i,index)=><p className="text-warning" key={index}>{i.problem}</p>)}<p className="text-body-secondary">Deferred delivery evidence is separate from posted debt. Customer debt and store credit remain separate.</p></>}
     </section>
     <SupplierPayment supplierId={supplierId} supplierName={entity.data?.name} balance={ready?balance.data.balanceMinor:null} onChanged={refresh}/>
+    {!ready&&entity.data?.roles.includes('SUPPLIER')&&<SupplierOpening supplierId={supplierId} onChanged={refresh}/>}
+    {ready&&<><section className="panel mb-3"><h2 className="h5">Supplier credit and refunds</h2><p>Available credit / refund due: <strong>{pkr(balance.data.creditMinor)}</strong></p><p>Refunds received (net of corrections): {pkr(balance.data.refundsReceivedMinor)} · Credit applied (net of corrections): {pkr(balance.data.creditAppliedMinor)}</p><p className="text-body-secondary">Credit is money the supplier owes this shop. It is separate from payable, customer credit, revenue and expenses.</p>{balance.data.creditAccountId&&<Link to={'/owner/accounts/transactions?account='+balance.data.creditAccountId}>Supplier credit statement</Link>}</section><SupplierCredit supplierId={supplierId} supplierName={entity.data?.name} balance={balance.data} onChanged={refresh}/></>}
     <section className="panel mb-3"><h2 className="h5">Purchases</h2><PurchaseTable result={purchases} onPage={setPurchasePage}/></section>
-    <section className="panel"><h2 className="h5">Payments, returns and corrections</h2><Notice loading={history.loading}/>{history.error&&<p className="alert alert-warning">Settlement history unavailable: {history.error}</p>}{history.data&&<><p className="text-body-secondary">Payments are not allocated to individual deliveries. Return credit reduces payable; it is not cash received.</p><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Reference</th><th>Activity</th><th>Date (Pakistan)</th><th>Actor</th><th>Amount</th><th>Delivery</th></tr></thead><tbody>{history.data.entries.map(e=><tr key={e._id}><td>{e.reference}</td><td>{activity(e.kind)}{e.kind==='REVERSAL'?' (linked correction)':''}</td><td>{pakistanTime(e.occurredAt)}</td><td>{e.createdByName||'Unavailable'}</td><td>{pkr(e.amountMinor)}</td><td>{e.receiptReference||'—'}</td></tr>)}</tbody></table></div>{history.data.entries.length===0&&<Empty>No settlements recorded.</Empty>}<Pagination pagination={history.data.pagination} onPage={setHistoryPage}/></>}</section>
+    <section className="panel"><h2 className="h5">Payments, returns and corrections</h2><Notice loading={history.loading}/>{history.error&&<p className="alert alert-warning">Settlement history unavailable: {history.error}</p>}{history.data&&<><p className="text-body-secondary">Payments are not allocated to individual deliveries. Returns reduce payable first and then create credit. Refunds and applications consume that credit; only refunds move cash.</p><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Reference</th><th>Activity</th><th>Date (Pakistan)</th><th>Actor</th><th>Amount</th><th>Payable portion</th><th>Credit portion</th><th>Delivery</th><th>Correction</th></tr></thead><tbody>{history.data.entries.map(e=><tr key={e._id}><td>{e.reference}</td><td>{activity(e.kind)}{e.kind==='REVERSAL'?' (linked correction)':''}</td><td>{pakistanTime(e.occurredAt)}</td><td>{e.createdByName||'Unavailable'}</td><td>{pkr(e.amountMinor)}</td><td>{pkr(e.payableReductionMinor??e.amountMinor)}</td><td>{pkr(e.creditMovementMinor??0)}</td><td>{e.receiptReference||'—'}</td><td>{e.kind!=='REVERSAL'&&<button className="btn btn-outline-secondary btn-sm" onClick={()=>setCorrection(e)}>Correct</button>}</td></tr>)}</tbody></table></div>{history.data.entries.length===0&&<Empty>No settlements recorded.</Empty>}<Pagination pagination={history.data.pagination} onPage={setHistoryPage}/></>}</section>
+    {ready&&correction&&<Correction event={correction} supplierId={supplierId} onChanged={refresh} onClose={()=>setCorrection(null)}/>}
   </>;
 }

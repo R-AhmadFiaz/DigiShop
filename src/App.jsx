@@ -1,3 +1,6 @@
+import ExistingSetup from './pages/owner/ExistingSetup';
+import FinancialReports from './pages/owner/FinancialReports';
+import Partners from './pages/owner/Partners';
 import Expenses from './pages/owner/Expenses';
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { homeFor, useAuth } from "./auth/AuthContext";
@@ -80,6 +83,9 @@ export default function App() {
           <Route path="stock" element={<Stock />} />
           <Route path="purchases" element={<Purchases />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="partners" element={<Partners />} />
+          <Route path="existing-setup" element={<ExistingSetup />} />
+          <Route path="reports" element={<FinancialReports />} />
           <Route path="purchases/:purchaseId" element={<PurchaseDetails />} />
           <Route path="accounts/suppliers/:supplierId" element={<SupplierDetails />} />
           <Route path="sales" element={<Sales />} />

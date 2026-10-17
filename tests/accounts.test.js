@@ -12,7 +12,7 @@ try {
       const html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(Page)));
       assert.ok(html.includes(title));assert.match(html,/Loading/);
       assert.doesNotMatch(html,/PKR 0\.00|Revenue|Profit|Pay supplier|Record purchase/);
-      if(file==='Companies')assert.match(html,/supplier details/);
+      if(file==='Companies')assert.match(html,/Supplier history/);
       if(file==='CashBank')assert.match(html,/Live accounting is not enabled/);
       if(file==='Transactions')assert.match(html,/not a complete historical business ledger/);
     });
