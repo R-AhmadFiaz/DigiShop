@@ -9,7 +9,7 @@ const server=await createServer({server:{middlewareMode:true,hmr:false},appType:
 try{
   const {default:RecordTable,RecordFacts}=await server.ssrLoadModule('/src/components/RecordTable.jsx');
   const columns=[{key:'reference',label:'Reference'},{key:'amount',label:'Amount',numeric:true}];
-  await test('placeholder dashes center without changing numeric or text column alignment',()=>{
+  await test('shared table styles center headers, values, placeholders and action buttons',()=>{
     const rows=[{_id:'empty',reference:'—',amount:'—'},{_id:'paid',reference:'INV-1',amount:'PKR 5,000.00'},{_id:'zero',reference:'Name — note',amount:0}];
     const html=renderToStaticMarkup(createElement(RecordTable,{label:'Alignment',columns,rows}));
     assert.match(html,/class="record-reference record-placeholder">—<\/td>/);
@@ -19,7 +19,11 @@ try{
     assert.match(html,/class="record-reference">Name — note<\/td>/);
     assert.match(html,/<th[^>]*class="text-end record-number"[^>]*>Amount<\/th>/);
     const css=fs.readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
-    assert.match(css,/\.record-table td\.record-placeholder\s*\{\s*text-align: center !important;/);
+    assert.match(css,/table th, table td,\s*table \.text-start, table \.text-end\s*\{\s*text-align: center !important;/);
+    assert.match(css,/table \.btn\s*\{\s*text-align: center !important; justify-content: center;/);
+    assert.match(css,/table \{ font-size: 14\.5px; \}/);
+    assert.match(css,/table th \{ font-size: 14px; font-weight: 600; \}/);
+    assert.doesNotMatch(css,/\.record-table th:not\(\.record-number\).*text-align: left/);
   });
   await test('register preserves supplied event order, amounts and unavailable values',()=>{
     const rows=[{_id:'later',reference:'RET-2',amount:0},{_id:'earlier',reference:'INV-1',amount:null}];

@@ -110,8 +110,16 @@ input::placeholder {
   --bs-table-border-color: #e5e7eb;
   margin-bottom: 0;
   font-variant-numeric: tabular-nums;
-  font-size: 15px;
+  font-size: 14.5px;
 }
+/* Shared by record registers, editable tables and printed documents. */
+table { font-size: 14.5px; }
+table th, table td,
+table .text-start, table .text-end {
+  text-align: center !important;
+}
+table th { font-size: 14px; font-weight: 600; }
+table .btn { text-align: center !important; justify-content: center; }
 .table th {
   color: #4b5563;
   font-size: 14px;
@@ -599,8 +607,6 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .record-table > :not(caption) > * > * { padding-top: 5px; padding-bottom: 5px; }
 .record-table thead th { font-size: 14px; font-weight: 600; white-space: normal; line-height: 1.3; }
 .record-table td { overflow-wrap: normal; word-break: normal; }
-.record-table th:not(.record-number), .record-table td:not(.record-number) { text-align: left; }
-.record-table td.record-placeholder { text-align: center !important; }
 .record-table .record-date, .record-table .record-reference { white-space: nowrap; width: 1%; }
 .record-table th.record-number { white-space: normal; min-width: 7rem; }
 .record-table .record-number { width: 1%; }
