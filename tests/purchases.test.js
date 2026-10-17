@@ -44,3 +44,12 @@ test('new supplier setup requires explicit zero-opening confirmation and purchas
   const purchase=fs.readFileSync(new URL('../src/pages/owner/PurchaseDetails.jsx',import.meta.url),'utf8');
   assert.match(purchase,/Prepare or review supplier opening/);
 });
+
+test('supplier opening retains controlled selections and created accounts across reloads and pages',()=>{
+  const source=fs.readFileSync(new URL('../src/components/SupplierOpening.jsx',import.meta.url),'utf8');
+  assert.match(source,/value=\{selected\[kind\]\?\?''\}/);
+  assert.match(source,/setSelected\(rows=>\(\{\.\.\.rows,\[kind\]:account\._id\}\)\)/);
+  assert.match(source,/Object\.values\(savedAccounts\)/);
+  assert.match(source,/setSavedAccounts\(rows=>\(\{\.\.\.rows,\[id\]:account\}\)\)/);
+  assert.match(source,/Account ready and selected/);
+});
