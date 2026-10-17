@@ -314,7 +314,12 @@ await test('production activation: actual HTTP and disposable loopback replica s
       assert.equal((await http('POST',base+'/cutover',{...enrollment,evidenceDigest:'stale'},user)).status,409);
       assert.equal(await FinancialAccount.countDocuments({shopId}),accountCount);assert.equal(await SupplierCutover.countDocuments({shopId}),0);
       assert.equal((await http('POST',base+'/cutover',enrollment,cashier)).status,403);
+      // Same codes but uppercase display names, as created by the existing UI.
+      for(const [kind,prefix] of [['SUPPLIER_PAYABLE','AP_'],['PURCHASES_CLEARING','RECEIVED_'],['OPENING_EQUITY','EQUITY_']]){
+        ok(await http('POST','/accounts/financial',{kind,code:prefix+supplierId,name:kind.replaceAll('_',' '),...(kind==='SUPPLIER_PAYABLE'?{entityId:supplierId}:{})},user));
+      }
       ok(await http('POST',base+'/cutover',enrollment,user));
+      assert.equal(await FinancialAccount.countDocuments({shopId}),accountCount+3);
       assert.equal(await SupplierCutover.countDocuments({shopId,supplierId}),1);
       assert.equal(ok(await http('GET',base+'/balance',undefined,user)).balanceMinor,0);
       const first=ok(await http('POST','/purchases/'+po._id+'/receipts',receive,user));

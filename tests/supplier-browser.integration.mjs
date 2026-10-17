@@ -444,26 +444,43 @@ try{
   await navigation('/owner/reports');await wait("document.body.innerText.includes('Why cost and profit need reconciliation')");const costReport=ok(await get('/accounts/reports?from='+reportDay+'T00:00:00.000Z&to='+new Date(Date.parse(reportDay+'T00:00:00.000Z')+86400000).toISOString()));assert.equal(costReport.profit.status,'UNAVAILABLE');assert.equal(costReport.profit.evidence.costAtSaleSnapshots,false);
   await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});pass('corrections: owner-reviewed deferred opening, external-payment evidence, immutable replay, later receipt posting, blocked profit and unchanged existing balances');
   const newSupplier=ok(await browserHttp('POST','/accounts/entities',{key:'new-zero-supplier',name:'New zero supplier',roles:['COMPANY','SUPPLIER']}));
+  const coil=ok(await browserHttp('POST','/products/create-product',{name:'3/29 Black Coil',brand:'New Coil',category:category._id,unit:'coil',costPrice:3000,retailPrice:3500,stockQuantity:0,minStockThreshold:0})).product;
+  let newPo=ok(await browserHttp('POST','/purchases/',{requestKey:crypto.randomUUID(),supplierId:newSupplier._id,items:[{productId:coil._id,quantity:10,unitCostMinor:300000}]})).purchaseOrder;
+  newPo=ok(await browserHttp('POST','/purchases/'+newPo._id+'/confirm',{requestKey:crypto.randomUUID(),expectedRevision:newPo.revision})).purchaseOrder;
+  const blockedReceipt={requestKey:crypto.randomUUID(),expectedRevision:newPo.revision,items:[{productId:coil._id,quantity:5}]};
+  assert.equal((await browserHttp('POST','/purchases/'+newPo._id+'/receipts',blockedReceipt)).status,409);
+  assert.equal((await Product.findById(coil._id)).stockQuantity,0);assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:newPo._id}),0);
   await navigation('/owner/accounts/suppliers/'+newSupplier._id);
   await wait("document.body.innerText.includes('Prepare supplier account / review opening')");
   await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Prepare supplier account / review opening').click()");
   await wait("document.body.innerText.includes('This is a new supplier')");
   assert.equal(await evaluate("[...document.querySelectorAll('input[type=checkbox]')].find(e=>e.closest('label').textContent.includes('This is a new supplier')).checked"),false);
-  await evaluate("[...document.querySelectorAll('input[type=checkbox]')].find(e=>e.closest('label').textContent.includes('This is a new supplier')).click()");
-  await click('Review zero opening for new supplier');await record();
+  const selectedAccounts={};
+  for(const kind of ['SUPPLIER_PAYABLE','PURCHASES_CLEARING','OPENING_EQUITY']){
+    await click('Create '+kind.replaceAll('_',' ').toLowerCase()+' account');
+    await wait(`!!document.querySelector('[name=${kind}]')?.value&&!document.querySelector('[name=${kind}]').disabled`);
+    selectedAccounts[kind]=await evaluate(`document.querySelector('[name=${kind}]').value`);
+    for(const [previous,id] of Object.entries(selectedAccounts))assert.equal(await evaluate(`document.querySelector('[name=${previous}]').value`),id,'Account creation/reload must retain previous selections');
+  }
+  await fill('[name=SUPPLIER_PAYABLE]','');assert.equal(await evaluate("document.querySelector('[name=SUPPLIER_PAYABLE]').value"),'');
+  await fill('[name=SUPPLIER_PAYABLE]',selectedAccounts.SUPPLIER_PAYABLE);
+  await label('Historical opening review note','New supplier; owner verified zero earlier debt and no deliveries');
+  await evaluate("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('I verified every old delivery')).querySelector('input').click()");
+  await click('Review supplier opening');await record();
   await wait("document.body.innerText.includes('Outstanding:')");
   assert.equal(ok(await get('/accounts/suppliers/'+newSupplier._id+'/balance')).balanceMinor,0);
-  const coil=ok(await browserHttp('POST','/products/create-product',{name:'3/29 Black Coil',brand:'New Coil',category:category._id,unit:'coil',costPrice:3000,retailPrice:3500,stockQuantity:0,minStockThreshold:0})).product;
-  let newPo=ok(await browserHttp('POST','/purchases/',{requestKey:crypto.randomUUID(),supplierId:newSupplier._id,items:[{productId:coil._id,quantity:10,unitCostMinor:300000}]})).purchaseOrder;
-  newPo=ok(await browserHttp('POST','/purchases/'+newPo._id+'/confirm',{requestKey:crypto.randomUUID(),expectedRevision:newPo.revision})).purchaseOrder;
   for(const expected of [5,10]){
     await navigation('/owner/purchases/'+newPo._id);await fill('[aria-label="Delivered 3/29 Black Coil"]','5');await click('Review delivered quantities');await record();
     await wait(`document.body.innerText.includes(${JSON.stringify(expected===5?'Partially received':'Received')})`);
     assert.equal((await Product.findById(coil._id)).stockQuantity,expected);
     assert.equal(ok(await get('/accounts/suppliers/'+newSupplier._id+'/balance')).balanceMinor,expected*300000);
+    if(expected===5){const updated=await PurchaseOrder.findById(newPo._id);assert.equal(updated.status,'PARTIALLY_RECEIVED');assert.equal(updated.items[0].quantity-updated.items[0].receivedQuantity,5);}
   }
   assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:newPo._id}),2);
-  pass('new supplier zero-opening browser confirmation and 5+5 coil receiving post stock and payable exactly once');
+  const sent=requests.filter(r=>r.method==='POST'&&r.path===('/api/v2/purchases/'+newPo._id+'/receipts')).at(-1);
+  assert.equal(ok(await browserHttp('POST','/purchases/'+newPo._id+'/receipts',JSON.parse(sent.body))).replayed,true);
+  assert.equal((await Product.findById(coil._id)).stockQuantity,10);assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:newPo._id}),2);
+  pass('manual supplier account creation auto-selects and retains all dropdowns; confirmed zero opening unblocks existing PO, 5+5 receipt and duplicate replay');
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 }catch(error){console.error('SUPPLIER INTEGRATION FAILED:',error.stack);if(socket?.readyState===1)try{console.error('ACTUAL UI:',await evaluate('document.body.innerText'));}catch{}console.error('Passed:',passed);process.exitCode=1;}
