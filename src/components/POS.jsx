@@ -27,7 +27,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     ),
     [paid, setPaid] = useState(savedDraft.paid ?? null),
     [credit, setCredit] = useState(savedDraft.credit ?? "0"),
-    [receiptAccountId, setReceiptAccountId] = useState(savedDraft.receiptAccountId ?? ""),
+    [chosenReceiptAccountId, setReceiptAccountId] = useState(savedDraft.receiptAccountId ?? ""),
     [customer, setCustomer] = useState(savedDraft.customer ?? null),
     [busy, setBusy] = useState(false),
     [customerBusy, setCustomerBusy] = useState(false),
@@ -40,6 +40,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   );
   const categories = useLoad("/categories/");
   const paymentAccounts = useLoad("/orders/payment-accounts");
+  const receiptAccountId = chosenReceiptAccountId || (paymentAccounts.data?.accounts?.length === 1 ? paymentAccounts.data.accounts[0]._id : '');
   const totals = saleTotals(cart, saleType, discountType, discountValue),
     creditAmount = quotation ? 0 : Number(credit),
     payment = salePayment(paid, creditAmount > 0 ? Math.max(0, Math.round((totals.total - creditAmount) * 100) / 100) : totals.total),
@@ -505,7 +506,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
             className="btn btn-primary w-100"
             type="submit"
             form="sale-form"
-            disabled={busy || customerBusy || !cart.length}
+            disabled={busy || customerBusy || !cart.length || (!quotation && paymentAccounts.loading)}
           >
             {busy
               ? "Saving..."

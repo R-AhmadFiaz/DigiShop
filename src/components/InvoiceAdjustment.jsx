@@ -17,7 +17,7 @@ function AddProducts({ saleType, onAdd, disabled }) {
       <input className="form-control" placeholder="Search name or brand" value={search} maxLength={100} onChange={e => setSearch(e.target.value)} />
     </Field>
     <Notice error={products.error} loading={products.loading} />
-    <div className="product-results" style={{ maxHeight: 220 }}>
+    <div className="product-results">
       {products.data?.product.map(product => <button key={product._id} type="button" className="product-result" disabled={disabled || search !== term || (saleType === "WHOLESALE" && !product.wholesalePrice)} onClick={() => onAdd(product)}>
         <span>{product.name}<small>{product.brand} · Stock {product.stockQuantity}</small></span>
         <span>{money(saleType === "WHOLESALE" ? product.wholesalePrice : product.retailPrice)}<small>Add</small></span>
@@ -61,7 +61,7 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
   const lock = useRef(false);
   const endpoint = `/orders/${order._id}/${mode}`;
   const locked = busy || !!pending;
-  const title = { adjustments: "Adjust invoice", payments: "Receive invoice payment", cancellations: "Cancel invoice" }[mode];
+  const title = { adjustments: "Return / change invoice", payments: "Receive invoice payment", cancellations: "Cancel invoice" }[mode];
   function invalidate() { setPreview(null); setReviewBody(null); setCashConfirmed(false); setCashReceivedConfirmed(false); }
   async function previewChange() {
     if (lock.current) return;
@@ -72,8 +72,9 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
       if(paymentAccounts.data.accountingEnabled){
         for(const [amount,field,label] of [[body.cashReceivedAmount,'receiptAccountId','receiving'],[body.cashRefundAmount,'refundAccountId','refund']]){
           if(amount>0){
-            if(!paymentAccounts.data.accounts.some(a=>a._id===routing[field]))throw new Error('Select the '+label+' cash/bank account.');
-            body[field]=routing[field];
+            const accountId=routing[field]||(paymentAccounts.data.accounts.length===1?paymentAccounts.data.accounts[0]._id:'');
+            if(!paymentAccounts.data.accounts.some(a=>a._id===accountId))throw new Error('Select the '+label+' cash/bank account.');
+            body[field]=accountId;
           }
         }
       }
@@ -112,7 +113,7 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
   return <section className="panel mt-3 no-print" aria-label={title}>
     <div className="d-flex justify-content-between mb-3"><h2 className="h5">{title}</h2><button className="btn btn-outline-secondary btn-sm" disabled={busy || !!pending} onClick={onClose}>Close</button></div>
     <Notice error={error} />
-    {pending ? <div role="status"><p>A financial request is awaiting confirmation. Its exact request is retained for this browser tab. Do not create another operation or repeat cash movement.</p><div className="d-flex gap-2"><button className="btn btn-primary" disabled={busy} onClick={recover}>Check whether saved</button><button className="btn btn-outline-primary" disabled={busy} onClick={() => commit()}>Retry same request</button></div></div> : <>
+    {pending ? <div role="status"><p>We have not confirmed whether this saved. Check or retry the same request below. Do not take or give money again.</p><div className="d-flex gap-2"><button className="btn btn-primary" disabled={busy} onClick={recover}>Check whether saved</button><button className="btn btn-outline-primary" disabled={busy} onClick={() => commit()}>Retry same request</button></div></div> : <>
       <fieldset disabled={locked} onChange={invalidate}>
         {mode === "cancellations" && <p>Cancel this pending invoice and restock its remaining units. Review the refund and debt settlement below before confirming. Use a full return instead for damaged products.</p>}
         {mode === "adjustments" && <>
@@ -127,26 +128,26 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
         </>}
         <Field label="Reason"><input className="form-control" value={reason} maxLength={300} onChange={e => setReason(e.target.value)} /></Field>
         <h3 className="h6 mt-3">Payments and refunds (PKR)</h3>
-        <p className="small text-body-secondary">Debt is reduced first. Credit-funded refunds return to store credit automatically. Preview shows the remaining amount to allocate between cash refund and new store credit.</p>
+        <p className="small text-body-secondary">Returns reduce unpaid debt first. Payments made with store credit return to store credit. Check the refund split below before confirming.</p>
         <div className="row g-2">
-          {Object.entries({ cashReceivedAmount: "Additional cash received", ...(order.customerId ? { creditRedeemedAmount: "Store credit to redeem" } : {}), ...(mode !== "payments" ? { cashRefundAmount: "Cash to refund", creditIssueAmount: "Refund as store credit" } : {}) }).map(([field, label]) => <div className="col-sm-6" key={field}><Field label={label}><input className="form-control" type="number" min="0" step="0.01" value={funds[field]} onChange={e => setFunds(current => ({ ...current, [field]: e.target.value }))} /></Field></div>)}
+          {Object.entries({ cashReceivedAmount: "Money received now", ...(order.customerId ? { creditRedeemedAmount: "Use customer store credit" } : {}), ...(mode !== "payments" ? { cashRefundAmount: "Money to refund", creditIssueAmount: "Give customer store credit" } : {}) }).map(([field, label]) => <div className="col-sm-6" key={field}><Field label={label}><input className="form-control" type="number" min="0" step="0.01" value={funds[field]} onChange={e => setFunds(current => ({ ...current, [field]: e.target.value }))} /></Field></div>)}
         </div>
         <Notice loading={paymentAccounts.loading} error={paymentAccounts.error}/>
-        {paymentAccounts.data?.accountingEnabled&&[[funds.cashReceivedAmount,'receiptAccountId','Receive into'],[funds.cashRefundAmount,'refundAccountId','Refund from']].map(([amount,field,label])=>Number(amount)>0&&<Field key={field} label={label}><select aria-label={label} className="form-select" value={routing[field]} onChange={e=>setRouting(current=>({...current,[field]:e.target.value}))}><option value="">Choose cash or bank</option>{paymentAccounts.data.accounts.map(account=><option key={account._id} value={account._id}>{account.name}</option>)}</select></Field>)}
+        {paymentAccounts.data?.accountingEnabled&&[[funds.cashReceivedAmount,'receiptAccountId','Receive into'],[funds.cashRefundAmount,'refundAccountId','Refund from']].map(([amount,field,label])=>Number(amount)>0&&<Field key={field} label={label}><select aria-label={label} className="form-select" value={routing[field]||(paymentAccounts.data.accounts.length===1?paymentAccounts.data.accounts[0]._id:'')} onChange={e=>setRouting(current=>({...current,[field]:e.target.value}))}><option value="">Choose cash or bank</option>{paymentAccounts.data.accounts.map(account=><option key={account._id} value={account._id}>{account.name}</option>)}</select></Field>)}
       </fieldset>
       {!order.customerId && mode !== "payments" && Number(funds.creditIssueAmount) > 0 && !order.creditRecipientId && <fieldset disabled={locked}><p>Store-credit recipient (original invoice stays anonymous)</p><CustomerPicker value={recipient} onChange={value => { invalidate(); setRecipient(value); }} required /></fieldset>}
       {order.creditRecipientId && !order.customerId && <p className="small">Store credit will go to the previously recorded recipient. The original invoice remains anonymous.</p>}
       <button className="btn btn-primary mt-3" disabled={busy} onClick={previewChange}>{busy ? "Checking..." : "Preview changes"}</button>
       {preview && <div className="border rounded p-3 mt-3" aria-label="Server preview">
-        <h3 className="h6">Review server-confirmed changes</h3>
+        <h3 className="h6">Check the final amounts</h3>
         <div className="table-responsive"><table className="table table-sm"><thead><tr><th>Revised product</th><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{preview.proposed.items.map((line, index) => <tr key={line.lineId || index}><td>{line.name || "Product unavailable"}</td><td>{line.quantity}</td><td>{money(line.unitPrice)}</td></tr>)}</tbody></table></div>
-        <p className="small">Revised subtotal: {money(preview.proposed.subtotalMinor / 100)} · Discount: {money(preview.proposed.discountMinor / 100)} · Net settled: {money(preview.proposed.settledMinor / 100)}</p>
+        <p className="small">Revised subtotal: {money(preview.proposed.subtotalMinor / 100)} · Discount: {money(preview.proposed.discountMinor / 100)} · Paid after refunds: {money(preview.proposed.settledMinor / 100)}</p>
         <p>Total: {money(preview.before.totalMinor / 100)} → <strong>{money(preview.proposed.totalMinor / 100)}</strong><br />Outstanding: {money(preview.before.dueMinor / 100)} → <strong>{money(preview.proposed.dueMinor / 100)}</strong></p>
         {(preview.movements || []).map((movement, index) => {
           const line = movement.kind === "RETURN" ? order.items.find(i => i.lineId === movement.lineId) : additions.find(i => i._id === String(movement.productId));
           return <p className="small mb-1" key={index}>{movement.kind === "RETURN" ? "Return" : "Add"}: {line?.name || line?.productId?.name || "Product unavailable"} · {movement.quantity} × {money(movement.unitPriceMinor / 100)} · {movement.disposition === "DAMAGED" ? "Damaged, no sellable stock increase" : `Sellable stock change: ${movement.stockDelta > 0 ? "+" : ""}${movement.stockDelta}`}</p>;
         })}
-        <p className="small mt-2">Refund required: {money(preview.requirements.refundMinor / 100)} · Credit automatically restored: {money(preview.requirements.creditRestoreMinor / 100)} · Cash-funded amount to allocate: {money(preview.requirements.cashRefundMaximumMinor / 100)}</p>
+        <p className="small mt-2">Refund required: {money(preview.requirements.refundMinor / 100)} · Credit automatically restored: {money(preview.requirements.creditRestoreMinor / 100)} · Refund to split between money and store credit: {money(preview.requirements.cashRefundMaximumMinor / 100)}</p>
         {preview.settlement && <FinancialMovements financial={preview.settlement} />}
         <Notice error={preview.validationMessage} />
         {preview.canSubmit && <>

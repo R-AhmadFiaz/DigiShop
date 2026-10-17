@@ -13,6 +13,6 @@ try {
     assert.match(html, /Speak/);
     assert.match(html, /Send/);
     assert.match(html, /Ready/);
-    assert.doesNotMatch(html, /type="file"|Choose File|Voice Stock|Adjust stock|Create sale/);
+    assert.doesNotMatch(html, /type="file"|Choose File|Voice Stock|Change stock|Create sale/);
   });
 } finally {await server.close();}

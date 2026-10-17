@@ -145,8 +145,9 @@ export default function Quotations() {
 }
 function Convert({ draft, onClose, onSaved, storageKey }) {
   const [pending,setPending]=useState(()=>readPending(storageKey));
-  const [receiptAccountId,setReceiptAccountId]=useState('');
+  const [chosenReceiptAccountId,setReceiptAccountId]=useState('');
   const paymentAccounts=useLoad('/orders/payment-accounts');
+  const receiptAccountId=chosenReceiptAccountId||(paymentAccounts.data?.accounts?.length===1?paymentAccounts.data.accounts[0]._id:'');
   const [paid, setPaid] = useState(String(draft.order.totalPrice)),
     [customer, setCustomer] = useState(null),
     [busy, setBusy] = useState(false),
@@ -238,7 +239,7 @@ function Convert({ draft, onClose, onSaved, storageKey }) {
           className="btn btn-primary"
           type="submit"
           form="convert-quotation"
-          disabled={customerBusy}
+          disabled={customerBusy || paymentAccounts.loading}
         >
           {busy ? "Saving..." : "Complete sale"}
         </button>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 export const money = (value) =>
   Number(value || 0).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -41,7 +41,7 @@ export function Field({ label, children, hint }) {
 export function Pagination({ pagination, onPage }) {
   if (!pagination || pagination.totalPages < 2) return null;
   return (
-    <div className="d-flex align-items-center gap-3 mt-3">
+    <div className="d-flex flex-wrap align-items-center gap-3 mt-3">
       <button
         className="btn btn-outline-secondary btn-sm"
         disabled={pagination.currentPage <= 1}
@@ -64,10 +64,12 @@ export function Pagination({ pagination, onPage }) {
 }
 export function Modal({ title, onClose, children, busy = false }) {
   const ref = useRef(null);
+  const headingId=useId();
   useEffect(() => {
     const dialog = ref.current;
     dialog.showModal();
-    dialog.querySelector("input:not([type=hidden]), select, textarea")?.focus();
+    dialog.querySelector("input:not([type=hidden]), select, textarea")?.focus({preventScroll:true});
+    dialog.scrollTop=0;
     return () => dialog.close();
   }, []);
   return (
@@ -78,10 +80,10 @@ export function Modal({ title, onClose, children, busy = false }) {
         event.preventDefault();
         if (!busy) onClose();
       }}
-      aria-labelledby="dialog-title"
+      aria-labelledby={headingId}
     >
-      <div className="d-flex align-items-center justify-content-between mb-3">
-        <h2 id="dialog-title" className="h5 mb-0">
+      <div className="dialog-header d-flex align-items-center justify-content-between gap-3 mb-3">
+        <h2 id={headingId} className="h5 mb-0">
           {title}
         </h2>
         <button
@@ -103,7 +105,7 @@ export function Empty({ children = "No items found." }) {
 }
 export function PageTitle({ title, children }) {
   return (
-    <div className="d-flex align-items-center justify-content-between gap-3 mb-3">
+    <div className="page-title d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
       <h1 className="h4 mb-0">{title}</h1>
       {children}
     </div>

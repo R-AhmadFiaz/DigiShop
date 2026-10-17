@@ -13,9 +13,9 @@ test('expenses are only routed and navigated inside OWNER management',()=>{
   assert.doesNotMatch(sidebar.split('CASHIER:')[1].split('export default')[0],/Expenses/);
 });
 test('expense UI uses server totals and explicit unavailable accounting',()=>{
-  assert.match(source,/Expense posting unavailable/);assert.match(source,/list.data.totalMinor/);
+  assert.match(source,/Finish money-record setup/);assert.match(source,/list.data.totalMinor/);
   assert.match(source,/list.data.breakdown/);assert.match(source,/setup.data\?\.available/);
-  assert.match(source,/This is not a profit calculation/);assert.match(source,/Pagination/);
+  assert.match(source,/This is not profit/);assert.match(source,/Pagination/);
   assert.doesNotMatch(source,/reduce\(/);
 });
 test('expense payment and reversal reuse retained exact-key financial confirmation',()=>{

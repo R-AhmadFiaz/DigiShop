@@ -30,8 +30,8 @@ export default function SupplierAction({children,onChanged,operation="supplier-o
   }
   return <><Notice error={!request?error:''} success={success}/>{needsRefresh&&<button className="btn btn-outline-secondary mb-3" onClick={()=>{setNeedsRefresh(false);setError('');onChanged();}}>Refresh current data</button>}{children({prepare,locked:busy||retained||!!request||needsRefresh})}
     {request&&<Modal title={request.title} busy={busy||retained} onClose={()=>setRequest(null)}>
-      <p style={{whiteSpace:'pre-line'}}>{request.summary}</p><p className="text-body-secondary">The server will validate the current quantities, balances and access before saving.</p>
-      <Notice error={error}/>{retained&&!busy&&<p role="status">This request is retained for an identical retry.</p>}
+      <p style={{whiteSpace:'pre-line'}}>{request.summary}</p><p className="text-body-secondary">Check these details before confirming. Quantities and balances will be checked again.</p>
+      <Notice error={error}/>{retained&&!busy&&<p role="status">The same request is saved for a safe retry.</p>}
       <button className="btn btn-primary" disabled={busy} onClick={confirm}>{busy?'Recording...':retained?'Retry same request':request.confirmLabel||'Confirm and record'}</button>
     </Modal>}
   </>;

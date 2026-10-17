@@ -9,8 +9,8 @@ test('existing setup is OWNER-only and uses the existing financial confirmation 
 });
 test('opening review displays server assets, liabilities and unresolved differences separately',()=>{
   for(const field of ['inventoryMinor','cashMinor','customerDebtMinor','storeCreditMinor','supplierPayableMinor','netAssetsMinor','differenceMinor','journalBackedOpeningNetMinor'])assert.ok(source.includes('t.'+field));
-  assert.match(source,/setup is incomplete or blocked/i);assert.match(source,/history needs review/);assert.match(source,/existing customer ledger/);
-  assert.match(source,/not live stock valuation or profit/);assert.doesNotMatch(source,/stockQuantity\s*:/);
+  assert.match(source,/setup is incomplete or blocked/i);assert.match(source,/history needs review/);assert.match(source,/existing customer records/);
+  assert.match(source,/not current stock value or profit/);assert.doesNotMatch(source,/stockQuantity\s*:/);
 });
 test('drafts can be corrected, zeros are preserved and irreversible confirmation is explicitly typed',()=>{
   assert.match(source,/method:'PUT'/);assert.match(source,/expectedRevision:setup\?\.revision/);
@@ -18,8 +18,8 @@ test('drafts can be corrected, zeros are preserved and irreversible confirmation
   assert.match(source,/row.openingMinor===null\?'':row.openingMinor\/100/);assert.match(source,/filter\(row=>!row.hasOpening\)/);
 });
 test('historical opening equity and supplier reviews are not fabricated sales or investments',()=>{
-  assert.match(source,/No historical payment is invented/);assert.match(source,/unallocated opening equity, not a partner investment/);
-  assert.match(source,/unpaidMinor:money/);assert.match(source,/otherOpeningMinor:money/);assert.match(source,/time\)/);
+  assert.match(source,/No historical payment is invented/);assert.match(source,/starting value is not assigned to any partner and is not a new investment/);
+  assert.match(source,/unpaidMinor:money/);assert.match(source,/otherOpeningMinor:money/);assert.match(source,/time \(Pakistan\)/);
   assert.doesNotMatch(source,/create-order|\/capital'|\/expenses'/);
 });
 

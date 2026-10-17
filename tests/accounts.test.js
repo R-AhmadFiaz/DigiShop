@@ -12,9 +12,9 @@ try {
       const html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(Page)));
       assert.ok(html.includes(title));assert.match(html,/Loading/);
       assert.doesNotMatch(html,/PKR 0\.00|Revenue|Profit|Pay supplier|Record purchase/);
-      if(file==='Companies')assert.match(html,/Supplier history/);
-      if(file==='CashBank')assert.match(html,/Balances require confirmed openings and accounting activation/);
-      if(file==='Transactions')assert.match(html,/not a complete historical business ledger/);
+      if(file==='Companies')assert.match(html,/Open supplier Khata/);
+      if(file==='CashBank')assert.match(html,/Confirm starting balances and activate money records/);
+      if(file==='Transactions')assert.match(html,/Unchecked old records may be missing/);
     });
   }
 } finally {await server.close();}

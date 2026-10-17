@@ -2,7 +2,23 @@ import { amount } from './invoice.js';
 
 export const pkr = minor => Number.isSafeInteger(minor) ? 'PKR ' + (minor / 100).toLocaleString('en-PK', {minimumFractionDigits:2,maximumFractionDigits:2}) : 'Unavailable';
 export const pakistanTime = value => value ? new Date(value).toLocaleString('en-PK', {timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'}) : 'Unavailable';
-export const activity = value => (value || 'Recorded activity').replaceAll('_',' ').toLowerCase().replace(/^./,s=>s.toUpperCase());
+const activityNames = {
+  SUPPLIER_PAYABLE:'We owe supplier', CUSTOMER_RECEIVABLE:'Customer owes us',
+  STORE_CREDIT_LIABILITY:'Customer store credit', SUPPLIER_CREDIT:'Supplier owes us',
+  OPENING_EQUITY:'Starting business value', PURCHASES_CLEARING:'Received-goods account',
+  SETTLEMENT_CLEARING:'Invoice money account', OPENING:'Starting balance',
+  SUPPLIER_OPENING:'Supplier starting balance', REVERSAL:'Correction',
+  INVOICE_RECEIPT:'Money received on invoice', INVOICE_REFUND:'Invoice refund paid',
+  PURCHASE_RECEIPT:'Goods received', SUPPLIER_PAYMENT:'Money paid to supplier',
+  SUPPLIER_RETURN:'Goods returned to supplier', SUPPLIER_REFUND:'Refund received from supplier',
+  SUPPLIER_CREDIT_APPLICATION:'Supplier credit used', SUPPLIER_REVERSAL:'Supplier correction',
+  CAPITAL_CONTRIBUTION:'Money added to business', CAPITAL_WITHDRAWAL:'Money taken out',
+  CAPITAL_REVERSAL:'Partner money corrected', EXPENSE_REVERSAL:'Expense corrected',
+  CREDIT_REDEEMED:'Store credit used', CREDIT_RESTORED:'Store credit returned',
+  CREDIT_ISSUED:'Store credit given', PARTNER_CAPITAL:'Partner business money',
+};
+export const activity = value => activityNames[value] || (value || 'Recorded activity').replaceAll('_',' ').toLowerCase().replace(/^./,s=>s.toUpperCase());
+export const accountName = account => account.name?.trim().toUpperCase().replaceAll(' ','_') === account.kind ? activity(account.kind) : account.name;
 export function minorAmount(value) { return Math.round(amount(value,'an amount') * 100); }
 export function purchaseItems(rows) {
   if (!rows.length) throw new Error('Add at least one product.');

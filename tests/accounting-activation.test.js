@@ -9,14 +9,14 @@ test('activation is on the existing OWNER-only setup page',()=>{
   assert.match(owner,/existing-setup/);assert.match(page,/<AccountingActivation onChanged={changed}/);
 });
 test('explicit preparation, readiness, activation and pause use server state',()=>{
-  for(const text of ['CLEAN_START','RECONCILE','Review activation readiness','PREPARE ACCOUNTING','ACTIVATE ACCOUNTING','PAUSE ACCOUNTING','status.data.permitted','preview.ready','previewToken:preview.previewToken','expectedRevision:revision'])assert.ok(source.includes(text),text);
+  for(const text of ['CLEAN_START','RECONCILE','Check setup','PREPARE ACCOUNTING','ACTIVATE ACCOUNTING','PAUSE ACCOUNTING','status.data.permitted','preview.ready','previewToken:preview.previewToken','expectedRevision:revision'])assert.ok(source.includes(text),text);
 });
 test('activation and enrollment retain exact requests through the existing financial confirmation component',()=>{
   assert.match(source,/SupplierAction operation="accounting-activation"/);assert.match(source,/SupplierAction operation="accounting-enrollment"/);
   assert.match(source,/requestKey:requestKey\(\)/);assert.match(source,/locked\|\|busy/);assert.match(source,/expiresAt:preview.expiresAt/);
 });
 test('clean-start instructions do not promise silent demo cleanup',()=>{
-  assert.match(source,/Nothing is cleared automatically/);assert.match(source,/zero customer debt and credit/);assert.match(source,/unexplained demo balances/i);
+  assert.match(source,/Nothing is deleted or reset/);assert.match(source,/no old debt or customer credit/);assert.match(source,/unexplained demo balances/i);
   assert.doesNotMatch(source,/method:'DELETE'|remainingMoney:|storeCreditBalanceMinor:/);
 });
 test('additional account enrollment requires verified money and explicit confirmation',()=>{

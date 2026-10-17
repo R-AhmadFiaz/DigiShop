@@ -11,10 +11,10 @@ test('report route and navigation are OWNER-only',()=>{
   const owner=app.split('<Route element={<Guard role="OWNER" />}>')[1].split('<Route element={<Guard role="CASHIER" />}>')[0];
   assert.match(owner,/path="reports" element={<FinancialReports/);
   const layout=fs.readFileSync(new URL('../src/layouts/ShopLayout.jsx',import.meta.url),'utf8');
-  assert.match(layout.split('CASHIER:')[0],/\["reports", "Financial Reports"\]/);assert.doesNotMatch(layout.split('CASHIER:')[1],/Financial Reports/);
+  assert.match(layout.split('CASHIER:')[0],/\["reports", "Reports"\]/);assert.doesNotMatch(layout.split('CASHIER:')[1],/Reports/);
 });
 test('unavailable amounts are not zeros and current snapshots are separated from dated flows',()=>{
-  for(const word of ['UNAVAILABLE','INCOMPLETE','PROVISIONAL','current','not cash collected','not sales or physical cash','not revenue or profit'])assert.ok(source.includes(word));
+  for(const word of ['UNAVAILABLE','INCOMPLETE','PROVISIONAL','current','not the cash collected','not sales or physical cash','not sales or profit'])assert.ok(source.includes(word));
   assert.match(source,/UTC/);assert.match(source,/86400000/);assert.match(source,/Pakistan time/);
   assert.match(source,/pkr\(d.suppliers.totalMinor\)/);assert.match(source,/pkr\(a.openingMinor\)/);
 });

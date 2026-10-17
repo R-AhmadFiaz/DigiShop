@@ -48,7 +48,7 @@ export default function Invoice() {
       <div className="panel mt-3 no-print">
         {order.customerId && <InvoiceCustomerBalance key={`${orderId}-${eligibility?.revision}`} customer={order.customerId} />}
         <div className="d-flex flex-wrap gap-2">
-          {eligibility?.adjustmentEligible && <button className="btn btn-primary" disabled={busy || !!mode} onClick={() => setMode("adjustments")}>Adjust Invoice</button>}
+          {eligibility?.adjustmentEligible && <button className="btn btn-primary" disabled={busy || !!mode} onClick={() => setMode("adjustments")}>Return / change invoice</button>}
           {eligibility?.paymentEligible && <button className="btn btn-outline-primary" disabled={busy || !!mode} onClick={() => setMode("payments")}>Receive payment</button>}
           {order.status === "PENDING" && <button className="btn btn-outline-primary" disabled={busy || !!mode} onClick={delivered}>{busy ? "Saving..." : "Mark delivered"}</button>}
           {eligibility?.cancellationEligible && <button className="btn btn-outline-danger" disabled={busy || !!mode} onClick={() => setMode("cancellations")}>Cancel invoice</button>}

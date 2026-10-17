@@ -115,7 +115,7 @@ export default function Stock() {
                             className="btn btn-outline-secondary btn-sm"
                             onClick={() => setAdjusting(p)}
                           >
-                            Adjust
+                            Change stock
                           </button>
                         </td>
                       </tr>
@@ -176,7 +176,7 @@ function Adjustment({ product, onClose, onSaved }) {
     }
   }
   return (
-    <Modal title={"Adjust " + product.name} onClose={onClose} busy={busy}>
+    <Modal title={"Change stock: " + product.name} onClose={onClose} busy={busy}>
       <p>
         Current stock: {product.stockQuantity} {product.unit}
       </p>
@@ -184,8 +184,8 @@ function Adjustment({ product, onClose, onSaved }) {
       <form onSubmit={submit}>
         <fieldset disabled={busy}>
           <Field
-            label="Quantity change"
-            hint="Positive to add stock; negative to remove stock."
+            label="Quantity to add or remove"
+            hint="For example: 5 adds five; -5 removes five."
           >
             <input
               className="form-control"
@@ -205,7 +205,7 @@ function Adjustment({ product, onClose, onSaved }) {
             />
           </Field>
           <button className="btn btn-primary" type="submit">
-            {busy ? "Saving..." : "Save adjustment"}
+            {busy ? "Saving..." : "Save stock change"}
           </button>
         </fieldset>
       </form>

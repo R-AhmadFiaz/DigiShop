@@ -972,7 +972,7 @@ try {
   assert.equal(customer.storeCreditBalanceMinor, walletBeforeSale - 4000);
   assert.equal(invoice.paidAmount, 50);
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Net store-credit settlement")'));
-  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Adjust Invoice")'), false);
+  assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Return / change invoice")'), false);
   await click("Customers");
   await wait('!!document.querySelector("table")');
   await fill('[aria-label="Search customer by name or phone"]', "0300");
@@ -1318,17 +1318,17 @@ try {
   await wait('document.body.innerText.includes("Status: DISABLED")');
   await fillLabel('Reason','Verified opening records');
   await fillLabel('Type PREPARE ACCOUNTING to confirm','PREPARE ACCOUNTING');
-  await click('Begin reviewed setup');await wait('!!document.querySelector("dialog[open]")');
+  await click('Start setup');await wait('!!document.querySelector("dialog[open]")');
   await click('Confirm and record');await wait('document.body.innerText.includes("Status: PREPARING")');
-  await click('Review activation readiness');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
+  await click('Check setup');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
   await fillLabel('Reason','Confirm reviewed starting point');
   await fillLabel('Type ACTIVATE ACCOUNTING to activate, or PREPARE ACCOUNTING to revise the starting point','ACTIVATE ACCOUNTING');
   await click('Activate accounting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: ACTIVE")');
   assert.equal(accountingActivationRequests.filter(r=>r.endpoint.endsWith('/confirm')).length,1);
   assert.equal(accountingActivationRequests.at(-1).body.previewToken,'activation-preview');
   await fillLabel('Reason','Pause for owner review');await fillLabel('Type PAUSE ACCOUNTING to confirm','PAUSE ACCOUNTING');
-  await click('Pause financial posting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: PAUSED")');
-  await click('Review activation readiness');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
+  await click('Pause money records');await click('Confirm and record');await wait('document.body.innerText.includes("Status: PAUSED")');
+  await click('Check setup');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
   await fillLabel('Reason','Resume after review');await fillLabel('Type ACTIVATE ACCOUNTING to confirm','ACTIVATE ACCOUNTING');
   await click('Resume accounting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: ACTIVE")');
   await send('Page.navigate',{url:'http://localhost:5173/owner/dashboard'});
@@ -1341,7 +1341,7 @@ try {
   await click('Save business');await wait('!document.querySelector("dialog[open]")');await wait('document.body.innerText.includes("Eagle Cables")');
   assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['COMPANY','SUPPLIER']);
   await fill('[aria-label="Search businesses"]','Eagle');await sleep(300);
-  await click('Business setup');await wait('document.body.innerText.includes("Brand associations")');
+  await click('Business details');await wait('document.body.innerText.includes("Brand associations")');
   await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
   await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances match")');
@@ -1363,10 +1363,10 @@ try {
   await click('Open purchase');await wait('document.body.innerText.includes("Confirm order")');purchaseOrders[0].revision++;await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Purchase changed")');await click('Refresh current data');await wait('document.body.innerText.includes("Confirm order")');await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Receive delivery")');
   await fillLabel('Delivery reference','GR-DEFERRED');await fill('[aria-label="Delivered Copper Cable"]','1');await click('Review delivered quantities');assert.equal(goodsReceipts.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("GR-DEFERRED")');
   assert.equal(product.stockQuantity,stockBeforePurchases+1);assert.equal(goodsReceipts[0].accountingStatus,'DEFERRED');
-  await click('Return details');await wait('document.body.innerText.includes("Historical deferred deliveries")');assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Review return").matches(":disabled")'),true);await click('Close return details');
+  await click('Return details');await wait('document.body.innerText.includes("Check this old delivery")');assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Review return").matches(":disabled")'),true);await click('Close return details');
   supplierReady=true;financialAccounts[0].cashCutoverId='prepared-cutover';
   await fillLabel('Delivery reference','GR-POSTED');await fill('[aria-label="Delivered Copper Cable"]','2');await click('Review delivered quantities');await click('Confirm and record');await wait('document.body.innerText.includes("GR-POSTED")');assert.equal(goodsReceipts.length,2);
-  await click('Supplier account');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');
+  await click('Supplier Khata');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');
   await fill('select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
   await click('Review supplier payment');await wait('document.body.innerText.includes("no greater than the outstanding payable")');assert.equal(supplierSettlements.length,0);
   supplierCashMinor=1;await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');await click('Confirm payment sent');await wait('document.body.innerText.includes("Insufficient cash or bank funds")');assert.equal(supplierSettlements.length,0);supplierCashMinor=125000;
@@ -1376,7 +1376,7 @@ try {
   supplierReady=false;await click('Retry same request');await wait('document.querySelector("dialog").innerText.includes("authoritative payable unavailable")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);supplierReady=true;
   await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Retry same request").click();[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("request"))?.click()');
   await wait('document.body.innerText.includes("Outstanding: PKR 60.00")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);
-  await click('Open purchase');await wait('document.body.innerText.includes("GR-POSTED")');await click('Return details');await wait('document.body.innerText.includes("Already returned (net)")');
+  await click('Open purchase');await wait('document.body.innerText.includes("GR-POSTED")');await click('Return details');await wait('document.body.innerText.includes("Already returned")');
   await fillLabel('Return Copper Cable','1');await fillLabel('Return reference','RET-SMOKE');await fillLabel('Return reason','Supplier accepted returned goods');await click('Review return');assert.equal(supplierSettlements.length,1);
   const cashBeforeReturn=supplierCashMinor;await click('Confirm and record');await wait('!document.querySelector("dialog[open]") && !document.querySelector("section[aria-label]")');assert.equal(supplierSettlements.length,2);assert.equal(supplierCashMinor,cashBeforeReturn);assert.equal(supplierPayableMinor,5000);
   await click('Return details');await wait('document.body.innerText.includes("RET-SMOKE")');assert.equal(await evaluate('document.querySelector("section[aria-label] tbody").innerText.includes("1")'),true);await click('Close return details');
@@ -1454,16 +1454,16 @@ try {
   assert.equal(product.description, "");
   await click("Stock");
   await wait('document.body.innerText.includes("Copper Cable")');
-  await click("Adjust");
+  await click("Change stock");
   await fill("[name=quantityDelta]", "5");
   await fill("[name=reason]", "Delivery");
-  await click("Save adjustment");
+  await click("Save stock change");
   await wait('!document.querySelector("dialog[open]")');
   assert.equal(product.stockQuantity, 25);
-  await click("Adjust");
+  await click("Change stock");
   await fill("[name=quantityDelta]", "-22");
   await fill("[name=reason]", "Damaged goods");
-  await click("Save adjustment");
+  await click("Save stock change");
   await wait('!document.querySelector("dialog[open]")');
   await wait('document.body.innerText.includes("Low stock")');
   await evaluate('document.querySelector("input[type=checkbox]").click()');
@@ -1525,14 +1525,14 @@ try {
   Object.assign(invoice, { items: [line], totalPrice: 100, subtotal: 100, discountAmount: 0, discountType: "NONE", discountValue: 0, paidAmount: 70, amountDue: 30, customerId: customer._id, revision: 0, status: "PENDING", originalSnapshot: { items: [line], totalPrice: 100, subtotal: 100, paidAmount: 70, amountDue: 30, discountAmount: 0 } });
   const makePreview = (before, proposed, movements, settlement, requirements = {}) => ({ revision: invoice.revision || 0, before, proposed, movements, settlement, requirements: { refundMinor: 0, creditRestoreMinor: 0, cashRefundMaximumMinor: 0, ...requirements }, canSubmit: true, confirmationToken: "a".repeat(64), validationMessage: null });
   await send("Page.reload"); await sleep(200);
-  await click("Adjust Invoice");
+  await click("Return / change invoice");
   await fill('[aria-label="Return quantity for Copper Cable"]', "1");
   await fillLabel("Reason", "Partial return");
   financialPreview = { ...makePreview(snapshot([line], 100, 70, 30), snapshot([{ ...line, quantity: 1 }], 50, 50, 0), [{ kind: "RETURN", productId: product._id, lineId: line.lineId, quantity: 1, unitPriceMinor: 5000, stockDelta: 1, disposition: "RESTOCK" }], null, { refundMinor: 2000, cashRefundMaximumMinor: 2000 }), canSubmit: false, confirmationToken: null, validationMessage: "Refund allocation must exactly match refundable cash-funded amount" };
   await click("Preview changes");
   await wait('document.body.innerText.includes("Refund allocation must exactly match")');
   assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Confirm adjustment")'), false);
-  await fillLabel("Cash to refund", "10"); await fillLabel("Refund as store credit", "10");
+  await fillLabel("Money to refund", "10"); await fillLabel("Give customer store credit", "10");
   financialPreview = { ...financialPreview, canSubmit: true, confirmationToken: "a".repeat(64), validationMessage: null, settlement: { cashRefundMinor: 1000, creditIssuedMinor: 1000, cashReceivedMinor: 0, creditRedeemedMinor: 0, creditRestoredMinor: 0, debtDeltaMinor: -3000 } };
   await click("Preview changes");
   await wait(`!!document.querySelector('[aria-label="Server preview"] input[type=checkbox]')`);
@@ -1564,11 +1564,11 @@ try {
   await click("Current invoice · Revision 1");
   // Damaged same-product exchange: the supplied unit uses the server's current
   // price, while the returned unit retains its historic price.
-  await click("Adjust Invoice");
+  await click("Return / change invoice");
   await fill('[aria-label="Return quantity for Copper Cable"]', "1");
   await fill('[aria-label="Return condition for Copper Cable"]', "DAMAGED");
-  await wait(`!!document.querySelector('[aria-label="Adjust invoice"] .product-result')`);
-  await evaluate(`document.querySelector('[aria-label="Adjust invoice"] .product-result').click()`);
+  await wait(`!!document.querySelector('[aria-label="Return / change invoice"] .product-result')`);
+  await evaluate(`document.querySelector('[aria-label="Return / change invoice"] .product-result').click()`);
   await fillLabel("Reason", "Exchange damaged cable");
   const supplied = { ...line, lineId: "new-unit", quantity: 1, unitPrice: 60 };
   financialPreview = makePreview(snapshot([{ ...line, quantity: 1 }], 50, 50, 0), snapshot([supplied], 60, 50, 10), [{ kind: "RETURN", lineId: line.lineId, productId: product._id, quantity: 1, unitPriceMinor: 5000, stockDelta: 0, disposition: "DAMAGED" }, { kind: "ADD", lineId: "new-unit", productId: product._id, quantity: 1, unitPriceMinor: 6000, stockDelta: -1 }], { cashRefundMinor: 0, cashReceivedMinor: 0, creditIssuedMinor: 0, creditRedeemedMinor: 0, debtDeltaMinor: 1000 });
@@ -1576,11 +1576,11 @@ try {
   await click("Preview changes");
   await wait('document.body.innerText.includes("Invoice changed; reload before preview")');
   await click("Close");
-  await click("Adjust Invoice");
+  await click("Return / change invoice");
   await fill('[aria-label="Return quantity for Copper Cable"]', "1");
   await fill('[aria-label="Return condition for Copper Cable"]', "DAMAGED");
-  await wait(`!!document.querySelector('[aria-label="Adjust invoice"] .product-result')`);
-  await evaluate(`document.querySelector('[aria-label="Adjust invoice"] .product-result').click()`);
+  await wait(`!!document.querySelector('[aria-label="Return / change invoice"] .product-result')`);
+  await evaluate(`document.querySelector('[aria-label="Return / change invoice"] .product-result').click()`);
   await fillLabel("Reason", "Exchange damaged cable");
   await click("Preview changes");
   await wait('document.body.innerText.includes("Damaged, no sellable stock increase")');
@@ -1591,7 +1591,7 @@ try {
   assert.deepEqual(JSON.parse(exchangeCall.body).additions, [{ productId: product._id, quantity: 1 }]);
   await click("Receive payment");
   await fillLabel("Reason", "Settle exchange balance");
-  await fillLabel("Additional cash received", "5"); await fillLabel("Store credit to redeem", "5");
+  await fillLabel("Money received now", "5"); await fillLabel("Use customer store credit", "5");
   financialPreview = makePreview(snapshot([supplied], 60, 50, 10), snapshot([supplied], 60, 60, 0), [], { cashReceivedMinor: 500, creditRedeemedMinor: 500, cashRefundMinor: 0, debtDeltaMinor: -1000 });
   const validPaymentPreview = financialPreview;
   financialPreview = { ...financialPreview, settlement: null, confirmationToken: null, canSubmit: false, validationMessage: "Insufficient store credit" };
@@ -1609,9 +1609,9 @@ try {
   await wait('document.body.innerText.includes("Current invoice · Revision 3")');
   // Full return restores credit-funded amounts automatically before allocating
   // the remaining refund to cash and new credit.
-  await click("Adjust Invoice"); await click("Return all remaining units");
+  await click("Return / change invoice"); await click("Return all remaining units");
   await fillLabel("Reason", "Full return");
-  await fillLabel("Cash to refund", "35"); await fillLabel("Refund as store credit", "20");
+  await fillLabel("Money to refund", "35"); await fillLabel("Give customer store credit", "20");
   financialPreview = makePreview(snapshot([supplied], 60, 60, 0), snapshot([], 0, 0, 0), [{ kind: "RETURN", lineId: supplied.lineId, productId: product._id, quantity: 1, unitPriceMinor: 6000, stockDelta: 1, disposition: "RESTOCK" }], { cashRefundMinor: 3500, creditIssuedMinor: 2000, creditRestoredMinor: 500, cashReceivedMinor: 0 }, { refundMinor: 6000, creditRestoreMinor: 500, cashRefundMaximumMinor: 5500 });
   await click("Preview changes");
   await wait(`!!document.querySelector('[aria-label="Server preview"] input[type=checkbox]')`);
@@ -1623,8 +1623,8 @@ try {
   // original invoice's customer. Pagination is exercised with recorded events.
   Object.assign(invoice, { items: [{ ...line, quantity: 1 }], totalPrice: 50, subtotal: 50, paidAmount: 50, amountDue: 0, customerId: undefined, revision: 0 });
   await send("Page.reload"); await sleep(200);
-  await click("Adjust Invoice"); await click("Return all remaining units");
-  await fillLabel("Reason", "Anonymous credit refund"); await fillLabel("Refund as store credit", "50");
+  await click("Return / change invoice"); await click("Return all remaining units");
+  await fillLabel("Reason", "Anonymous credit refund"); await fillLabel("Give customer store credit", "50");
   await wait('!!document.querySelector(".customer-result")');
   await evaluate('document.querySelector(".customer-result").click()');
   financialPreview = makePreview(snapshot([{ ...line, quantity: 1 }], 50, 50, 0), snapshot([], 0, 0, 0), [], { creditIssuedMinor: 5000, cashRefundMinor: 0, cashReceivedMinor: 0 }, { refundMinor: 5000, cashRefundMaximumMinor: 5000 });
@@ -1647,7 +1647,7 @@ try {
   await send("Page.reload"); await sleep(200);
   await click("Cancel invoice");
   await fillLabel("Reason", "Customer cancelled order");
-  await fillLabel("Cash to refund", String(invoice.paidAmount));
+  await fillLabel("Money to refund", String(invoice.paidAmount));
   await click("Preview changes");
   await wait(`!!document.querySelector('[aria-label="Server preview"]')`);
   if (invoice.paidAmount > 0) await evaluate(`document.querySelector('[aria-label="Server preview"] input[type=checkbox]').click()`);
@@ -1675,7 +1675,7 @@ try {
     )),
   );
   await click("Back to sales");
-  await click("Create Cashier");
+  await click("Cashiers");
   await fill("[name=username]", "newcounter");
   await fill("[name=email]", "newcounter@example.test");
   await fill("[name=password]", "new-password");

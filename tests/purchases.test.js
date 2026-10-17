@@ -22,7 +22,7 @@ test('return eligibility includes multiple returns and linked reversals without 
 });
 test('unavailable money is not zero and timestamps explicitly use Pakistan time',()=>{
   assert.equal(pkr(null),'Unavailable');assert.match(pkr(0),/0\.00/);assert.match(pkr(123456),/1,234\.56/);
-  assert.match(pakistanTime('2026-01-01T20:00:00.000Z'),/2.*Jan.*2026/);assert.equal(activity('SUPPLIER_RETURN'),'Supplier return');
+  assert.match(pakistanTime('2026-01-01T20:00:00.000Z'),/2.*Jan.*2026/);assert.equal(activity('SUPPLIER_RETURN'),'Goods returned to supplier');
 });
 test('purchase and supplier routes stay inside OWNER routing and use real endpoints',()=>{
   const app=fs.readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8'),owner=app.split('<Route element={<Guard role="OWNER" />}>')[1].split('<Route element={<Guard role="CASHIER" />}>')[0];
@@ -51,5 +51,5 @@ test('supplier opening retains controlled selections and created accounts across
   assert.match(source,/setSelected\(rows=>\(\{\.\.\.rows,\[kind\]:account\._id\}\)\)/);
   assert.match(source,/Object\.values\(savedAccounts\)/);
   assert.match(source,/setSavedAccounts\(rows=>\(\{\.\.\.rows,\[id\]:account\}\)\)/);
-  assert.match(source,/Account ready and selected/);
+  assert.match(source,/Account selected/);
 });

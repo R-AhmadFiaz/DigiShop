@@ -10,9 +10,9 @@ test('Partners & Capital is an OWNER-only route and sidebar item',()=>{
   const sidebar=fs.readFileSync(new URL('../src/layouts/ShopLayout.jsx',import.meta.url),'utf8');assert.match(sidebar.split('CASHIER:')[0],/Partners & Capital/);assert.doesNotMatch(sidebar.split('CASHIER:')[1],/Partners & Capital/);
 });
 test('capital balances are server-authoritative and unavailable is distinct from zero',()=>{
-  assert.match(source,/list.data.total.balanceMinor/);assert.match(source,/Capital balances and posting unavailable/);
+  assert.match(source,/list.data.total.balanceMinor/);assert.match(source,/Finish money-record setup before adding or taking out partner money/);
   assert.match(source,/pkr\(row.capital\?\.balanceMinor\)/);assert.equal(pkr(undefined),'Unavailable');assert.equal(minorAmount('12.50'),1250);
-  assert.match(source,/Remaining capital is not the cash available/);assert.doesNotMatch(source,/reduce\(/);
+  assert.match(source,/These totals are not the cash available/);assert.doesNotMatch(source,/reduce\(/);
 });
 test('capital actions use retained same-key confirmations and original-account reversals',()=>{
   assert.match(source,/SupplierAction operation="capital-operation"/);assert.match(source,/CONFIRM CAPITAL REVERSAL/);assert.match(source,/money has actually moved back/);

@@ -25,7 +25,7 @@ test('customer collection reuses invoice settlement and sends preview-bound cash
   assert.doesNotMatch(customers,/method:\s*['"]POST/);
   const form=fs.readFileSync(new URL('../src/components/InvoiceAdjustment.jsx',import.meta.url),'utf8');
   assert.match(form,/useLoad\('\/orders\/payment-accounts'\)/);
-  assert.match(form,/body\[field\]=routing\[field\]/);
+  assert.match(form,/body\[field\]=accountId/);
   assert.match(form,/setPreview\(result\); setReviewBody\(body\)/);
   assert.match(form,/confirmationToken: preview\.confirmationToken/);
   assert.match(form,/I have received/);
