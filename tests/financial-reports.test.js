@@ -16,5 +16,5 @@ test('report route and navigation are OWNER-only',()=>{
 test('unavailable amounts are not zeros and current snapshots are separated from dated flows',()=>{
   for(const word of ['UNAVAILABLE','INCOMPLETE','PROVISIONAL','current','not the cash collected','not sales or physical cash','not sales or profit'])assert.ok(source.includes(word));
   assert.match(source,/UTC/);assert.match(source,/86400000/);assert.match(source,/Pakistan time/);
-  assert.match(source,/pkr\(d.suppliers.totalMinor\)/);assert.match(source,/pkr\(a.openingMinor\)/);
+  assert.match(source,/amount=\{d.suppliers.totalMinor\}/);assert.match(source,/pkr\(a.openingMinor\)/);
 });

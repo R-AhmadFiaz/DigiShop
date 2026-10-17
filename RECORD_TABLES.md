@@ -9,7 +9,7 @@ accounting calculations, permission guards or stored records changed.
 |---|---|
 | Transactions — shop-wide | One row per returned event: date, action, source, event amount, actor; click/Enter or View transaction opens the existing detail endpoint. No journal-posting duplication or global cash balance. |
 | Transactions — selected account | Current server balance above the table; date, action, source, balance added/reduced, server running balance. Range opening/closing and existing filters/pagination retained. |
-| Supplier Khata | Prominent authoritative outstanding amount; supplier credit kept separate. Settlement register with dates, actions, references, values, delivery links and expandable portions/notes/actor/reversal references. Correct remains visible. Full dated debt movements are in the linked supplier account statement. |
+| Supplier Khata | Prominent authoritative outstanding amount; supplier credit kept separate. Settlement register with dates, actions, references, values, delivery links and expandable portions/notes/actor/reversal references. Correct remains visible. Full dated debt movements now appear directly below the supplier summary using the existing authoritative account statement. Payment and credit forms are expandable; retained pending confirmations remain accessible. |
 | Companies & Suppliers | Shared business directory table; click row or Business details opens existing details. Supplier history remains separate; product stock stays a numeric table. |
 | Customers | Shared customer Khata directory; debt and store credit stay separate. OWNER row/details opens existing balances and invoice register with dates, totals, paid/settled and due. Receive Payment links to the existing invoice settlement. CASHIER gains no detail action. |
 | Cash & Bank | Shared account table, selected confirmed balance above it; click row or View balance. Existing Transactions link retained. |
@@ -73,14 +73,23 @@ details and mobile horizontal scrolling, and verify detail expansion writes noth
 
 Verified for this pass:
 
-- Frontend lint and production build passed; 100 automated tests passed.
+- Frontend lint and production build passed; 103 automated tests passed.
 - Existing fixture-based frontend browser smoke passed, including role permissions,
   subscription states, POS, customer accounts, stock filters, quotations and printing.
   Anonymous checks used local Express without a database connection.
-- 35 real business/browser groups passed against a disposable MongoDB 8.3.4 replica
+- 36 real business/browser groups passed against a disposable MongoDB 8.3.4 replica
   set, including actual persisted stock, customer/supplier balances, journals,
   idempotency, rollback and the new register-specific checks.
 - 19 real invoice/return browser groups passed, including printable PDFs,
   settlement history, refunds, credit, stale previews, concurrency and rollback.
 - Backend working tree remained unchanged. No production connections, commits,
   pushes or deployments were performed.
+
+## Layout correction verification
+
+- Reviewed eight views at 1366px, 1920px and 390px: Supplier Khata, Companies, purchase deliveries, supplier returns, Reports, Capital, Cash & Bank and Customer Khata. Captures are under ignored tests/artifacts/layout-review.
+- Short registers grow naturally without vertical table scrolling. Dates and references stay on one line; money is right-aligned, actions compact, and mobile text columns retain readable minimum widths. Wide mobile tables scroll horizontally.
+- Supplier summary keeps zero credit compact, the posted debt statement precedes optional forms, and settlement corrections remain available.
+- Reports distinguish selected-date sales/expenses from current snapshots. Cash/bank balances remain per-account because the API does not supply a confirmed combined total. Inventory remains provisional and unsupported profit remains unavailable.
+- Customer Khata uses a wider desktop dialog. Header actions stay grouped rather than spreading across the page. Necessary warnings, confirmation text and financial checks remain intact.
+- Existing mobile navigation is unchanged and remains above the content; this pass does not redesign navigation.

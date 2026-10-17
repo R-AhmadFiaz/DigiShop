@@ -5,6 +5,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {replaceLabels} from './readability-copy.js';
+import {screenshotChecks} from './layout-screenshots.js';
 
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
@@ -26,6 +27,22 @@ source=replaceLabels(source)
   .replace("const selectedAccounts={};", "await evaluate(\"[...document.querySelectorAll('summary')].find(e=>e.textContent==='Existing debt or manual account selection').click()\");const selectedAccounts={};")
   .replace("'Create '+kind.replaceAll('_',' ').toLowerCase()+' account'", "({SUPPLIER_PAYABLE:'Create supplier balance account',PURCHASES_CLEARING:'Create received-goods account',OPENING_EQUITY:'Create starting-value account'})[kind]")
   .replace("await click('Complete sale');await wait(\"document.body.innerText.includes('Select the cash or bank account receiving this payment.')\");", "assert.equal(await evaluate(\"document.querySelector('[aria-label=\\\"Payment account\\\"]').value\"),String(zeroCash._id),'Only prepared account defaults without submitting');");
+// Open the new presentation disclosures before interacting with their controls.
+source=source.replaceAll("document.querySelectorAll('button,a')", "document.querySelectorAll('button,a,summary')")
+ .replaceAll("document.querySelector('select.form-select')", "document.querySelector('#supplier-payment select.form-select')")
+ .replaceAll("fill('select.form-select',id)", "fill('#supplier-payment select.form-select',id)");
+source=source.replace("Object.getOwnPropertyDescriptor(e.tagName", "for(let d=e.closest('details');d;d=d.parentElement?.closest('details'))if(!d.open)d.querySelector('summary').click();Object.getOwnPropertyDescriptor(e.tagName");
+source=source.replace("const row=[...document.querySelectorAll('tr')].find(r=>r.innerText.includes", "const row=[...document.querySelectorAll('.supplier-settlements tr')].find(r=>r.innerText.includes");
+source=source.replaceAll("querySelectorAll('tr')].some(r=>r.innerText.includes", "querySelectorAll('.supplier-settlements tr')].some(r=>r.innerText.includes");
+source=source.replace("async function correctCredit(reference,nextReference){await navigation('/owner/accounts/suppliers/'+creditSupplier._id);", "async function correctCredit(reference,nextReference){await navigation('/owner/accounts/suppliers/'+creditSupplier._id);await wait(\"!!document.querySelector('.supplier-settlements')\");await evaluate(\"document.querySelector('.supplier-settlements > summary').click()\");");
+source=source.replaceAll("row.querySelector('button').click();", "for(let d=row.closest('details');d;d=d.parentElement?.closest('details'))if(!d.open)d.querySelector('summary').click();row.querySelector('button').click();");
+source=source.replaceAll('Supplier owes us: PKR 5.00','PKR 5.00');
+source=source.replaceAll("document.querySelector('dialog').innerText.includes('Outstanding debt: PKR 0.00')", "document.querySelector('dialog .balance-strip dd')?.textContent==='PKR 0.00'");
+source=source.replaceAll("document.body.innerText.includes('Credit applied (net of corrections): PKR 2.00')", "(()=>{const d=[...document.querySelectorAll('details')].find(d=>d.querySelector('summary')?.textContent==='Starting balance and credit history');if(!d)return false;d.open=true;return [...d.querySelectorAll('dt')].find(e=>e.textContent==='Credit applied (net of corrections)')?.nextElementSibling.textContent==='PKR 2.00';})()");
+source=source.replaceAll("document.body.innerText.includes('Reference estimate')", "document.body.innerText.includes('Inventory estimate')")
+ .replace("assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')", "await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')")
+ .replace("await wait(`document.body.innerText.includes('financial balances are unavailable')`);", "await wait(`document.body.innerText.includes('Unavailable')`);await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);await wait(`document.body.innerText.includes('financial balances are unavailable')`);");
+source=source.replaceAll("innerText.includes('Unavailable:')", "innerText.includes('Unavailable')");
 source=source.replaceAll(/(['"])\.\.\/dist\/([^'"]+)\1/g,(_,quote,file)=>quote+pathToFileURL(path.join(backend,'dist',file)).href+quote)
   .replaceAll("'mongoose'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/mongoose/index.js')).href))
   .replaceAll("'jsonwebtoken'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/jsonwebtoken/index.js')).href));
@@ -87,6 +104,7 @@ const checks=`
   await login(owner.username);
 `;
 source=source.replace('  const evidence={passed:',checks+'  const evidence={passed:');
+if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))
   .replaceAll("'tests/artifacts/supplier-phase5a-evidence.json'",JSON.stringify(path.resolve('tests/artifacts/readability-workflows.json')));

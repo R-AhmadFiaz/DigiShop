@@ -22,7 +22,7 @@ export default function Expenses() {
   }
   return <>
     <PageTitle title="Expenses"/>{list.data&&<p className="record-balance">Expenses after corrections: <strong>{pkr(list.data.totalMinor)}</strong></p>}
-    <p className="text-body-secondary">Record shop costs here, such as rent and electricity. Use the other screens for purchases, supplier payments and customer refunds.</p>
+    <details className="context-help"><summary>What counts as an expense?</summary><p>Record shop costs here, such as rent and electricity. Use the other screens for purchases, supplier payments and customer refunds.</p></details>
     <Notice loading={setup.loading} error={setup.error||error} success={success}/>
     {!setup.loading&&(!setup.data?.available||!setup.data?.accounts?.length)&&<div className="alert alert-warning">Finish money-record setup and prepare a cash/bank account before paying an expense.</div>}
     <form className="d-flex gap-2 mb-3" onSubmit={addCategory}><input aria-label="New expense category" className="form-control" value={categoryName} onChange={e=>setCategoryName(e.target.value)} placeholder="Category, e.g. rent or electricity" maxLength={80} required/><button className="btn btn-outline-secondary text-nowrap" disabled={busy||!categoryName.trim()}>Add category</button></form>
@@ -30,7 +30,7 @@ export default function Expenses() {
       <button className="btn btn-primary mb-3" disabled={locked||!setup.data?.available||!setup.data?.accounts?.length} onClick={()=>{setCreating(true);setError('');}}>Record expense</button>
       <div className="row g-2 mb-3"><div className="col-sm-4"><Field label="Month (Pakistan time)"><input type="month" className="form-control" value={month} onChange={e=>{setMonth(e.target.value);setPage(1);}}/></Field></div><div className="col-sm-8"><Field label="Search expenses"><input className="form-control" maxLength={100} placeholder="Category, description, account or reference" value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/></Field></div></div>
       <Notice loading={list.loading} error={list.error}/>
-      {list.data&&<><p className="text-body-secondary">Totals follow the selected month and search. Corrections count on the day recorded. This is not profit.</p><div className="d-flex flex-wrap gap-3 mb-3">{list.data.breakdown.map(row=><span key={row.categoryId}>{row.category}: <strong>{pkr(row.netMinor)}</strong></span>)}</div>
+      {list.data&&<><details className="context-help"><summary>About expense totals</summary>Totals follow the selected month and search. Corrections count on the day recorded. This is not profit.</details><div className="d-flex flex-wrap gap-3 mb-3">{list.data.breakdown.map(row=><span key={row.categoryId}>{row.category}: <strong>{pkr(row.netMinor)}</strong></span>)}</div>
         <RecordTable label="Shop expense register" rows={list.data.entries} columns={[
  {key:'date',label:'Date / time (Pakistan)',render:r=>expenseTime(r.occurredAt)},
  {key:'categoryName',label:'Category'},{key:'action',label:'Action',render:r=>r.kind==='EXPENSE'?'Expense':'Reversal'},

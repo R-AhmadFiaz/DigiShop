@@ -62,7 +62,7 @@ export function Pagination({ pagination, onPage }) {
     </div>
   );
 }
-export function Modal({ title, onClose, children, busy = false }) {
+export function Modal({ title, onClose, children, busy = false, wide = false }) {
   const ref = useRef(null);
   const headingId=useId();
   useEffect(() => {
@@ -75,7 +75,7 @@ export function Modal({ title, onClose, children, busy = false }) {
   return (
     <dialog
       ref={ref}
-      className="shop-dialog"
+      className={wide ? "shop-dialog shop-dialog-wide" : "shop-dialog"}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -107,7 +107,7 @@ export function PageTitle({ title, children }) {
   return (
     <div className="page-title d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
       <h1 className="h4 mb-0">{title}</h1>
-      {children}
+      {children && <div className="page-actions d-flex flex-wrap gap-2">{children}</div>}
     </div>
   );
 }

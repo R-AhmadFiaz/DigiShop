@@ -10,7 +10,7 @@ function Balance({ account }) {
   return <section className="mt-3" aria-label="Account balance">
     <Notice loading={result.loading} />
     {result.error && <div className="alert alert-warning">Balance unavailable: {result.error}</div>}
-    {result.data && Number.isSafeInteger(result.data.balanceMinor) && <p className="record-balance fw-semibold">Balance: PKR {money(result.data.balanceMinor / 100)} <small className="d-block text-body-secondary">Based on confirmed money records.</small></p>}
+    {result.data && Number.isSafeInteger(result.data.balanceMinor) && <p className="record-balance fw-semibold">Balance: PKR {money(result.data.balanceMinor / 100)} </p>}
   </section>;
 }
 export default function CashBank() {
@@ -27,7 +27,7 @@ export default function CashBank() {
   }
   return <>
     <PageTitle title="Cash & Bank"><button className="btn btn-primary btn-sm" onClick={()=>{setAccountCode('ACC_'+crypto.randomUUID().toUpperCase());setCreating(true);setError('');}}>Add account</button></PageTitle>
-    <p className="text-body-secondary">Confirm starting balances and activate money records before using these accounts. <Link to="/owner/existing-setup">Open starting balances and account setup</Link>.</p>
+    <details className="context-help"><summary>Account setup</summary>Confirm starting balances and activate money records before using these accounts. <Link to="/owner/existing-setup">Open starting balances and account setup</Link>.</details>
     <Notice success={success} />
     <input aria-label="Search accounts" className="form-control search-input mb-3" placeholder="Account name or reference" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);setSelected(null);}} />
     <section className="panel"><Notice loading={list.loading} error={list.error}/>

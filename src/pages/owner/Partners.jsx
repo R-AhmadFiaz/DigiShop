@@ -33,10 +33,10 @@ export default function Partners(){
   }
   return <>
     <PageTitle title="Partners & Capital"><button className="btn btn-primary btn-sm" onClick={()=>{setCreating(true);setExisting(false);setBusiness(null);setPartnerKey(crypto.randomUUID());setError('');}}>Add partner</button></PageTitle>
-    <p className="text-body-secondary">Include the shop owner as a partner. Record money partners add or take out, not loans, salaries or profit shares. These totals are not the cash available; starting business money is not assigned to partners automatically.</p>
+    <details className="context-help"><summary>About partner money</summary><p>Include the shop owner as a partner. Record money partners add or take out, not loans, salaries or profit shares. These totals are not the cash available; starting business money is not assigned to partners automatically.</p></details>
     <Notice error={setup.error} loading={setup.loading} success={success}/>
     {!available&&!setup.loading&&<div className="alert alert-warning">Finish money-record setup before adding or taking out partner money. Partner details are still available.</div>}
-    {list.data?.total&&<div className="panel record-balance mb-3"><strong>Total business capital: {pkr(list.data.total.balanceMinor)}</strong><p className="mb-0">Money added: {pkr(list.data.total.contributionsMinor)} · Money taken out: {pkr(list.data.total.withdrawalsMinor)}</p><small>All partners, including partners outside the current search. Reversals correct the original contribution or withdrawal totals.</small></div>}
+    {list.data?.total&&<div className="panel record-balance mb-3"><strong>Total business capital: {pkr(list.data.total.balanceMinor)}</strong><p className="mb-0">Money added: {pkr(list.data.total.contributionsMinor)} · Money taken out: {pkr(list.data.total.withdrawalsMinor)}</p><details className="context-help"><summary>About these totals</summary>All partners, including partners outside the current search. Reversals correct the original contribution or withdrawal totals.</details></div>}
     <SupplierAction operation="capital-operation" onChanged={refresh}>{({prepare,locked})=><>
       <Field label="Find partner"><input className="form-control" value={search} maxLength={100} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Name or phone"/></Field>
       <Notice loading={list.loading} error={list.error}/>

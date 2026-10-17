@@ -15,12 +15,12 @@ import { CustomerForm } from "../components/CustomerPicker";
 import { useAuth } from '../auth/AuthContext';
 function CustomerBalances({ customer }) {
   const result = useLoad('/accounts/customers/' + customer._id + '/reconciliation');
-  return <><Notice loading={result.loading} error={result.error}/>{result.data && <><p className="record-balance">Outstanding debt: PKR {money(result.data.debtMinor / 100)}</p><p className="record-balance">Available store credit: PKR {money(result.data.storeCreditMinor / 100)}</p><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances match the recorded invoices and customer history.':'Balances need review. No financial records have been changed.'}</p>{!result.data.reconciled&&<><p>Review the original invoices, payments and credit records before confirming any opening. Do not enter these balances again as a new sale or investment.</p><ul>{result.data.issues?.map((issue,i)=><li key={i}>{issue.code.replaceAll('_',' ').toLowerCase()}</li>)}</ul><p>Unverified historical balances remain blocked. No automatic repair or duplicate opening is permitted.</p></>}</>}</>;
+  return <><Notice loading={result.loading} error={result.error}/>{result.data && <><dl className="balance-strip"><div><dt>Customer owes us</dt><dd>PKR {money(result.data.debtMinor / 100)}</dd></div><div><dt>Store credit</dt><dd>PKR {money(result.data.storeCreditMinor / 100)}</dd></div></dl><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances checked.':'Balances need review. No financial records have been changed.'}</p>{!result.data.reconciled&&<><p>Review the original invoices, payments and credit records before confirming any opening. Do not enter these balances again as a new sale or investment.</p><ul>{result.data.issues?.map((issue,i)=><li key={i}>{issue.code.replaceAll('_',' ').toLowerCase()}</li>)}</ul><p>Unverified historical balances remain blocked. No automatic repair or duplicate opening is permitted.</p></>}</>}</>;
 }
 function CustomerInvoices({customer}) {
   const [page,setPage]=useState(1);
   const invoices=useLoad('/orders/'+query({customerId:customer._id,page,limit:10}));
-  return <section className="mt-3"><h3 className="h6">Invoices and payments</h3><p className="small text-body-secondary">Choose an unpaid invoice to receive money. Each payment reduces that invoice and this customer debt; it is not a new sale.</p><Notice loading={invoices.loading} error={invoices.error}/>
+  return <section className="mt-3"><h3 className="h6">Invoices and payments</h3><details className="context-help"><summary>Receiving a payment</summary>Choose an unpaid invoice to receive money. Each payment reduces that invoice and this customer debt; it is not a new sale.</details><Notice loading={invoices.loading} error={invoices.error}/>
     {invoices.data&&<><RecordTable label="Customer invoice register" rows={invoices.data.orders} columns={[
  {key:'date',label:'Date',render:o=>o.createdAt?new Date(o.createdAt).toLocaleString('en-PK',{timeZone:'Asia/Karachi'}):'Unavailable'},
  {key:'invoiceNo',label:'Invoice'}, {key:'total',label:'Bill total',numeric:true,render:o=>money(o.totalPrice)},
@@ -90,7 +90,7 @@ export default function Customers() {
           />
         </Modal>
       )}
-      {selected && <Modal title={selected.name + ' — balances'} onClose={()=>setSelected(null)}><CustomerBalances customer={selected}/><CustomerInvoices customer={selected}/></Modal>}
+      {selected && <Modal wide title={selected.name + ' — balances'} onClose={()=>setSelected(null)}><CustomerBalances customer={selected}/><CustomerInvoices customer={selected}/></Modal>}
     </>
   );
 }

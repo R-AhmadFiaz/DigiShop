@@ -377,6 +377,8 @@ fieldset {
 .shop-dialog::backdrop {
   background: #0009;
 }
+.shop-dialog-wide { width: min(960px, calc(100vw - 24px)); }
+.page-actions { margin-left: auto; justify-content: flex-end; }
 .auth-shell {
   min-height: 100vh;
   display: flex;
@@ -592,8 +594,14 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .badge { font-size: 14px; }
 .form-check-input { width: 1.2em; height: 1.2em; }
 .table td, .table th { padding-left: 8px; padding-right: 8px; }
-.record-register { border: 1px solid var(--bs-border-color); border-radius: 4px; }
-.record-table thead th { white-space: nowrap; }
+.record-register { border: 1px solid var(--bs-border-color); border-radius: 4px; overflow-x: auto; overflow-y: hidden; height: auto; max-height: none; }
+.record-table { width: 100%; table-layout: auto; }
+.record-table thead th { white-space: normal; line-height: 1.3; }
+.record-table td { overflow-wrap: normal; word-break: normal; }
+.record-table .record-date, .record-table .record-reference { white-space: nowrap; width: 1%; }
+.record-table th.record-number { white-space: normal; min-width: 7rem; }
+.record-table .record-number { width: 1%; }
+.record-table .btn { min-height: 30px; padding: 3px 8px; font-size: 14px; white-space: nowrap; }
 .record-table > tbody > tr:nth-child(even) > td { background: #f7faf9; }
 .record-table > tbody > .record-clickable:hover > td { background: #e6f5f1; }
 .record-clickable { cursor: pointer; }
@@ -605,6 +613,22 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .record-facts dt { color: #4b5563; font-weight: 600; }
 .record-facts dd { margin: 0; overflow-wrap: anywhere; }
 .record-balance { border-left: 4px solid #0f766e; padding: 8px 12px; background: #f0fdfa; font-size: 17px; font-variant-numeric: tabular-nums; }
+.balance-strip { display: flex; flex-wrap: wrap; gap: 12px 32px; padding: 12px 0; margin-bottom: 12px; border-bottom: 1px solid var(--bs-border-color); }
+.balance-strip > div { min-width: 140px; }
+.balance-strip dt { color: #4b5563; font-weight: 400; font-size: 14px; }
+.balance-strip dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.context-help { color: #4b5563; font-size: 14px; margin-bottom: 12px; }
+.context-help > summary { font-weight: 400; padding: 4px 0; }
+.context-help p:last-child { margin-bottom: 0; }
+.action-disclosure { margin-bottom: 12px; border: 1px solid var(--bs-border-color); border-radius: 4px; padding: 0 12px; background: #fff; }
+.action-disclosure > summary { color: #0f766e; font-weight: 600; padding: 9px 0; }
+.action-disclosure[open] > summary { border-bottom: 1px solid var(--bs-border-color); margin-bottom: 12px; }
+.report-totals { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin: 0 0 16px; }
+.report-totals > div { border-bottom: 2px solid #ccfbf1; padding: 8px 0; }
+.report-totals dt { color: #4b5563; font-weight: 400; font-size: 14px; }
+.report-totals dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.report-totals small { display: block; font-size: 13px; font-weight: 400; }
+.report-totals dd small { font-size: 16px; }
 .table input[type=number] { min-width: 80px; }
 .sale-total, .receipt-totals, .fw-semibold { font-variant-numeric: tabular-nums; }
 .screen-tabs { flex-wrap: wrap; }
@@ -616,6 +640,7 @@ p, td, th { overflow-wrap: break-word; }
   .sidebar a, .accounts-nav summary { min-height: 44px; }
   .search-input { max-width: 100%; }
   .page-title { align-items: flex-start !important; }
+  .record-table .record-description { min-width: 150px; }
 }
 @media screen {
   .workspace .mb-3 { margin-bottom: 12px !important; }
@@ -628,6 +653,7 @@ p, td, th { overflow-wrap: break-word; }
 @media (max-width: 650px), (pointer: coarse) {
   .btn, .header-actions .btn, .form-control, .form-select { min-height: 44px; }
   .screen-tabs button, .product-result, .customer-result { min-height: 44px; }
+  .record-table .btn { min-height: 44px; padding: 6px 10px; }
 }
 @media print {
   html { overflow: visible; scrollbar-gutter: auto; }

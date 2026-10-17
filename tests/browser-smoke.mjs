@@ -578,7 +578,7 @@ async function assertReceiptShop() {
 }
 const click = async (text) => {
   await wait(
-    '(()=>{const el=[...document.querySelectorAll("button,a")].find(e=>e.textContent.trim()===' +
+    '(()=>{const el=[...document.querySelectorAll("button,a,summary")].find(e=>e.textContent.trim()===' +
       JSON.stringify(text) +
       "&&e.getClientRects().length&&!e.disabled);if(!el)return false;el.click();return true;})()",
   );
@@ -590,7 +590,7 @@ const fill = async (selector, value) => {
   return evaluate(
     "(()=>{const el=document.querySelector(" +
       JSON.stringify(selector) +
-      ');const proto=el.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,"value").set.call(el,' +
+      ');for(let d=el.closest("details");d;d=d.parentElement?.closest("details"))if(!d.open)d.querySelector("summary").click();const proto=el.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,"value").set.call(el,' +
       JSON.stringify(value) +
       ');el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));})()',
   );
@@ -1344,7 +1344,7 @@ try {
   await click('Business details');await wait('document.body.innerText.includes("Brand associations")');
   await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
-  await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances match")');
+  await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances checked")');
   assert.ok(await evaluate('document.querySelector("dialog").innerText.includes("40.00")'));await click('Close');
   await click('Companies & Suppliers');await fill('[aria-label="Search businesses"]','');await click('Add business');
   const customerCreatesBefore=calls.filter(c=>c.endpoint==='/customers/create-customer').length;
@@ -1367,10 +1367,10 @@ try {
   supplierReady=true;financialAccounts[0].cashCutoverId='prepared-cutover';
   await fillLabel('Delivery reference','GR-POSTED');await fill('[aria-label="Delivered Copper Cable"]','2');await click('Review delivered quantities');await click('Confirm and record');await wait('document.body.innerText.includes("GR-POSTED")');assert.equal(goodsReceipts.length,2);
   await click('Supplier Khata');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');
-  await fill('select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
   await click('Review supplier payment');await wait('document.body.innerText.includes("no greater than the outstanding payable")');assert.equal(supplierSettlements.length,0);
   supplierCashMinor=1;await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');await click('Confirm payment sent');await wait('document.body.innerText.includes("Insufficient cash or bank funds")');assert.equal(supplierSettlements.length,0);supplierCashMinor=125000;
-  await click('Refresh current data');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');await fill('select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await click('Refresh current data');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
   await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');loseSupplierResponse=true;await click('Confirm payment sent');await wait('document.body.innerText.includes("result is uncertain")');assert.equal(supplierSettlements.length,1);
   const paymentBeforeRetry=calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body;
   supplierReady=false;await click('Retry same request');await wait('document.querySelector("dialog").innerText.includes("authoritative payable unavailable")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);supplierReady=true;

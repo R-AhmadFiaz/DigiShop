@@ -29,11 +29,28 @@ try{
     const facts=renderToStaticMarkup(createElement(RecordFacts,{items:[['Balance',null],['Actor','<script>']]}));
     assert.match(facts,/Unavailable/);assert.match(facts,/&lt;script&gt;/);
   });
+  await test('date, reference, amount and action columns get distinct layout classes',()=>{
+    const html=renderToStaticMarkup(createElement(RecordTable,{label:'Statement',columns:[{key:'date',label:'Date'},{key:'reference',label:'Reference'},{key:'amount',label:'Amount',numeric:true},{key:'open',label:'Action'}],rows:[{_id:'event',date:'1 Jan 2026',reference:'INV-100',amount:100,open:'View'}]}));
+    assert.match(html,/class="record-date"/);assert.match(html,/class="record-reference"/);
+    assert.match(html,/class="text-end record-number"/);assert.match(html,/class="record-actions"/);
+  });
   await test('invoice and delivery histories retain immutable record actions and API paths',()=>{
     const invoice=fs.readFileSync(new URL('../src/components/InvoiceHistory.jsx',import.meta.url),'utf8');
     const deliveries=fs.readFileSync(new URL('../src/pages/owner/PurchaseDetails.jsx',import.meta.url),'utf8');
     assert.match(invoice,/Open printable record/);assert.match(invoice,/\/history/);
     assert.match(deliveries,/Return details/);assert.match(deliveries,/expectedRevision:po.revision/);
     assert.match(deliveries,/requestKey:crypto.randomUUID\(\)/);
+  });
+  await test('supplier forms keep uncertain-request recovery accessible inside disclosures',()=>{
+    const source=fs.readFileSync(new URL('../src/pages/owner/SupplierDetails.jsx',import.meta.url),'utf8');
+    assert.match(source,/balance.creditMinor>0\|\|locked/);assert.equal((source.match(/open=\{locked\|\|undefined\}/g)||[]).length,2);
+    assert.match(source,/accountId=\{balance.data.accountId\}[^>]*supplier/);
+    assert.match(source,/CONFIRM SUPPLIER REFUND RECEIVED/);assert.match(source,/CONFIRM SUPPLIER REVERSAL/);
+  });
+  await test('report summaries use supplied current amounts without aggregating incomplete account pages',()=>{
+    const source=fs.readFileSync(new URL('../src/pages/owner/FinancialReports.jsx',import.meta.url),'utf8');
+    for(const field of ['sales.revenueMinor','expenses.netMinor','customers.debtMinor','suppliers.totalMinor','capital.balanceMinor','inventory.referenceValueMinor'])assert.ok(source.includes('amount={d.'+field+'}'));
+    assert.match(source,/pkr\(a.currentBalanceMinor\)/);assert.doesNotMatch(source,/\.reduce\(/);
+    assert.match(source,/Selected dates/);assert.match(source,/Current balances/);assert.match(source,/Inventory estimate — provisional/);
   });
 }finally{await server.close();}
