@@ -1122,12 +1122,18 @@ async function withCreatorName(order: IOrder) {
 export const getInvoices = asyncHandler(async (req: Request, res: Response) => {
     const {page, limit, skip, escapedSearch} = listQuery(req.query);
     const invoiceNo = req.query.invoiceNo;
+    const customerId = req.query.customerId;
+    if (customerId !== undefined) {
+        if (typeof customerId !== 'string' || !mongoose.isValidObjectId(customerId)) throw new apiError(400, 'Select a valid customer');
+        if (!await Customer.exists({_id: customerId, shopId: req.user.shopId})) throw new apiError(404, 'Customer not found in shop');
+    }
     if (invoiceNo !== undefined && (typeof invoiceNo !== 'string' || invoiceNo.length > 100)) {
         throw new apiError(400, 'Invoice number must be a string of at most 100 characters');
     }
     const filter = {
         shopId: req.user.shopId,
         type: 'INVOICE' as const,
+        ...(customerId !== undefined ? {customerId} : {}),
         ...(escapedSearch ? {invoiceNo: {$regex: escapedSearch, $options: 'i'}} : {}),
         ...(invoiceNo !== undefined ? {invoiceNo} : {})
     };

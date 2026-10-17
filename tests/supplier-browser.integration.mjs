@@ -515,6 +515,29 @@ try{
   assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),2);assert.equal((await Product.findById(posCoil._id)).stockQuantity,7);assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,3000);
   assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,900000);
   pass('production ACTIVE first POS credit sale: automatic key, explicit account, 8000 total / 5000 cash / 3000 debt, duplicate clicks and lost-response reload retry; next cash sale');
+  const collectionStock=(await Product.findById(posCoil._id)).stockQuantity;
+  for(const [amount,due,cashMinor] of [[1000,2000,1000000],[2000,0,1200000]]){
+    await navigation('/owner/customers');await click('Receive Payment');
+    await wait("!!document.querySelector('dialog a[href=\"/owner/sales/"+posInvoice._id+"\"]')");
+    await evaluate("document.querySelector('dialog a[href=\"/owner/sales/"+posInvoice._id+"\"]').click()");
+    await click('Receive payment');await label('Reason','Customer paid outstanding invoice');await label('Additional cash received',String(amount));
+    await fill('[aria-label="Receive into"]',zeroCash._id);
+    await click('Preview changes');await wait("!!document.querySelector('[aria-label=\"Server preview\"]')");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Server preview\"] [role=alert]')?.textContent||''"),'');
+    await evaluate("[...document.querySelectorAll('[aria-label=\"Server preview\"] input[type=checkbox]')].forEach(e=>e.click())");
+    await evaluate("(()=>{const b=[...document.querySelectorAll('button')].find(e=>e.textContent==='Confirm payment');b.click();b.click();})()");
+    await wait("!document.querySelector('[aria-label=\"Receive invoice payment\"]')&&document.body.innerText.includes('Invoice updated.')");
+    assert.equal((await Order.findById(posInvoice._id)).amountDue,due);assert.equal((await Customer.findById(posBuyer._id)).remainingMoney,due);
+    assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,cashMinor);
+    assert.equal((await Product.findById(posCoil._id)).stockQuantity,collectionStock);assert.equal(await Order.countDocuments({shopId:zeroFixture.shop._id}),2);
+    const paymentPath='/api/v2/orders/'+posInvoice._id+'/payments',sent=requests.filter(r=>r.method==='POST'&&r.path===paymentPath).at(-1);
+    ok(await browserHttp('POST','/orders/'+posInvoice._id+'/payments',JSON.parse(sent.body)));
+    assert.equal(ok(await get('/accounts/financial/'+zeroCash._id)).balanceMinor,cashMinor);
+  }
+  const collected=await Order.findById(posInvoice._id);assert.equal(collected.totalPrice,8000);assert.equal(collected.paidAmount,8000);
+  assert.equal(await CustomerLedger.countDocuments({shopId:zeroFixture.shop._id,description:'PAYMENT'}),2);
+  await navigation('/owner/customers');await click('Balance details');await wait("document.querySelector('dialog').innerText.includes('Outstanding debt: PKR 0.00')");
+  pass('OWNER customer Khata links to existing invoice payments: partial/full cash collection, preview/account confirmation, duplicate-safe history and no stock or new revenue');
   process.env.NODE_ENV='test';delete process.env.BUSINESS_ACCOUNTING_PRODUCTION_ALLOWED;await login(owner.username);
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
