@@ -7,6 +7,8 @@ interface IShop {
     ownerId: Types.ObjectId,
     contactNo: string,
     invoiceCounter: number,
+    purchaseCounter: number,
+    receiptCounter: number,
     subscriptionActive: boolean,
     isActive: boolean,
     subscriptionExpiry: Date | null,
@@ -41,6 +43,8 @@ const shopSchema = new Schema<IShop>(
             required: true,
             default: 0
         },
+        purchaseCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
+        receiptCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
         subscriptionActive: {
             type: Boolean,
             default: false

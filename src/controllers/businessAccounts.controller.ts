@@ -5,7 +5,8 @@ import {apiResponse} from '../utils/apiResponse.js';
 import * as accounts from '../utils/businessAccounts.js';
 import {invoiceAccountingEnabled} from '../utils/invoiceAccountingIntegration.js';
 import {BusinessEntity, businessRoles} from '../models/businessEntity.model.js';
-import {BusinessBrand} from '../models/businessBrand.model.js';
+import {BusinessBrand,ProductBrandLink} from '../models/businessBrand.model.js';
+import {Product} from '../models/product.model.js';
 import {FinancialAccount} from '../models/financialAccount.model.js';
 import {Customer} from '../models/customer.model.js';
 
@@ -33,7 +34,8 @@ async function readableAccount(actor: any, accountId: string, session: mongoose.
     if (!account) throw new apiError(404, 'Account not found in shop');
     if (account.authority === 'JOURNAL') {
         enabled();
-        if(account.kind==='SUPPLIER_PAYABLE'){await accounts.requireSupplierPayable(actor,String(account.entityId),session);return account;}
+        if(account.kind==='PARTNER_CAPITAL'){await accounts.selectInvoicePaymentAccounts(actor,session);return account;}
+          if(['SUPPLIER_PAYABLE','SUPPLIER_CREDIT'].includes(account.kind)){await accounts.requireSupplierPayable(actor,String(account.entityId),session);return account;}
         if (!['CASH', 'BANK'].includes(account.kind)) throw new apiError(409, 'This journal account has no approved live balance integration');
         const clearing = account.cashCutoverId && await FinancialAccount.findOne({_id: account.cashCutoverId, shopId: actor.shopId, kind: 'SETTLEMENT_CLEARING'}).session(session);
         if (!clearing?.cashIntegration || clearing.cashIntegration.state !== 'PREPARED' || clearing.cashIntegration.cutoffAt > new Date() || !clearing.cashIntegration.accountIds.some(id => String(id) === String(account._id))) throw new apiError(409, 'Prepared cash/bank cutover required; balance unavailable');
@@ -51,6 +53,8 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             case 'supplierReconcile':return accounts.reconcileSupplier(actor,recordId(req.params.id),session);
             case 'supplierPayment':return accounts.settleSupplier(actor,recordId(req.params.id),body,'PAYMENT',session);
             case 'supplierReturn':return accounts.settleSupplier(actor,recordId(req.params.id),body,'RETURN',session);
+            case 'supplierRefund':return accounts.settleSupplier(actor,recordId(req.params.id),body,'REFUND',session);
+            case 'supplierCreditApplication':return accounts.settleSupplier(actor,recordId(req.params.id),body,'CREDIT_APPLICATION',session);
             case 'supplierReverse':return accounts.settleSupplier(actor,recordId(req.params.id),body,'REVERSAL',session,recordId(req.params.eventId));
             case 'supplierSettlements':return accounts.supplierSettlementHistory(actor,recordId(req.params.id),{...req.query,...paging(req.query)},session);
             case 'supplierBalance':return accounts.requireSupplierPayable(actor,recordId(req.params.id),session);
@@ -100,6 +104,18 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             case 'brandEntities': return accounts.setBusinessBrandEntities(actor, recordId(req.params.id), body.entityIds, body.expectedEntityIds, session);
             case 'linkProduct': return accounts.linkProductBrand(actor, recordId(req.params.id), body.brandId, session);
             case 'productLinks': return accounts.getProductBusinessLinks(actor, recordId(req.params.id), session);
+            case 'entityProducts': {
+                const entity=await accounts.getBusinessEntity(actor,recordId(req.params.id),session),{page,limit}=paging(req.query);
+                const brands=await BusinessBrand.find({shopId:actor.shopId,entityIds:entity._id}).limit(1001).session(session).lean();
+                if(brands.length>1000)throw new apiError(409,'Brand associations require a separately paginated review');
+                const rows=await ProductBrandLink.aggregate([{$match:{shopId:actor.shopId,brandId:{$in:brands.map(b=>b._id)}}},
+                    {$lookup:{from:Product.collection.name,let:{product:'$productId'},pipeline:[{$match:{shopId:actor.shopId,$expr:{$eq:['$_id','$$product']}}},{$project:{name:1,brand:1,unit:1,stockQuantity:1}}],as:'product'}},{$unwind:'$product'},
+                    {$match:{$expr:{$or:brands.map(b=>({$and:[{$eq:['$brandId',b._id]},{$eq:[{$toLower:{$trim:{input:'$product.brand'}}},b.nameKey]}]}))}}},
+                    {$sort:{'product.name':1,_id:1}},{$facet:{count:[{$count:'value'}],entries:[{$skip:(page-1)*limit},{$limit:limit}]}}]).session(session).option({maxTimeMS:5000});
+                // Stale free-text changes invalidate links. They must not be silently reattributed.
+                const entries=rows[0].entries.map((r:any)=>({...r.product,brandId:r.brandId}));
+                return {entries,pagination:{currentPage:page,limit,recordCount:rows[0].count[0]?.value??0,totalPages:Math.ceil((rows[0].count[0]?.value??0)/limit)},sales:{status:'UNAVAILABLE',message:'Company/brand links are not captured on historical sales. Current links cannot prove which company supplied past sales.'}};
+            }
             case 'createAccount':
                 enabled();
                 if (!['CASH', 'BANK', 'CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY', 'SUPPLIER_PAYABLE', 'OPENING_EQUITY', 'SETTLEMENT_CLEARING', 'PURCHASES_CLEARING'].includes(body.kind)) throw new apiError(400, 'Unsupported account kind');

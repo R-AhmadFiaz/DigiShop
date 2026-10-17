@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {PurchaseOrder,purchaseStates} from '../models/purchaseOrder.model.js';
 import {GoodsReceipt} from '../models/goodsReceipt.model.js';
 import {Product} from '../models/product.model.js';
+import {Shop} from '../models/shop.model.js';
 import {User} from '../models/user.model.js';
 import {StockLog} from '../models/stockLog.model.js';
 import {getBusinessEntity,requireSupplierPayable,postSupplierReceipt} from './businessAccounts.js';
@@ -29,6 +30,27 @@ function reference(value:unknown):string {
 function revision(value:unknown):number {
     if(!Number.isSafeInteger(value)||Number(value)<0)throw new apiError(400,'Expected purchase revision required');
     return value as number;
+}
+function details(body:any){
+    const result:Record<string,string>={};
+    for(const [field,max] of [['notes',500],['supplierDocumentNo',100]] as const){
+        if(body[field]===undefined||body[field]==='')continue;
+        if(typeof body[field]!=='string'||body[field].length>max)throw new apiError(400,'Invalid purchase or delivery details');
+        if(body[field].trim())result[field]=body[field].trim();
+    }
+    return result;
+}
+async function nextReference(actor:Actor,receiving:boolean,session:Session){
+    const field=receiving?'receiptCounter':'purchaseCounter',prefix=receiving?'GR-AUTO-':'PO-AUTO-';
+    // Existing manually assigned identifiers are retained and skipped, never overwritten.
+    for(let attempt=0;attempt<1000;attempt++){
+        const shop=await Shop.findOneAndUpdate({_id:actor.shopId},{$inc:{[field]:1}},{session,new:true,runValidators:true});
+        const number=shop?.[field];if(!Number.isSafeInteger(number)||number! <= 0)throw new apiError(409,'Reference numbering requires review');
+        const candidate=prefix+number;
+        const occupied=receiving?await GoodsReceipt.exists({shopId:actor.shopId,reference:candidate}).session(session):await PurchaseOrder.exists({shopId:actor.shopId,reference:candidate}).session(session);
+        if(!occupied)return candidate;
+    }
+    throw new apiError(409,'Existing reference numbering requires review; no reference was issued');
 }
 function hash(input:any){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 function lines(value:any,costs:boolean):{productId:string,quantity:number,unitCostMinor?:number}[] {
@@ -62,7 +84,7 @@ async function order(actor:Actor,orderId:string,session:Session){
     return result;
 }
 export async function createPurchase(actor:Actor,body:any,session:Session){
-    const input={reference:reference(body.reference),supplierId:id(body.supplierId),items:lines(body.items,true)},requestKey=key(body.requestKey);
+    const input={reference:body.reference===undefined||body.reference===''?undefined:reference(body.reference),supplierId:id(body.supplierId),items:lines(body.items,true),...details(body)},requestKey=key(body.requestKey);
     const requestHash=hash({actorId:String(actor._id),...input});
     const existing=await PurchaseOrder.findOne({shopId:actor.shopId,requestKey}).session(session);
     if(existing){if(existing.requestHash!==requestHash)throw new apiError(409,'Purchase request key already used for different details');return {purchaseOrder:existing,replayed:true,accounting};}
@@ -71,7 +93,7 @@ export async function createPurchase(actor:Actor,body:any,session:Session){
     if(products.length!==input.items.length)throw new apiError(404,'Product not found in shop');
     const items=input.items.map(row=>{const p=products.find(p=>String(p._id)===row.productId)!;return {...row,unitCostMinor:row.unitCostMinor!,productId:p._id,name:p.name,brand:p.brand,unit:p.unit,totalMinor:amount(BigInt(row.quantity)*BigInt(row.unitCostMinor!)),receivedQuantity:0};});
     const totalMinor=amount(items.reduce((sum,row)=>sum+BigInt(row.totalMinor),0n));
-    const [purchaseOrder]=await PurchaseOrder.create([{shopId:actor.shopId,requestKey,requestHash,reference:input.reference,supplierId:entity._id,supplierName:entity.name,items,totalMinor,...await actorSnapshot(actor,session)}],{session});
+    const [purchaseOrder]=await PurchaseOrder.create([{shopId:actor.shopId,requestKey,requestHash,reference:input.reference??await nextReference(actor,false,session),...details(body),supplierId:entity._id,supplierName:entity.name,items,totalMinor,...await actorSnapshot(actor,session)}],{session});
     return {purchaseOrder,replayed:false,accounting};
 }
 export async function changePurchaseState(actor:Actor,orderId:string,body:any,kind:'CONFIRM'|'CANCEL',session:Session){
@@ -95,7 +117,7 @@ export async function changePurchaseState(actor:Actor,orderId:string,body:any,ki
 }
 export async function receivePurchase(actor:Actor,orderId:string,body:any,session:Session){
     const enabled=invoiceAccountingEnabled();
-    const input={orderId:id(orderId),expectedRevision:revision(body.expectedRevision),reference:reference(body.reference),items:lines(body.items,false)},requestKey=key(body.requestKey);
+    const input={orderId:id(orderId),expectedRevision:revision(body.expectedRevision),reference:body.reference===undefined||body.reference===''?undefined:reference(body.reference),items:lines(body.items,false),...details(body)},requestKey=key(body.requestKey);
     const requestHash=hash({actorId:String(actor._id),...input});
     const existing=await GoodsReceipt.findOne({shopId:actor.shopId,requestKey}).session(session);
     if(existing){if(existing.requestHash!==requestHash)throw new apiError(409,'Receiving request key already used for different details');return {receipt:existing,purchaseOrder:await order(actor,input.orderId,session),replayed:true,accounting:{status:existing.accountingStatus,supplierBalanceAvailable:false,cashMovementMinor:0}};}
@@ -112,15 +134,16 @@ export async function receivePurchase(actor:Actor,orderId:string,body:any,sessio
     });
     const totalMinor=amount(items.reduce((sum,row)=>sum+BigInt(row.totalMinor),0n)),receiptId=new mongoose.Types.ObjectId(),now=new Date(),actorFields=await actorSnapshot(actor,session);
     if(payable?.cutover&&now<=payable.cutover.cutoffAt)throw new apiError(409,'New receiving must be strictly after supplier cutoff');
+    const receivingReference=input.reference??await nextReference(actor,true,session);
     for(const line of items){
         const product=await Product.findOne({_id:line.productId,shopId:actor.shopId}).session(session);
         if(!product)throw new apiError(404,'Product not found in shop');
         if(!Number.isSafeInteger(product.stockQuantity)||product.stockQuantity<0||!Number.isSafeInteger(product.stockQuantity+line.quantity))throw new apiError(409,'Product stock requires reconciliation before receiving');
         const changed=await Product.updateOne({_id:product._id,shopId:actor.shopId,stockQuantity:product.stockQuantity},{$inc:{stockQuantity:line.quantity}},{session,runValidators:true});
         if(changed.modifiedCount!==1)throw new apiError(409,'Stock changed; retry the identical request');
-        await StockLog.create([{shopId:actor.shopId,productId:product._id,quantityDelta:line.quantity,reason:'PURCHASE_RECEIVED',purchaseReceiptId:receiptId,purchaseReference:po.reference,receivingReference:input.reference,createdBy:actorFields.createdBy,createdAt:now,updatedAt:now}],{session});
+        await StockLog.create([{shopId:actor.shopId,productId:product._id,quantityDelta:line.quantity,reason:'PURCHASE_RECEIVED',purchaseReceiptId:receiptId,purchaseReference:po.reference,receivingReference,createdBy:actorFields.createdBy,createdAt:now,updatedAt:now}],{session});
     }
-    const [receipt]=await GoodsReceipt.create([{_id:receiptId,shopId:actor.shopId,purchaseOrderId:po._id,purchaseReference:po.reference,reference:input.reference,requestKey,requestHash,
+    const [receipt]=await GoodsReceipt.create([{_id:receiptId,shopId:actor.shopId,purchaseOrderId:po._id,purchaseReference:po.reference,reference:receivingReference,...details(body),requestKey,requestHash,
         supplierId:po.supplierId,supplierName:po.supplierName,items,totalMinor,obligationType:'RECEIVED_GOODS',accountingStatus:enabled?(totalMinor===0?'NO_PAYABLE':'POSTED'):'DEFERRED',...(payable?.cutover?{supplierCutoverId:new mongoose.Types.ObjectId(String(payable.cutover._id))}:{}),revisionBefore:po.revision,revisionAfter:po.revision+1,occurredAt:now,recordedAt:new Date(),...actorFields}],{session});
     const updatedItems=po.items.map(line=>({...line.toObject(),receivedQuantity:line.receivedQuantity+(items.find(r=>String(r.productId)===String(line.productId))?.quantity??0)}));
     const status=updatedItems.every(line=>line.receivedQuantity===line.quantity)?'RECEIVED':'PARTIALLY_RECEIVED';
@@ -138,7 +161,7 @@ export async function listPurchases(actor:Actor,input:any,session:Session,orderI
     const {from,to,pattern}=historyFilters(input,[]),filter:any={shopId:actor.shopId};
     const field=orderId?'occurredAt':'createdAt';
     if(from||to)filter[field]={...(from?{$gte:from}:{}),...(to?{$lt:to}:{})};
-    if(pattern)filter.$or=[{reference:pattern},{supplierName:pattern}];
+    if(pattern)filter.$or=[{reference:pattern},{supplierName:pattern},{supplierDocumentNo:pattern},{notes:pattern}];
     if(input.supplierId!==undefined)filter.supplierId=id(input.supplierId);
     if(input.status!==undefined){if(orderId||typeof input.status!=='string'||!purchaseStates.includes(input.status))throw new apiError(400,'Invalid purchase status');filter.status=input.status;}
     if(orderId){await order(actor,orderId,session);filter.purchaseOrderId=id(orderId);}

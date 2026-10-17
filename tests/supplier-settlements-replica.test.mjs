@@ -109,9 +109,9 @@ await test('supplier settlements: actual HTTP and disposable loopback replica se
             assert.equal((await http('POST',base+'/returns',returned(receipt,8))).status,409);const prior=await stock(p),events=await SupplierSettlement.countDocuments();
             await Product.updateOne({_id:p._id},{$set:{stockQuantity:0}});try{assert.equal((await http('POST',base+'/returns',returned(receipt,1))).status,409);assert.equal(await SupplierSettlement.countDocuments(),events);assert.equal(await balance(),400);}finally{await Product.updateOne({_id:p._id},{$set:{stockQuantity:prior}});}
         });
-        await t.test('full payment settles debt; already-paid excess returns defer without recording refunds or moving stock',async()=>{
+        await t.test('full payment followed by return creates separate credit without recording cash received',async()=>{
             full=ok(await http('POST',base+'/payments',payment(400))).settlement;assert.equal(await balance(),0);assert.equal((await funds(cash)).balanceMinor,9400);
-            const result=await http('POST',base+'/returns',returned(receipt,1));assert.equal(result.status,409);assert.match(result.body.message,/refund-due/);assert.equal(await stock(p),17);assert.equal((await funds(cash)).balanceMinor,9400);assert.equal((await http('POST',base+'/payments',payment(1))).status,409);
+            const result=ok(await http('POST',base+'/returns',returned(receipt,1))).settlement;assert.equal((ok(await http('GET',base+'/balance'))).creditMinor,100);assert.equal(await stock(p),16);ok(await http('POST',base+'/settlements/'+result._id+'/reverse',reversal()));assert.equal(await stock(p),17);assert.equal((ok(await http('GET',base+'/balance'))).creditMinor,0);assert.equal((await funds(cash)).balanceMinor,9400);assert.equal((await http('POST',base+'/payments',payment(1))).status,409);
         });
         await t.test('payment correction is an explicitly confirmed immutable inverse, not history rewriting',async()=>{
             const body=reversal();assert.equal((await http('POST',base+`/settlements/${full._id}/reverse`,{...body,confirmation:'NO'})).status,400);
@@ -186,6 +186,84 @@ await test('supplier settlements: actual HTTP and disposable loopback replica se
         await t.test('disabled mode and production guard reject new supplier financial mutations',async()=>{
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;assert.equal((await http('POST',base+'/payments',payment(1,bank))).status,409);assert.equal((await http('POST',base+'/returns',returned(receipt))).status,409);
             process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';try{assert.equal((await http('POST',base+'/payments',payment(1,bank))).status,503);}finally{process.env.NODE_ENV='test';}
+        });
+        const creditSupplier=await tx(s=>accounts.createBusinessEntity(a.actor,{key:'credit-supplier',name:'Credit supplier',roles:['SUPPLIER']},s));
+        const creditAp=await account('SUPPLIER_PAYABLE','CREDIT-AP',creditSupplier._id),creditBase='/accounts/suppliers/'+creditSupplier._id;
+        const cutPreview=ok(await http('GET',creditBase+'/cutover-preview'));
+        ok(await http('POST',creditBase+'/cutover',{requestKey:'credit-supplier-opening',confirmation:'CONFIRM SUPPLIER OPENING',reason:'Owner reviewed zero prior debt',cutoffAt:new Date().toISOString(),payableAccountId:String(creditAp._id),offsetAccountId:String(offset._id),equityAccountId:String(equity._id),openingBalanceMinor:0,otherOpeningMinor:0,reviews:[],evidenceDigest:cutPreview.evidenceDigest}));
+        const state=async()=>ok(await http('GET',creditBase+'/balance'));
+        const creditReceipt=async(quantity)=>{const x=await create({supplierId:String(creditSupplier._id),items:[{productId:String(p._id),quantity,unitCostMinor:100}]});x.po=await confirm(x.po);return ok(await http('POST',`/purchases/${x.po._id}/receipts`,receiveBody(x.po,quantity))).receipt;};
+        function creditBody(amountMinor,extra={}){return {...payment(amountMinor),confirmation:'CONFIRM SUPPLIER REFUND RECEIVED',...extra};}
+        function applyBody(amountMinor){const body=creditBody(amountMinor,{confirmation:'CONFIRM SUPPLIER CREDIT APPLICATION'});delete body.accountId;return body;}
+        let paid,credited,refund,application,firstReceipt;
+        await tx(s=>accounts.transferCashBank(a.actor,{fromAccountId:String(bank._id),toAccountId:String(cash._id),amountMinor:5000,occurredAt:new Date().toISOString(),requestKey:'prepare-credit-test-funds',reason:'Move prepared test bank funds to till'},s));
+        const initialFunds=(await funds(cash)).balanceMinor,initialInventory=await stock(p);
+        await t.test('supplier credit: full payment then return creates a separate asset at original received cost',async()=>{
+            firstReceipt=await creditReceipt(10);paid=ok(await http('POST',creditBase+'/payments',payment(1000))).settlement;
+            const createJournal=BusinessTransaction.create;
+            BusinessTransaction.create=async()=>{throw Error('Injected excess return failure');};
+            try{assert.equal((await http('POST',creditBase+'/returns',returned(firstReceipt,6))).status,500);}finally{BusinessTransaction.create=createJournal;}
+            assert.equal(await stock(p),initialInventory+10);assert.equal(await FinancialAccount.countDocuments({shopId:a.shop._id,entityId:creditSupplier._id,kind:'SUPPLIER_CREDIT'}),0);
+            credited=ok(await http('POST',creditBase+'/returns',returned(firstReceipt,6))).settlement;
+            const s=await state();assert.equal(s.balanceMinor,0);assert.equal(s.creditMinor,600);assert.equal(s.refundDueMinor,600);assert.equal(credited.payableReductionMinor,0);assert.equal(credited.creditMovementMinor,600);
+            assert.equal((await funds(cash)).balanceMinor,initialFunds-1000);assert.equal(await stock(p),initialInventory+4);
+        });
+        await t.test('supplier credit: partial refund increases selected cash once, never sales revenue',async()=>{
+            const body=creditBody(200);refund=ok(await http('POST',creditBase+'/refunds',body)).settlement;
+            assert.equal(ok(await http('POST',creditBase+'/refunds',body)).replayed,true);assert.equal((await state()).creditMinor,400);assert.equal((await state()).refundsReceivedMinor,200);
+            assert.equal((await funds(cash)).balanceMinor,initialFunds-800);const journal=await BusinessTransaction.findOne({'source.referenceId':refund._id});assert.equal(journal.source.kind,'SUPPLIER_REFUND');assert.equal(journal.postings.find(r=>String(r.accountId)===String(cash._id)).debitMinor,200);
+            assert.equal((await http('POST',creditBase+'/settlements/'+credited._id+'/reverse',reversal())).status,409);
+        });
+        await t.test('supplier credit: future receipt payable and partial application consume credit without cash',async()=>{
+            await creditReceipt(3);const before=(await funds(cash)).balanceMinor,body=applyBody(200);application=ok(await http('POST',creditBase+'/credit-applications',body)).settlement;
+            assert.equal(ok(await http('POST',creditBase+'/credit-applications',body)).replayed,true);assert.equal((await state()).balanceMinor,100);assert.equal((await state()).creditMinor,200);assert.equal((await state()).creditAppliedMinor,200);assert.equal((await funds(cash)).balanceMinor,before);
+            assert.equal((await http('POST',creditBase+'/credit-applications',applyBody(101))).status,409);assert.equal((await http('POST',creditBase+'/refunds',creditBody(201))).status,409);
+        });
+        await t.test('supplier credit: concurrent refund versus application cannot spend the same credit',async()=>{
+            const responses=await Promise.all([http('POST',creditBase+'/refunds',creditBody(150)),http('POST',creditBase+'/credit-applications',applyBody(100))]);
+            assert.equal(responses.filter(r=>r.status===200).length,1);assert.equal(responses.filter(r=>r.status===409).length,1);
+            const event=ok(responses.find(r=>r.status===200)).settlement;ok(await http('POST',creditBase+'/settlements/'+event._id+'/reverse',reversal()));
+            assert.equal((await state()).balanceMinor,100);assert.equal((await state()).creditMinor,200);
+        });
+        await t.test('supplier credit: concurrent refund requests cannot consume the same remaining credit',async()=>{
+            const one=creditBody(150),two=creditBody(150),responses=await Promise.all([http('POST',creditBase+'/refunds',one),http('POST',creditBase+'/refunds',two)]);
+            assert.equal(responses.filter(r=>r.status===200).length,1);assert.equal(responses.filter(r=>r.status===409).length,1);const event=ok(responses.find(r=>r.status===200)).settlement;
+            assert.equal((await state()).creditMinor,50);assert.equal((await http('POST',creditBase+'/credit-applications',applyBody(100))).status,409);
+            ok(await http('POST',creditBase+'/settlements/'+event._id+'/reverse',reversal()));assert.equal((await state()).creditMinor,200);
+        });
+        await t.test('supplier credit: journal failure rolls back refunds, credit applications and all balances',async()=>{
+            const prior=await state(),before=(await funds(cash)).balanceMinor,count=await SupplierSettlement.countDocuments(),createJournal=BusinessTransaction.create;
+            BusinessTransaction.create=async()=>{throw Error('Injected credit journal failure');};
+            try{assert.equal((await http('POST',creditBase+'/refunds',creditBody(10))).status,500);assert.equal((await http('POST',creditBase+'/credit-applications',applyBody(10))).status,500);}finally{BusinessTransaction.create=createJournal;}
+            assert.equal((await state()).creditMinor,prior.creditMinor);assert.equal((await state()).balanceMinor,prior.balanceMinor);assert.equal((await funds(cash)).balanceMinor,before);assert.equal(await SupplierSettlement.countDocuments(),count);
+        });
+        await t.test('supplier credit: confirmed inverse corrections restore credit before stock-return reversal',async()=>{
+            ok(await http('POST',creditBase+'/settlements/'+application._id+'/reverse',reversal()));assert.equal((await state()).balanceMinor,300);assert.equal((await state()).creditMinor,400);
+            ok(await http('POST',creditBase+'/settlements/'+refund._id+'/reverse',reversal()));assert.equal((await state()).creditMinor,600);assert.equal((await state()).refundsReceivedMinor,0);
+            ok(await http('POST',creditBase+'/settlements/'+credited._id+'/reverse',reversal()));assert.equal((await state()).creditMinor,0);assert.equal(await stock(p),initialInventory+13);
+            ok(await http('POST',creditBase+'/settlements/'+paid._id+'/reverse',reversal()));assert.equal((await funds(cash)).balanceMinor,initialFunds);assert.equal((await state()).balanceMinor,1300);
+        });
+        await t.test('supplier credit: split return reduces payable first then recognizes only the excess as credit',async()=>{
+            ok(await http('POST',creditBase+'/payments',payment(1200)));const r=ok(await http('POST',creditBase+'/returns',returned(firstReceipt,2))).settlement;
+            assert.equal(r.payableReductionMinor,100);assert.equal(r.creditMovementMinor,100);assert.equal((await state()).balanceMinor,0);assert.equal((await state()).creditMinor,100);
+            const j=await BusinessTransaction.findOne({'source.referenceId':r._id});assert.equal(j.postings.length,3);assert.equal(j.postings.reduce((n,p)=>n+p.debitMinor-p.creditMinor,0),0);
+        });
+        await t.test('supplier credit: owner-only, shop isolation, explicit confirmations and reconciliation',async()=>{
+            for(const user of [cashier,admin])for(const path of ['/refunds','/credit-applications'])assert.equal((await http('POST',creditBase+path,creditBody(1),user)).status,403);
+            assert.equal((await http('POST',creditBase+'/refunds',creditBody(1),b.user)).status,404);
+            assert.equal((await http('POST',creditBase+'/refunds',creditBody(1,{confirmation:'NO'}))).status,400);
+            assert.equal((await http('POST',creditBase+'/refunds',creditBody(1,{accountId:String(new mongoose.Types.ObjectId())}))).status,404);
+            const s=await state();assert.equal(s.authoritative,true);const statement=ok(await http('GET','/accounts/financial/'+s.creditAccountId+'/history'));assert.equal(statement.rangeClosingBalanceMinor,100);
+            const register=ok(await http('GET','/accounts/transactions?type=SUPPLIER_REFUND'));assert.ok(register.entries.length>0);const detail=ok(await http('GET','/accounts/transactions/'+register.entries[0].eventId));assert.equal(detail.transaction.eventType,'SUPPLIER_REFUND');
+            const cashReport=ok(await http('GET','/accounts/reconciliation?clearingAccountId='+control._id));assert.ok(cashReport.supplierReconciliation.every(r=>r.authoritative));assert.equal(cashReport.orphanedSupplierCashJournals.length,0);
+            const day=new Date().toISOString().slice(0,10),reports=ok(await http('GET','/accounts/reports?from='+day+'T00:00:00.000Z&to='+new Date(Date.parse(day+'T00:00:00.000Z')+86400000).toISOString()));
+            assert.equal(reports.suppliers.creditMinor,100);assert.equal(reports.sales.revenueMinor,0);assert.equal(reports.expenses.netMinor,0);assert.equal(reports.capital.balanceMinor,0);
+            const old=await SupplierSettlement.findById(partial.event._id).lean(),beforeLegacy=await balance();
+            await SupplierSettlement.collection.updateOne({_id:old._id},{$unset:{payableReductionMinor:'',creditMovementMinor:''}});
+            try{assert.equal(await balance(),beforeLegacy);assert.equal((await state()).creditMinor,100);}finally{await SupplierSettlement.collection.updateOne({_id:old._id},{$set:{payableReductionMinor:old.payableReductionMinor,creditMovementMinor:old.creditMovementMinor}});}
+            const foreignCash=await accounts.businessTransaction(b.actor,s=>accounts.createFinancialAccount(b.actor,{kind:'CASH',code:'FOREIGN-TILL',name:'Other shop till'},s));
+            assert.equal((await http('POST',creditBase+'/refunds',creditBody(1,{accountId:String(foreignCash._id)}))).status,404);
+            delete process.env.BUSINESS_ACCOUNTING_ENABLED;try{assert.equal((await http('POST',creditBase+'/refunds',creditBody(1))).status,409);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;

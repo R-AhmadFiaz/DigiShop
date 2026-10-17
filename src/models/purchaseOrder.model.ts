@@ -4,6 +4,7 @@ export const purchaseStates=['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED'
 const schema=new Schema({
     shopId:{type:Schema.Types.ObjectId,required:true,immutable:true,ref:'Shop'},
     reference:{type:String,required:true,immutable:true},requestKey:{type:String,required:true,immutable:true},requestHash:{type:String,required:true,immutable:true},
+    notes:{type:String,immutable:true},supplierDocumentNo:{type:String,immutable:true},
     supplierId:{type:Schema.Types.ObjectId,required:true,immutable:true,ref:'BusinessEntity'},supplierName:{type:String,required:true,immutable:true},
     items:{type:[new Schema({productId:{type:Schema.Types.ObjectId,required:true,ref:'Product'},name:{type:String,required:true},brand:String,unit:String,
         quantity:{type:Number,required:true,min:1,validate:Number.isSafeInteger},unitCostMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},

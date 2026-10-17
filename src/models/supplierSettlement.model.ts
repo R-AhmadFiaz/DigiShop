@@ -3,11 +3,14 @@ import {apiError} from '../utils/apiError.js';
 
 const schema=new Schema({
     shopId:{type:Schema.Types.ObjectId,ref:'Shop',required:true},supplierId:{type:Schema.Types.ObjectId,ref:'BusinessEntity',required:true},
-    kind:{type:String,enum:['PAYMENT','RETURN','REVERSAL'],required:true},
+    kind:{type:String,enum:['PAYMENT','RETURN','REFUND','CREDIT_APPLICATION','REVERSAL'],required:true},
+    creditAccountId:{type:Schema.Types.ObjectId,ref:'FinancialAccount'},
+    payableReductionMinor:{type:Number,min:0,validate:Number.isSafeInteger},
+    creditMovementMinor:{type:Number,min:0,validate:Number.isSafeInteger},
     reference:{type:String,required:true},requestKey:{type:String,required:true},requestHash:{type:String,required:true},
     payableAccountId:{type:Schema.Types.ObjectId,ref:'FinancialAccount',required:true},offsetAccountId:{type:Schema.Types.ObjectId,ref:'FinancialAccount',required:true},
     receiptId:{type:Schema.Types.ObjectId,ref:'GoodsReceipt'},receiptReference:String,purchaseReference:String,
-    reversalOf:{type:Schema.Types.ObjectId,ref:'SupplierSettlement'},originalKind:{type:String,enum:['PAYMENT','RETURN']},
+    reversalOf:{type:Schema.Types.ObjectId,ref:'SupplierSettlement'},originalKind:{type:String,enum:['PAYMENT','RETURN','REFUND','CREDIT_APPLICATION']},
     amountMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},currency:{type:String,enum:['PKR'],default:'PKR'},
     items:{type:[new Schema({productId:{type:Schema.Types.ObjectId,required:true,ref:'Product'},name:{type:String,required:true},
         quantity:{type:Number,required:true,min:1,validate:Number.isSafeInteger},unitCostMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},totalMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger}},{_id:false})],default:[]},

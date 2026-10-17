@@ -142,6 +142,41 @@ await test('supplier purchasing: actual HTTP and disposable loopback replica set
                 assert.equal(await stock(p),before);
             }finally{await Shop.updateOne({_id:a.shop._id},{$set:{isActive:true,subscriptionExpiry:a.shop.subscriptionExpiry}});}
         });
+        await t.test('corrections: automatic references skip legacy collisions and exact retries retain numbers and notes',async()=>{
+            delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+            await create({reference:'PO-AUTO-1'});
+            const body=draft({reference:undefined,notes:'Owner purchase note',supplierDocumentNo:'INV / 123'}),result=await http('POST','/purchases/',body);assert.equal(result.status,200,JSON.stringify(result.body));let po=result.body.data.purchaseOrder;
+            assert.equal(po.reference,'PO-AUTO-2');assert.equal(po.notes,'Owner purchase note');assert.equal(po.supplierDocumentNo,'INV / 123');
+            const counter=(await Shop.findById(a.shop._id)).purchaseCounter;assert.equal((await http('POST','/purchases/',body)).body.data.purchaseOrder.reference,po.reference);assert.equal((await Shop.findById(a.shop._id)).purchaseCounter,counter);
+            po=await confirm(po);const legacy=await http('POST',`/purchases/${po._id}/receipts`,receiveBody(po,1,{reference:'GR-AUTO-1'}));assert.equal(legacy.status,200);po=legacy.body.data.purchaseOrder;
+            const delivery=receiveBody(po,1,{reference:undefined,notes:'Delivery verified',supplierDocumentNo:'CHALLAN-7'}),received=await http('POST',`/purchases/${po._id}/receipts`,delivery);assert.equal(received.status,200,JSON.stringify(received.body));
+            assert.equal(received.body.data.receipt.reference,'GR-AUTO-2');assert.equal(received.body.data.receipt.notes,'Delivery verified');
+            assert.equal((await http('POST',`/purchases/${po._id}/receipts`,delivery)).body.data.receipt._id,received.body.data.receipt._id);
+            assert.equal((await StockLog.findOne({purchaseReceiptId:received.body.data.receipt._id})).receivingReference,'GR-AUTO-2');
+            assert.equal((await http('POST','/purchases/',{...body,notes:'Changed'})).status,409);
+            for(const extra of [{notes:123},{notes:'x'.repeat(501)},{supplierDocumentNo:'x'.repeat(101)}])assert.equal((await http('POST','/purchases/',draft(extra))).status,400);
+        });
+        await t.test('corrections: concurrent automatic numbering is unique and failed receiving rolls its counter back',async()=>{
+            const bodies=[draft({reference:undefined}),draft({reference:undefined})],results=await Promise.all(bodies.map(body=>http('POST','/purchases/',body)));
+            assert.ok(results.some(r=>r.status===200));assert.ok(results.every(r=>[200,409].includes(r.status)));
+            const ids=[];for(const body of bodies){const r=await http('POST','/purchases/',body);assert.equal(r.status,200);ids.push(r.body.data.purchaseOrder.reference);}assert.equal(new Set(ids).size,2);
+            let po=(await create({reference:undefined})).po;po=await confirm(po);const before=(await Shop.findById(a.shop._id)).receiptCounter,beforeStock=await stock(p),original=StockLog.create;
+            StockLog.create=async()=>{throw Error('Injected reference rollback');};try{assert.equal((await http('POST',`/purchases/${po._id}/receipts`,receiveBody(po,1,{reference:undefined}))).status,500);}finally{StockLog.create=original;}
+            assert.equal((await Shop.findById(a.shop._id)).receiptCounter,before);assert.equal(await stock(p),beforeStock);
+        });
+        await t.test('corrections: role editing preserves identity and explicit company-brand products are scoped and live',async()=>{
+            const path='/accounts/entities/'+company._id,body={expectedRevision:company.revision,roles:['COMPANY','SUPPLIER']};
+            assert.equal((await http('PATCH',path+'/roles',body)).status,200);assert.equal((await http('PATCH',path+'/roles',body)).status,409);
+            assert.equal((await http('GET',path)).body.data._id,String(company._id));
+            const created=await http('POST','/accounts/brands',{name:'Eagle',entityIds:[String(company._id)]});assert.equal(created.status,200);const brand=created.body.data;
+            assert.equal((await http('GET',path+'/products')).body.data.entries.length,0);
+            assert.equal((await http('PUT','/accounts/products/'+p._id+'/brand',{brandId:String(brand._id)})).status,200);
+            const rows=(await http('GET',path+'/products')).body.data;assert.equal(rows.entries.length,1);assert.equal(rows.entries[0].stockQuantity,await stock(p));assert.equal(rows.sales.status,'UNAVAILABLE');
+            await Product.updateOne({_id:p._id},{$set:{brand:'Different'}});try{assert.equal((await http('GET',path+'/products')).body.data.entries.length,0);}finally{await Product.updateOne({_id:p._id},{$set:{brand:'Eagle'}});}
+            for(const user of [cashier,admin]){assert.equal((await http('GET',path+'/products',undefined,user)).status,403);assert.equal((await http('PATCH',path+'/roles',{...body,expectedRevision:1},user)).status,403);}
+            assert.equal((await http('GET',path+'/products',undefined,b.user)).status,404);assert.equal((await http('GET',path+'/products?limit=101')).status,400);
+            assert.equal((await Product.findById(p._id)).brand,'Eagle');assert.equal((await http('GET',path)).body.data.roles.includes('SUPPLIER'),true);
+        });
         await t.test('permanent shop deletion also removes new purchasing records and preserves other shops and ADMIN',async()=>{
             const other=await http('POST','/purchases/',draft({reference:'OTHER-PO',supplierId:String(foreignSupplier._id),items:[{productId:String(foreignProduct._id),quantity:1,unitCostMinor:1}]}),b.user);assert.equal(other.status,200);
             await Shop.updateOne({_id:a.shop._id},{$set:{isActive:false}});assert.equal((await http('DELETE',`/admin/shops/${a.shop._id}`,undefined,admin)).status,200);assert.equal(await GoodsReceipt.countDocuments({shopId:a.shop._id}),0);assert.equal(await PurchaseOrder.countDocuments({shopId:a.shop._id}),0);assert.equal(await PurchaseOrder.countDocuments({shopId:b.shop._id}),1);assert.ok(await User.findById(admin._id));assert.ok(await Shop.findById(b.shop._id));

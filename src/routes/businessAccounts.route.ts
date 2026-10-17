@@ -1,3 +1,6 @@
+import {existingSetup} from '../controllers/businessSetup.controller.js';
+import {financialReports} from '../controllers/financialReports.controller.js';
+import {capital} from '../controllers/capital.controller.js';
 import {expenses} from '../controllers/expense.controller.js';
 import {Router} from 'express';
 import {verifyJWT} from '../middleware/auth.middleware.js';
@@ -7,8 +10,10 @@ import {businessAccounts} from '../controllers/businessAccounts.controller.js';
 export const businessAccountsRouter = Router();
 // CASHIER retains only the existing /orders/payment-accounts selector.
 businessAccountsRouter.use(verifyJWT, verifyShopUser, verifyOwner);
+businessAccountsRouter.get('/reports',financialReports);
 businessAccountsRouter.route('/entities').get(businessAccounts('entities')).post(businessAccounts('createEntity'));
 businessAccountsRouter.route('/entities/:id').get(businessAccounts('entity'));
+businessAccountsRouter.get('/entities/:id/products',businessAccounts('entityProducts'));
 businessAccountsRouter.route('/entities/:id/roles').patch(businessAccounts('roles'));
 businessAccountsRouter.route('/entities/:id/customer').patch(businessAccounts('linkCustomer'));
 businessAccountsRouter.route('/brands').get(businessAccounts('brands')).post(businessAccounts('createBrand'));
@@ -31,6 +36,8 @@ businessAccountsRouter.route('/suppliers/:id/reconciliation').get(businessAccoun
 businessAccountsRouter.route('/suppliers/:id/balance').get(businessAccounts('supplierBalance'));
 
 businessAccountsRouter.route('/suppliers/:id/payments').post(businessAccounts('supplierPayment'));
+businessAccountsRouter.post('/suppliers/:id/refunds',businessAccounts('supplierRefund'));
+businessAccountsRouter.post('/suppliers/:id/credit-applications',businessAccounts('supplierCreditApplication'));
 businessAccountsRouter.route('/suppliers/:id/returns').post(businessAccounts('supplierReturn'));
 businessAccountsRouter.route('/suppliers/:id/settlements').get(businessAccounts('supplierSettlements'));
 businessAccountsRouter.route('/suppliers/:id/settlements/:eventId/reverse').post(businessAccounts('supplierReverse'));
@@ -41,3 +48,14 @@ businessAccountsRouter.get('/expenses/reconciliation', expenses('reconcile'));
 businessAccountsRouter.route('/expenses').get(expenses('list')).post(expenses('create'));
 businessAccountsRouter.get('/expenses/:id', expenses('detail'));
 businessAccountsRouter.post('/expenses/:id/reverse', expenses('reverse'));
+
+businessAccountsRouter.get('/partners/setup',capital('setup'));
+businessAccountsRouter.route('/partners').get(capital('partners')).post(capital('createPartner'));
+businessAccountsRouter.patch('/partners/:id',capital('editPartner'));
+businessAccountsRouter.route('/capital').get(capital('history')).post(capital('post'));
+businessAccountsRouter.get('/capital/:id',capital('detail'));
+businessAccountsRouter.post('/capital/:id/reverse',capital('reverse'));
+
+businessAccountsRouter.route('/existing-setup').get(existingSetup('view')).put(existingSetup('save'));
+businessAccountsRouter.post('/existing-setup/preview',existingSetup('preview'));
+businessAccountsRouter.post('/existing-setup/confirm',existingSetup('confirm'));

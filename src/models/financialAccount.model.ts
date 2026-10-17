@@ -25,7 +25,7 @@ const schema = new Schema({
 }, {timestamps: true});
 schema.pre('validate', function () {
     const legacy = ['CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY'].includes(this.kind);
-    const party = legacy || this.kind === 'SUPPLIER_PAYABLE';
+    const party = legacy || ['SUPPLIER_PAYABLE','SUPPLIER_CREDIT','PARTNER_CAPITAL'].includes(this.kind);
     if (accountKinds[this.kind as AccountKind] !== this.normalSide || this.authority !== (legacy ? 'LEGACY_CUSTOMER' : 'JOURNAL') || party !== !!this.entityId) throw new Error('Invalid account classification or authority');
 });
 schema.index({shopId: 1, code: 1}, {unique: true});

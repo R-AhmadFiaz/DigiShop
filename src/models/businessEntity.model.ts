@@ -1,6 +1,6 @@
 import {Schema, model} from 'mongoose';
 
-export const businessRoles = ['CUSTOMER', 'SUPPLIER', 'COMPANY', 'MANUFACTURER', 'OTHER'] as const;
+export const businessRoles = ['CUSTOMER', 'SUPPLIER', 'COMPANY', 'MANUFACTURER', 'OTHER', 'PARTNER'] as const;
 const schema = new Schema({
     shopId: {type: Schema.Types.ObjectId, ref: 'Shop', required: true, immutable: true},
     key: {type: String, required: true, immutable: true},
@@ -9,6 +9,7 @@ const schema = new Schema({
     name: {type: String, trim: true}, phoneNo: {type: String, default: ''}, address: {type: String, default: ''},
     roles: {type: [String], enum: businessRoles, required: true},
     customerType: {type: String, enum: ['RETAIL', 'WHOLESALE']},
+    partnerActive: {type: Boolean, default: true},
     revision: {type: Number, default: 0, min: 0, validate: Number.isSafeInteger}
 }, {timestamps: true});
 schema.pre('validate', function () {

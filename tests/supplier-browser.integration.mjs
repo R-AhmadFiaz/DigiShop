@@ -165,8 +165,11 @@ try{
   assert.equal((await browserHttp('POST',supplierPath+'/returns',{requestKey:crypto.randomUUID(),reference:'RET-TOO-MANY',reason:'Reject over-return',occurredAt:new Date().toISOString(),receiptId:postedReceipt._id,items:[{productId:product._id,quantity:4}]})).status,409);assert.deepEqual(await snapshot(),beforeRejections);
   ok(await browserHttp('POST',supplierPath+'/payments',pay(1000,bank._id,'PAY-LOCAL-BANK')));await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});
   const fullyPaid=ok(await browserHttp('POST',supplierPath+'/payments',pay(10000,bank._id,'PAY-LOCAL-FULL'))).settlement;
-  assert.equal((await browserHttp('POST',supplierPath+'/returns',{requestKey:crypto.randomUUID(),reference:'RET-PAID-GOODS',reason:'No unsupported refund due',occurredAt:new Date().toISOString(),receiptId:postedReceipt._id,items:[{productId:product._id,quantity:1}]})).status,409);await verifyMain({stock:13,payable:0,cash:7000,bank:39000});
-  ok(await browserHttp('POST',supplierPath+`/settlements/${fullyPaid._id}/reverse`,{requestKey:crypto.randomUUID(),reference:'REV-LOCAL-FULL',reason:'Actual original funds restored in this isolated correction',occurredAt:new Date().toISOString(),confirmation:'CONFIRM SUPPLIER REVERSAL'}));await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});pass('overpayment, insufficient funds, over-return, bank payment, fully paid return rejection and traceable reversal');
+  const paidReturn=ok(await browserHttp('POST',supplierPath+'/returns',{requestKey:crypto.randomUUID(),reference:'RET-PAID-GOODS',reason:'Supplier accepts paid goods back',occurredAt:new Date().toISOString(),receiptId:postedReceipt._id,items:[{productId:product._id,quantity:1}]})).settlement;
+  assert.equal(ok(await get(supplierPath+'/balance')).creditMinor,2000);
+  ok(await browserHttp('POST',supplierPath+'/settlements/'+paidReturn._id+'/reverse',{requestKey:crypto.randomUUID(),reference:'REV-PAID-RETURN',reason:'Goods actually restored',occurredAt:new Date().toISOString(),confirmation:'CONFIRM SUPPLIER REVERSAL'}));
+  await verifyMain({stock:13,payable:0,cash:7000,bank:39000});
+  ok(await browserHttp('POST',supplierPath+`/settlements/${fullyPaid._id}/reverse`,{requestKey:crypto.randomUUID(),reference:'REV-LOCAL-FULL',reason:'Actual original funds restored in this isolated correction',occurredAt:new Date().toISOString(),confirmation:'CONFIRM SUPPLIER REVERSAL'}));await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});pass('overpayment, insufficient funds, over-return, bank payment, fully paid return credit and traceable reversals');
 
   const statement=ok(await get(`/accounts/financial/${ap._id}/history?limit=2`));assert.equal(statement.rangeOpeningBalanceMinor,0);assert.equal(statement.rangeClosingBalanceMinor,10000);assert.equal(statement.pagination.recordCount,7);assert.equal(statement.pagination.totalPages,4);
   const all=ok(await get(`/accounts/financial/${ap._id}/history?limit=100`));assert.equal(all.transactions.at(-1).runningBalanceMinor,10000);assert.ok(all.transactions.every(e=>e.actor.name===owner.username&&e.actor.role==='OWNER'));
@@ -214,7 +217,7 @@ try{
   await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});assert.equal(JSON.stringify(await Customer.findById(customer._id).lean()),customerBefore);assert.equal(await CustomerLedger.countDocuments(),0);assert.equal(JSON.stringify(await Shop.findById(foreignShop._id).lean()),foreignBefore);assert.deepEqual(errors,[]);
   pass('unsent-form refresh, purchase search, mobile overflow, final reconciliation and unchanged customer/other-shop records');
   for(const p of await Product.find({shopId:shop._id}).lean()){const logs=await StockLog.find({shopId:shop._id,productId:p._id}).lean();assert.equal(p.stockQuantity,logs.reduce((sum,l)=>sum+l.quantityDelta,0));}
-  const finalSnapshot=await snapshot();assert.equal(finalSnapshot.receipts,3);assert.equal(finalSnapshot.events,5);assert.equal(finalSnapshot.logs,4);
+  const finalSnapshot=await snapshot();assert.equal(finalSnapshot.receipts,3);assert.equal(finalSnapshot.events,7);assert.equal(finalSnapshot.logs,6);
 
   // Expense integration uses the SAME verified disposable database and real UI.
   const {Expense}=await import('../dist/models/expense.model.js');
@@ -248,6 +251,157 @@ try{
   await send('Page.navigate',{url:origin+'/owner/expenses'});await wait(`location.pathname==='/cashier/pos'`);
   await login(owner.username);await navigation('/owner/expenses');
   pass('expense owner-only sidebar and browser route protection preserve cashier POS');
+
+  // Locked Step 1: partner equity is tested separately from supplier/expense cash.
+  const {CapitalEvent}=await import('../dist/models/capitalEvent.model.js');
+  delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+  await navigation('/owner/partners');await wait(`document.body.innerText.includes('Capital balances and posting unavailable')`);
+  await click('Add partner');await fill('[name=name]','Local Shop Owner');await click('Save partner');
+  await wait(`!document.querySelector('dialog[open]')&&document.body.innerText.includes('Local Shop Owner')`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent==='Investment').disabled`),true);
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+  await navigation('/owner/partners');await wait(`document.body.innerText.includes('Total business capital: PKR 0.00')`);
+  const capitalPartner=ok(await get('/accounts/partners')).entries.find(e=>e.name==='Local Shop Owner');
+  async function capitalEntry(button,amount,reference){
+    await click(button);await fill('[name=amount]',amount);await fill('[name=accountId]',String(cash._id));await fill('[name=description]','Actual local partner '+button.toLowerCase());await fill('[name=reference]',reference);await click('Review capital movement');await record();
+  }
+  await capitalEntry('Investment','20.00','CAP-LOCAL-IN');
+  assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,9000);
+  assert.equal(ok(await get('/accounts/partners')).total.balanceMinor,2000);
+  await capitalEntry('Withdrawal','5.00','CAP-LOCAL-OUT');
+  assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,8500);
+  assert.equal(ok(await get('/accounts/partners')).total.balanceMinor,1500);
+  pass('partner creation while disabled, real investment/withdrawal confirmations and exact persisted equity/cash');
+  await click('Manage');await fill('[name=name]','Updated Local Owner');await click('Save partner');await wait(`!document.querySelector('dialog[open]')`);
+  assert.equal((await CapitalEvent.findOne({reference:'CAP-LOCAL-IN'})).partnerName,'Local Shop Owner');
+  async function capitalDetails(reference){await wait(`[...document.querySelectorAll('tbody tr')].some(e=>e.textContent.includes(${JSON.stringify(reference)}))`);await evaluate(`(()=>{const row=[...document.querySelectorAll('tbody tr')].find(e=>e.textContent.includes(${JSON.stringify(reference)}));row.querySelector('button').click();})()`);await wait(`document.querySelector('[name=reason]')!==null`);}
+  await capitalDetails('CAP-LOCAL-OUT');await fill('[name=reason]','Withdrawn money actually restored');await click('Review capital reversal');await click('Confirm and record');await wait(`document.body.innerText.includes('Reversed on')`);await click('Close');
+  await capitalDetails('CAP-LOCAL-IN');await fill('[name=reason]','Investment actually returned to partner');await click('Review capital reversal');await click('Confirm and record');await wait(`document.body.innerText.includes('Reversed on')`);await click('Close');
+  assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,7000);
+  const partnerResult=ok(await get('/accounts/partners'));assert.equal(partnerResult.total.balanceMinor,0);assert.equal(partnerResult.total.contributionsMinor,0);assert.equal(partnerResult.total.withdrawalsMinor,0);
+  assert.equal(await CapitalEvent.countDocuments(),4);
+  const capitalRegister=ok(await get('/accounts/transactions?type=CAPITAL_CONTRIBUTION&q=CAP-LOCAL-IN'));assert.equal(capitalRegister.entries.length,1);assert.ok(capitalRegister.entries[0].reversedBy.length);
+  await click('Manage');await fill('[name=partnerActive]','false');await click('Save partner');await wait(`document.body.innerText.includes('Archived')&&!document.querySelector('dialog[open]')`);
+  assert.equal(ok(await get('/accounts/partners')).entries.find(e=>e._id===capitalPartner._id).partnerActive,false);
+  assert.equal((await api(cashier,'POST','/accounts/capital',{partnerId:capitalPartner._id})).status,403);
+  pass('partner edits preserve snapshots, both reversal directions restore balances, history/register links and zero-capital archive');
+  await login(cashier.username);assert.equal(await evaluate(`[...document.querySelectorAll('nav a')].some(e=>e.textContent==='Partners & Capital')`),false);
+  await send('Page.navigate',{url:origin+'/owner/partners'});await wait(`location.pathname==='/cashier/pos'`);
+  await login(owner.username);await navigation('/owner/partners');
+  await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});assert.equal(await CustomerLedger.countDocuments(),0);
+  pass('capital role protection and unchanged supplier, expense, stock and customer balances');
+
+  // Locked Step 2: existing openings are separate from live business activity.
+  await navigation('/owner/existing-setup');await wait(`document.body.innerText.includes('Posted business activity already exists')`);
+  assert.equal(await evaluate(`document.body.innerText.includes('Opening setup confirmed by')`),false);
+  const setupFixture=await fixture('existingowner','03555555555');
+  await login(setupFixture.user.username);
+  const setupProduct=await Product.create({shopId:setupFixture.shop._id,name:'Opening switches',slug:'opening-switches',brand:'Switch',category:new mongoose.Types.ObjectId(),unit:'pcs',stockQuantity:6,costPrice:10,retailPrice:20});
+  const setupSupplier=ok(await browserHttp('POST','/accounts/entities',{key:'setup-existing-eagle',name:'Existing Eagle',roles:['SUPPLIER']}));
+  const setupCash=ok(await browserHttp('POST','/accounts/financial',{code:'SETUP-CASH',name:'Existing Till',kind:'CASH'}));
+  const setupBank=ok(await browserHttp('POST','/accounts/financial',{code:'SETUP-BANK',name:'Existing Empty Bank',kind:'BANK'}));
+  await navigation('/owner/existing-setup');await wait(`document.querySelector('[name="cash-${setupCash._id}"]')!==null`);
+  await fill('[name=reason]','Owner checked the existing shop before opening');
+  await fill('[name="cash-'+setupCash._id+'"]','100.00');await fill('[name="cash-'+setupBank._id+'"]','0');
+  await fill('[name="other-'+setupSupplier._id+'"]','10.00');
+  await label('Expected net business value','150.00');
+  await evaluate(`(()=>{document.querySelector('[name=customers]').click();document.querySelector('[name=equity]').click();})()`);
+  await click('Save setup draft');await wait(`document.body.innerText.includes('Review for confirmation')`);
+  await navigation('/owner/existing-setup');await wait(`document.querySelector('[name="cash-${setupBank._id}"]')?.value==='0'`);
+  await click('Review for confirmation');await wait(`document.body.innerText.includes('Preview expires after 5 minutes')`);
+  await label('Type CONFIRM EXISTING BUSINESS SETUP','CONFIRM EXISTING BUSINESS SETUP');
+  await click('Confirm reviewed setup');await record();await wait(`document.body.innerText.includes('Opening setup confirmed by existingowner')`);
+  const setupResult=ok(await get('/accounts/existing-setup'));assert.equal(setupResult.setup.state,'CONFIRMED');assert.equal(setupResult.evidence.totals.netAssetsMinor,15000);
+  assert.equal((await Product.findById(setupProduct._id)).stockQuantity,6);assert.equal(await StockLog.countDocuments({shopId:setupFixture.shop._id}),0);
+  assert.equal(ok(await get('/accounts/financial/'+setupCash._id)).balanceMinor,10000);assert.equal(ok(await get('/accounts/financial/'+setupBank._id)).balanceMinor,0);
+  assert.equal(ok(await get('/accounts/suppliers/'+setupSupplier._id+'/balance')).balanceMinor,1000);
+  assert.equal(await CapitalEvent.countDocuments({shopId:setupFixture.shop._id}),0);
+  const setupJournals=await BusinessTransaction.countDocuments({shopId:setupFixture.shop._id});assert.equal(setupJournals,3);
+  const confirmationRequest=requests.filter(r=>r.path==='/api/v2/accounts/existing-setup/confirm'&&r.method==='POST').at(-1);
+  assert.equal(ok(await browserHttp('POST','/accounts/existing-setup/confirm',JSON.parse(confirmationRequest.body))).replayed,true);
+  assert.equal(await BusinessTransaction.countDocuments({shopId:setupFixture.shop._id}),setupJournals);
+  await navigation('/owner/existing-setup');await wait(`document.body.innerText.includes('preserved opening values, not current balances')`);
+  pass('existing setup real draft, zero-balance reload, explicit preview/typed confirmation, supplier/cash/inventory openings and identical replay');
+  await login(cashier.username);assert.equal(await evaluate(`[...document.querySelectorAll('nav a')].some(e=>e.textContent==='Existing Business Setup')`),false);
+  await send('Page.navigate',{url:origin+'/owner/existing-setup'});await wait(`location.pathname==='/cashier/pos'`);
+  await login(owner.username);
+  await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});
+  pass('setup prevents resetting active books, preserves original shop records and remains OWNER-only');
+  await navigation('/owner/reports');await wait(`document.body.innerText.includes('Net revenue')`);
+  assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss') && document.body.innerText.includes('cost at sale')`));
+  assert.ok(await evaluate(`document.body.innerText.includes('Reference estimate') && document.body.innerText.includes('not revenue or profit')`));
+  const reportDay=new Date().toISOString().slice(0,10);
+  await label('From (UTC)',reportDay);await label('Through (UTC)',reportDay);await click('Show reports');await wait(`document.body.innerText.includes('Net revenue')`);
+  const report=ok(await get('/accounts/reports?from='+reportDay+'T00:00:00.000Z&to='+new Date(Date.parse(reportDay+'T00:00:00.000Z')+86400000).toISOString()));
+  assert.equal(report.profit.status,'UNAVAILABLE');assert.equal(report.inventory.entries.find(p=>p.id===String(product._id)).quantity,13);
+  assert.equal(report.cashBank.entries.find(a=>a.id===String(cash._id)).currentBalanceMinor,7000);
+  assert.equal(report.cashBank.entries.find(a=>a.id===String(bank._id)).currentBalanceMinor,49000);
+  assert.equal(report.capital.balanceMinor,0);assert.equal(report.expenses.netMinor,0);
+  await navigation('/owner/reports');await wait(`document.body.innerText.includes('Net revenue')`);
+  pass('financial reports real OWNER UI, UTC filters, refresh, persisted cash/bank/stock, capital/expense reversal totals and unavailable profit');
+  delete process.env.BUSINESS_ACCOUNTING_ENABLED;await navigation('/owner/reports');await wait(`document.body.innerText.includes('live accounting is disabled')`);
+  assert.ok(await evaluate(`document.body.innerText.includes('Net revenue') && document.body.innerText.includes('Unavailable:')`));
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+  await login(cashier.username);assert.equal(await evaluate(`[...document.querySelectorAll('nav a')].some(e=>e.textContent==='Financial Reports')`),false);
+  await send('Page.navigate',{url:origin+'/owner/reports'});await wait(`location.pathname==='/cashier/pos'`);assert.equal((await get('/accounts/reports?from='+reportDay+'T00:00:00.000Z&to='+new Date().toISOString())).status,403);
+  await login(owner.username);await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});
+  pass('financial reports disabled accounting is unavailable not zero; CASHIER navigation/API protection and unchanged operational balances');
+  // Separate supplier/product, real posted receipts, no production data or mocked balances.
+  const creditSupplier=ok(await browserHttp('POST','/accounts/entities',{key:'browser-credit-supplier',name:'Refund Supplier',roles:['SUPPLIER']}));
+  const creditAp=await createAccount('SUPPLIER_PAYABLE','Refund Supplier AP',creditSupplier._id),creditPath='/accounts/suppliers/'+creditSupplier._id;
+  const cp=ok(await get(creditPath+'/cutover-preview'));
+  ok(await browserHttp('POST',creditPath+'/cutover',{requestKey:crypto.randomUUID(),confirmation:'CONFIRM SUPPLIER OPENING',reason:'Explicit verified zero opening',cutoffAt:new Date().toISOString(),payableAccountId:creditAp._id,offsetAccountId:offset._id,equityAccountId:equity._id,openingBalanceMinor:0,otherOpeningMinor:0,reviews:[],evidenceDigest:cp.evidenceDigest}));
+  const creditProduct=ok(await browserHttp('POST','/products/create-product',{name:'Refund Test Cable',brand:'Refund',category:category._id,unit:'pcs',costPrice:1,retailPrice:2,stockQuantity:0,minStockThreshold:0})).product;
+  async function creditDelivery(reference,quantity){let po=ok(await browserHttp('POST','/purchases/',{reference,requestKey:crypto.randomUUID(),supplierId:creditSupplier._id,items:[{productId:creditProduct._id,quantity,unitCostMinor:100}]})).purchaseOrder;po=ok(await browserHttp('POST','/purchases/'+po._id+'/confirm',{requestKey:crypto.randomUUID(),expectedRevision:po.revision})).purchaseOrder;const receipt=ok(await browserHttp('POST','/purchases/'+po._id+'/receipts',{requestKey:crypto.randomUUID(),reference:'GR-'+reference,expectedRevision:po.revision,items:[{productId:creditProduct._id,quantity}]})).receipt;return {po,receipt};}
+  const delivery=await creditDelivery('CREDIT-PO-1',10);
+  const creditPayment=ok(await browserHttp('POST',creditPath+'/payments',pay(1000,bank._id,'CREDIT-PAID'))).settlement;
+  await navigation('/owner/purchases/'+delivery.po._id);await click('Return details');await label('Return Refund Test Cable',5);await label('Return reference','CREDIT-RETURN');await label('Return reason','Supplier accepted paid stock back');await click('Review return');await record();
+  assert.equal(ok(await get(creditPath+'/balance')).creditMinor,500);assert.equal((await Product.findById(creditProduct._id)).stockQuantity,5);
+  await navigation('/owner/accounts/suppliers/'+creditSupplier._id);await wait(`document.body.innerText.includes('Available credit / refund due: PKR 5.00')`);
+  await wait("[...document.querySelector('[aria-label=\"Refund account\"]').options].some(o=>o.value==="+JSON.stringify(String(cash._id))+")");await fill('[aria-label="Refund account"]',cash._id);await label('Credit amount (PKR)','2');await label('Credit transaction reference','CREDIT-REFUND');await label('Credit transaction note','Actual refund received into till');await click('Review supplier credit');await click('Confirm money received');await wait(`!document.querySelector('dialog[open]')`);
+  const refundState=ok(await get(creditPath+'/balance'));assert.equal(refundState.creditMinor,300);assert.equal(refundState.refundsReceivedMinor,200);assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,7200);
+  const refundRequest=requests.filter(r=>r.path===('/api/v2'+creditPath+'/refunds')&&r.method==='POST').at(-1);assert.equal(ok(await browserHttp('POST',creditPath+'/refunds',JSON.parse(refundRequest.body))).replayed,true);
+  await creditDelivery('CREDIT-PO-2',3);await navigation('/owner/accounts/suppliers/'+creditSupplier._id);await wait(`document.body.innerText.includes('Outstanding: PKR 3.00')`);
+  await fill('[aria-label="Credit action"]','CREDIT_APPLICATION');await label('Credit amount (PKR)','2');await label('Credit transaction reference','CREDIT-APPLY');await label('Credit transaction note','Use supplier credit against new delivery');await click('Review supplier credit');await click('Confirm credit applied');await wait(`!document.querySelector('dialog[open]')`);
+  const appliedState=ok(await get(creditPath+'/balance'));assert.equal(appliedState.balanceMinor,100);assert.equal(appliedState.creditMinor,100);assert.equal(appliedState.creditAppliedMinor,200);assert.equal(ok(await get('/accounts/financial/'+cash._id)).balanceMinor,7200);
+  await navigation('/owner/accounts/suppliers/'+creditSupplier._id);await wait(`document.body.innerText.includes('Credit applied (net of corrections): PKR 2.00')`);
+  pass('supplier credits real paid-goods return UI, partial cash refund, identical replay, future payable and partial credit application without cash');
+  async function correctCredit(reference,nextReference){await navigation('/owner/accounts/suppliers/'+creditSupplier._id);await wait(`[...document.querySelectorAll('tr')].some(r=>r.innerText.includes(${JSON.stringify(reference)}))`);await evaluate(`(()=>{const row=[...document.querySelectorAll('tr')].find(r=>r.innerText.includes(${JSON.stringify(reference)}));row.querySelector('button').click();})()`);await label('Correction reference',nextReference);await label('Correction reason','Actual money or goods restored');await click('Review reversal');await click('Confirm actual reversal');await wait(`!document.querySelector('dialog[open]')`);}
+  await correctCredit('CREDIT-APPLY','REV-CREDIT-APPLY');assert.equal(ok(await get(creditPath+'/balance')).creditMinor,300);
+  await correctCredit('CREDIT-REFUND','REV-CREDIT-REFUND');assert.equal(ok(await get(creditPath+'/balance')).creditMinor,500);
+  await correctCredit('CREDIT-RETURN','REV-CREDIT-RETURN');assert.equal(ok(await get(creditPath+'/balance')).creditMinor,0);assert.equal((await Product.findById(creditProduct._id)).stockQuantity,13);
+  ok(await browserHttp('POST',creditPath+'/settlements/'+creditPayment._id+'/reverse',{requestKey:crypto.randomUUID(),reference:'REV-CREDIT-PAID',reason:'Actual payment returned in isolated test',occurredAt:new Date().toISOString(),confirmation:'CONFIRM SUPPLIER REVERSAL'}));
+  await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});assert.equal(ok(await get(creditPath+'/balance')).balanceMinor,1300);
+  await navigation('/owner/accounts/transactions?account='+refundState.creditAccountId);await wait(`document.body.innerText.includes('Period closing: PKR 0.00')`);
+  pass('supplier credit UI corrections preserve history, reverse applications/refunds before return, exact inventory and cash restoration, credit statement');
+  const correctionCompany=ok(await browserHttp('POST','/accounts/entities',{key:'correction-company',name:'Correction Company',roles:['COMPANY']}));
+  await navigation('/owner/accounts/companies');await fill('[aria-label="Search businesses"]','Correction Company');await wait("document.querySelectorAll('tbody tr').length===1&&document.querySelector('tbody tr').innerText.includes('Correction Company')");await click('Business setup');await wait("document.body.innerText.includes('Business roles')");
+  await evaluate("document.querySelector('[aria-label=\"Role Supplier\"]').click()");await click('Save roles');await wait("document.body.innerText.includes('Purchases, payments & supplier history')");
+  assert.equal(ok(await get('/accounts/entities/'+correctionCompany._id)).roles.includes('SUPPLIER'),true);assert.equal(await BusinessEntity.countDocuments({shopId:shop._id,name:'Correction Company'}),1);
+  await label('New brand name','Correction Brand');await click('Add brand association');await wait("document.body.innerText.includes('Brand linked.')");
+  const {BusinessBrand}=await import('../dist/models/businessBrand.model.js'),correctionBrand=await BusinessBrand.findOne({shopId:shop._id,name:'Correction Brand'}).lean();
+  const correctionProduct=ok(await browserHttp('POST','/products/create-product',{name:'Correction Product',brand:'Correction Brand',category:category._id,unit:'pcs',costPrice:1,retailPrice:2,stockQuantity:2,minStockThreshold:0})).product;
+  assert.equal(ok(await get('/accounts/entities/'+correctionCompany._id+'/products')).entries.length,0);
+  await label('Find product to link','Correction Product');await click('Correction Product');await wait("document.querySelector('dialog select')?.options.length>1");await fill('dialog select',String(correctionBrand._id));await click('Confirm product brand link');await wait("document.body.innerText.includes('Registered brand: Correction Brand')");
+  const linked=ok(await get('/accounts/entities/'+correctionCompany._id+'/products'));assert.equal(linked.entries[0].stockQuantity,2);assert.equal(linked.sales.status,'UNAVAILABLE');
+  await click('Close');pass('corrections: Company gains Supplier on same identity; explicit registered-brand product link and actual stock, no invented company sales');
+  await navigation('/owner/purchases');await click('Create purchase order');await label('Supplier invoice / challan','DOC-CORRECTION');await label('Purchase notes','Owner confirmed purchase note');await label('Find supplier','Correction Company');await click('Correction Company');await label('Find purchase products','Correction Product');await click('Add Correction Product');await fill('[aria-label="Quantity for Correction Product"]','2');await fill('[aria-label="Unit cost for Correction Product"]','1');await click('Review purchase order');await record();
+  let correctionPo=await PurchaseOrder.findOne({shopId:shop._id,supplierId:correctionCompany._id}).lean();assert.match(correctionPo.reference,/^PO-AUTO-\d+$/);assert.equal(correctionPo.notes,'Owner confirmed purchase note');assert.equal(correctionPo.supplierDocumentNo,'DOC-CORRECTION');
+  await navigation('/owner/purchases/'+correctionPo._id);await click('Confirm order');await record();
+  delete process.env.BUSINESS_ACCOUNTING_ENABLED;await label('Delivery invoice / challan','CHALLAN-CORRECTION');await label('Delivery notes','Physically checked old delivery');await fill('[aria-label="Delivered Correction Product"]','1');await click('Review delivered quantities');await record();
+  const oldCorrection=await GoodsReceipt.findOne({purchaseOrderId:correctionPo._id}).lean();assert.match(oldCorrection.reference,/^GR-AUTO-\d+$/);assert.equal(oldCorrection.accountingStatus,'DEFERRED');assert.equal(oldCorrection.notes,'Physically checked old delivery');assert.equal(oldCorrection.supplierDocumentNo,'CHALLAN-CORRECTION');
+  const automaticRequest=requests.filter(r=>r.method==='POST'&&r.path==='/api/v2/purchases/').at(-1);assert.equal(ok(await browserHttp('POST','/purchases/',JSON.parse(automaticRequest.body))).replayed,true);
+  pass('corrections: real purchase and partial-delivery UI generate references, preserve notes/challan and identical-key replay');
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';await navigation('/owner/accounts/suppliers/'+correctionCompany._id);await wait("document.body.innerText.includes('Review historical supplier opening')");await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Review historical supplier opening').click()");
+  await click('Create supplier payable account');await wait("[...document.querySelector('[name=SUPPLIER_PAYABLE]').options].length>1");const correctionAp=await FinancialAccount.findOne({shopId:shop._id,entityId:correctionCompany._id,kind:'SUPPLIER_PAYABLE'}).lean();assert.ok(correctionAp);
+  await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));await fill('[name=PURCHASES_CLEARING]',String(offset._id));await fill('[name=OPENING_EQUITY]',String(equity._id));
+  await label('Unpaid amount for '+oldCorrection.reference,'0.75');await label('Review / external payment evidence for '+oldCorrection.reference,'25 paisa paid outside DigiShop before opening');await label('Historical opening review note','Owner checked original challan and payment evidence');await evaluate("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('I verified every old delivery')).querySelector('input').click()");await click('Review supplier opening');await record();
+  const openingState=ok(await get('/accounts/suppliers/'+correctionCompany._id+'/balance'));assert.equal(openingState.balanceMinor,75);assert.equal(openingState.cutover.reviews[0].unpaidMinor,75);assert.equal((await GoodsReceipt.findById(oldCorrection._id)).accountingStatus,'DEFERRED');
+  const openingRequest=requests.filter(r=>r.method==='POST'&&r.path===('/api/v2/accounts/suppliers/'+correctionCompany._id+'/cutover')).at(-1);assert.equal(ok(await browserHttp('POST','/accounts/suppliers/'+correctionCompany._id+'/cutover',JSON.parse(openingRequest.body))).replayed,true);
+  await navigation('/owner/purchases/'+correctionPo._id);await fill('[aria-label="Delivered Correction Product"]','1');await click('Review delivered quantities');await record();assert.equal(ok(await get('/accounts/suppliers/'+correctionCompany._id+'/balance')).balanceMinor,175);assert.equal((await Product.findById(correctionProduct._id)).stockQuantity,4);
+  assert.equal(await BusinessTransaction.countDocuments({shopId:shop._id,'source.kind':'PURCHASE_RECEIPT','source.referenceId':oldCorrection._id}),0);
+  await navigation('/owner/reports');await wait("document.body.innerText.includes('Why cost and profit need reconciliation')");const costReport=ok(await get('/accounts/reports?from='+reportDay+'T00:00:00.000Z&to='+new Date(Date.parse(reportDay+'T00:00:00.000Z')+86400000).toISOString()));assert.equal(costReport.profit.status,'UNAVAILABLE');assert.equal(costReport.profit.evidence.costAtSaleSnapshots,false);
+  await verifyMain({stock:13,payable:10000,cash:7000,bank:49000});pass('corrections: owner-reviewed deferred opening, external-payment evidence, immutable replay, later receipt posting, blocked profit and unchanged existing balances');
   const evidence={passed:passed.length,scenarios:passed,verified:{mainProductStock:finalSnapshot.stock,supplierPayableMinor:reconciliation.balanceMinor,cashMinor:ok(await get('/accounts/financial/'+cash._id)).balanceMinor,bankMinor:ok(await get('/accounts/financial/'+bank._id)).balanceMinor,mainSupplierReceipts:finalSnapshot.receipts,mainSupplierSettlements:finalSnapshot.events,mainSupplierStatementEvents:all.pagination.recordCount,customerLedgerEntries:await CustomerLedger.countDocuments()},environment:{database:uri,mongoVersion,node:process.version,frontend:origin,backend:base}};
   await fs.mkdir('tests/artifacts',{recursive:true});await fs.writeFile('tests/artifacts/supplier-phase5a-evidence.json',JSON.stringify(evidence,null,2));console.log(JSON.stringify(evidence,null,2));
 }catch(error){console.error('SUPPLIER INTEGRATION FAILED:',error.stack);if(socket?.readyState===1)try{console.error('ACTUAL UI:',await evaluate('document.body.innerText'));}catch{}console.error('Passed:',passed);process.exitCode=1;}

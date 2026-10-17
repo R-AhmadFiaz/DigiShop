@@ -1444,3 +1444,470 @@ All replica-set runners create and destroy their own local databases; never poin
 these tests at an existing database. No commit, push, deployment or migration was
 performed. Production expense posting remains unavailable until a separately
 approved live-accounting activation/cutover is implemented.
+
+
+## Locked Step 1 of 5 - Business Partners & Capital
+
+OWNER-only module: /owner/partners, sidebar Partners & Capital. Existing business
+identities gain a PARTNER role, including the shop owner as an ordinary named
+partner. No User/login is created and no ownership percentage is implied. An
+existing customer/supplier/company identity can gain PARTNER without duplication;
+customer debt, supplier payable and store credit remain separate. New standalone
+partners and their names/contact details can be managed while accounting is off.
+Linked Customer identity fields are not overwritten. Revision checks protect
+metadata updates. A zero-capital partner can be archived/reactivated; financial
+posting requires an active partner. Archiving requires prepared test accounting
+and a verified zero capital balance. No partner or history deletion is exposed.
+
+All API paths below are under /api/v2/accounts and use verifyJWT, verifyShopUser
+(subscription/manual access) and verifyOwner:
+- GET /partners/setup -> {available,accounts,message}; accounts are prepared cash/
+  bank selections. Accounting off gives available:false and no payment accounts.
+- GET /partners?q=&page=1&limit=20 -> {entries,available,message,total,pagination}.
+  Each entry is an existing BusinessEntity plus capital:{authoritative:true,
+  contributionsMinor,withdrawalsMinor,balanceMinor}, or capital:null when unavailable.
+  total uses the same shape across ALL partners, independent of search/pagination.
+- POST /partners -> {key,name,phoneNo?,address?} for a new identity; or
+  {entityId,expectedRevision} to reuse an existing identity and add PARTNER.
+- PATCH /partners/:id -> {expectedRevision,name?,phoneNo?,address?,partnerActive?}.
+  Linked customers cannot be renamed here. Names/contact collisions require review.
+- POST /capital -> {requestKey,partnerId,direction:'CONTRIBUTION'|'WITHDRAWAL',
+  amountMinor,accountId,occurredAt,description,reference?}.
+- GET /capital?partnerId=&q=&page=1&limit=20 -> {entries,pagination}; complete
+  chronological history is accessible through deterministic timestamp/_id pagination.
+- GET /capital/:id -> {event,reversal,journal}.
+- POST /capital/:id/reverse -> {requestKey,occurredAt,description,reference?,
+  confirmation:'CONFIRM CAPITAL REVERSAL'}.
+Financial writes return {event,journalId,replayed}; identical replay returns the
+original event without reposting. Effective timestamps are canonical non-future
+UTC, recorded timestamps and actor identity are server-controlled. Display dates
+use Asia/Karachi. Limit is capped at 100, text search is escaped/bounded.
+
+Each partner has one JOURNAL PARTNER_CAPITAL account, normal side CREDIT, linked
+by entityId (existing unique shop/entity/kind index). CapitalEvent is immutable,
+with partner/account/actor snapshots, dated source identity, request hash/key and
+original reversal reference. Unique shop/requestKey and shop/reversalOf indexes
+prevent duplicate events/reversals. Shop/date and shop/partner/date indexes support
+history. Existing journal source and request uniqueness remains authoritative.
+
+Contribution: debit selected CASH/BANK, credit PARTNER_CAPITAL.
+Withdrawal: debit PARTNER_CAPITAL, credit selected CASH/BANK.
+Reversal is the exact inverse to the original accounts, only after confirmation
+that the real funds have moved back. Original records remain immutable. Full
+reversals only; correct with a separate new posting afterward. Reversals of
+reversals, standalone generic journal reversals, manual capital journals and
+capital opening journals are rejected. Capital accounts cannot lose their partner
+role once financial records exist. Negative partner capital is not supported.
+
+Transactions use the existing MongoDB snapshot/majority transaction boundary,
+shop/account revision claims and balance checks. The source event and both journal
+postings commit atomically. Insufficient cash/bank OR partner capital is rejected,
+including reversal of an investment that has already been withdrawn. Prepared
+cash/bank cutoffs and chronological account posting apply unchanged. Exact-key
+replay is safe; the UI retains uncertain requests under capital-operation and
+never creates a new key to retry an uncertain result.
+
+Capital summaries reconcile immutable event totals with source journals, journal
+counts and actual capital-account balances; missing/unmatched history fails closed
+rather than being repaired. Contributions/withdrawals are net of their linked
+reversals. Balances are derived, never stored as a second authoritative balance.
+Global transaction history and per-account statements include capital events,
+source references, actors and reversal relationships. Capital never enters sales,
+operating expenses, supplier debt or customer credit. Permanent shop deletion also
+removes CapitalEvent in its existing transaction.
+
+IMPORTANT COMPATIBILITY: totals cover recorded partner movements only. Existing
+cash/bank opening funds are NOT automatically attributed to any partner. Never
+re-enter those old funds as a new investment: that would double-count cash. A
+historical partner-capital opening/reclassification requires a separately approved
+reconciliation plan and is not implemented. No production accounting activation,
+loans, profit distribution, salary calculation or ownership-share tracking is added.
+Production accounting remains disabled; BUSINESS_ACCOUNTING_ENABLED is unchanged
+and can only be true under NODE_ENV=test. Missing cutover is an explicit unavailable
+state, not a zero balance. Tests never connect to Atlas or an existing database.
+
+
+Step 1 verification (disposable loopback replica sets only):
+- TypeScript build passed. Complete backend suite: 376 passed, zero failed/skipped.
+- Focused capital replica-set suite: 18 passed. Covers OWNER/foreign-shop guards,
+  identity reuse, disabled/prepared modes, balanced cash/bank directions, separate
+  customer debt/credit, duplicate and concurrent requests, rollback, insufficient
+  cash/capital, historical snapshots, archive/revision checks, journal mismatch,
+  source-linked history, manual-journal rejection and production restrictions.
+- Frontend lint/build passed; 64 frontend tests passed.
+- Real Chrome supplier/expense/capital runner: 18 scenario groups passed, exit 0.
+  Capital scenario: cash PKR 70 -> investment 20 -> cash 90 / capital 20 ->
+  withdrawal 5 -> cash 85 / capital 15 -> withdrawal reversal -> cash 90 /
+  capital 20 -> contribution reversal -> cash 70 / capital 0. Four immutable events
+  remain. Metadata rename preserves historical partner-name snapshots. Zero-capital
+  archive succeeds and CASHIER is denied both UI and backend management access.
+- Existing supplier payable PKR 100, bank PKR 490, stock 13, expense net zero and
+  customer debt/credit remain unchanged. Existing sale/invoice/stock regressions
+  pass in the complete backend and frontend suites.
+- No application guard was relaxed. Initial new-test fixture issues (missing Order
+  import and an earlier cash-routing guard masking the intended capital guard)
+  were corrected, followed by passing focused and complete reruns.
+
+Repeat with npm run build; node --test tests/capital-replica.test.mjs; and
+node tests/supplier-browser.integration.mjs. The browser runner requires existing
+local mongod/Chrome and installed frontend dependencies. It bypasses production
+.env loading and creates/deletes only its own verified local database and temp
+files. No secrets/environment files, Atlas data, branches, commits, pushes or
+deployments were changed. Locked Step 1 ends here; no later phase is implemented.
+
+
+## Locked Step 2 of 5 - Existing Business Setup
+
+OWNER page /owner/existing-setup adds a guided opening REVIEW and one-time
+confirmation, not a migration or historical transaction generator. It reuses
+Product stock/cost, Customer and CustomerLedger, supplier cutover/receipt evidence,
+FinancialAccount, recordOpeningBalance, prepareCashBankCutover and
+initializeSupplierCutover. Step 1 partner capital remains untouched.
+
+New routes, under /api/v2/accounts, use the existing verifyJWT, verifyShopUser and
+verifyOwner middleware:
+- GET /existing-setup -> {setup,evidence}. DRAFT evidence is freshly read. CONFIRMED
+  evidence is the immutable opening snapshot, never today's recomputed balances.
+- PUT /existing-setup -> {expectedRevision,input}; returns {setup,evidence}.
+  Draft corrections do not post money or change quantities/customer balances.
+- POST /existing-setup/preview -> {expectedRevision}; returns {setup,evidence,
+  previewToken,expectedRevision}. The token expires after five minutes.
+- POST /existing-setup/confirm -> {expectedRevision,previewToken,requestKey,
+  confirmation:'CONFIRM EXISTING BUSINESS SETUP'}; returns {setup,replayed}.
+
+Draft input:
+{cutoffAt:'canonical non-future UTC timestamp',reason:'owner review note',
+ cash:[{accountId,amountMinor}],
+ suppliers:[{supplierId,otherOpeningMinor,reviews:[{receiptId,unpaidMinor,reason}]}],
+ expectedNetAssetsMinor:19200,acknowledgeLegacyCustomerBalances:true,
+ acknowledgeUnallocatedEquity:true}
+All balances use integer paisa. Only expectedNetAssetsMinor can be negative.
+Suppliers with a confirmed opening are reused, not re-opened. Every other supplier
+must explicitly review all existing deferred receipts and other historical debt.
+Delivery unpaid amounts cannot exceed original values; zero means externally
+settled evidence, not a fabricated payment. Core supplier cutover validation is
+still authoritative. All active shop cash/bank accounts need explicit balances;
+missing/foreign/inactive selections are blocked.
+
+Evidence includes inventory rows (quantity, unitCostMinor, valueMinor), existing
+customer debts and store credit with reconciliation issues, cash setup status,
+supplier setup status/deliveries, totals, blockers and a source digest. Missing
+amounts are null/unavailable rather than assumed zero. The initial guided review
+supports at most 1000 products/customers, 100 suppliers, 100 receipts per supplier,
+20 selected cash/bank accounts, 500 financial accounts, 1000 journal records and
+10000 receipts/ledger/invoice records. Larger reviews fail closed; the existing
+16KB HTTP request limit also applies. Do not split openings to bypass these limits.
+
+Opening equations (supported records only):
+assets = existing stock value + verified cash/bank + existing customer debt;
+liabilities = reviewed supplier payable + existing customer store credit;
+net business value = assets - liabilities;
+review difference = net business value - owner-declared expected net value.
+Nonzero differences and unresolved evidence prevent confirmation. This is not a
+complete trial balance, profit/loss, loan register or fixed-asset valuation.
+
+Confirmation uses a MongoDB snapshot/majority transaction, revision-safe singleton
+BusinessSetup (unique shopId), expiring server preview/source digest, explicit typed
+acknowledgement and exact-key idempotency. Stock/customer records are claimed for
+transaction conflict protection by updating their metadata timestamp; quantities,
+prices, remainingMoney, storeCreditBalanceMinor and customer ledgers are NOT
+increased or rewritten. Concurrent relevant record changes force fresh review.
+The owner should pause trading and receiving during opening review.
+
+Posting policy:
+- Existing stock is valued once at reviewed current Product.costPrice x existing
+  quantity. Debit dedicated opening INVENTORY / credit unallocated OPENING_EQUITY.
+  No stock increment or fake stock log. Zero inventory has a confirmed snapshot,
+  without a fake zero-value journal. This is an opening snapshot, NOT perpetual
+  inventory valuation or historical cost-of-goods-sold accounting.
+- New positive cash/bank openings reuse Dr CASH/BANK / Cr OPENING_EQUITY. Zero
+  account balances use existing zero cutover evidence without zero-value journals.
+  Existing prepared cash/bank openings must match and are not posted again.
+- Supplier openings reuse Dr OPENING_EQUITY / Cr SUPPLIER_PAYABLE. Deferred receipts
+  stay deferred; they are not reposted. New receiving after cutoff retains the
+  existing source-linked payable policy.
+- Customer debt/store credit remain authoritative in their existing ledger. No
+  duplicate receivable/liability journal is created. Journal-backed opening equity
+  (stock + cash - suppliers) and preserved net customer balances are shown
+  separately. Their sum gives supported net business value.
+- Opening equity is UNALLOCATED; no CapitalEvent or partner contribution is created.
+  Assigning historical equity to partners requires a separate approved policy.
+
+Financial confirmation requires the unchanged test-only accounting flag. It
+atomically creates/reuses required accounts, posts openings and prepares cash/bank
+cutover before commit. Missing setup remains incomplete/blocked; production
+accounting cannot be enabled by this page. Existing posted business activity or
+inventory journals block initial setup rather than reconstructing an old cutoff.
+Extra accounts cannot silently extend an immutable existing cash cutover.
+
+Customer history mismatches, missing customer identities, outstanding invoices
+without a valid customer, missing supplier identities and invalid precision block
+confirmation without repairing data. Importing paper customer debts/credits without
+traceable existing records is NOT implemented: it requires an approved customer
+opening-ledger reconciliation design compatible with invoice settlement. Do not
+create dummy invoices to bypass this blocker.
+
+Drafts can be corrected until confirmation. Confirmed input/evidence are immutable;
+there is no reset/delete route. Prepared cash, supplier openings and the confirmed
+inventory opening cannot be undone using generic standalone reversal. Corrections
+require separately reviewed reconciliation. Permanent ADMIN shop deletion remains
+the sole tenant-wide deletion exception and now includes BusinessSetup.
+
+Verification:
+- Backend TypeScript build passed; complete suite 390 passed, zero failed/skipped.
+- Final focused setup/deletion replica tests: 20 passed. Verified existing stock,
+  real pre-cutover invoice debt and refund-issued store credit, supplier deferred
+  receipts/openings, cash/bank including zero and previously prepared balances,
+  revisions, expired/stale previews, concurrent stock and duplicate confirmation,
+  late rollback, cross-shop/role isolation, immutable confirmation, no duplicate
+  customer balances/stock/openings, and post-setup POS/purchasing compatibility.
+- Main replica scenario preserves 21 units, customer debt PKR 20 and credit PKR 10.
+  Opening stock value PKR 42 + cash/bank PKR 150 + customer debt PKR 20 minus
+  supplier payable PKR 10 and store credit PKR 10 = net PKR 192. Journal-backed
+  opening equity is PKR 182; preserved net customer balances PKR 10 are NOT posted
+  again. No capital investment or extra sales/stock/customer-ledger record appears.
+- Frontend lint/build passed and 68 tests passed. Real Chrome runner passed 20
+  supplier/expense/capital/setup scenario groups. A separate fresh shop confirms
+  stock PKR 60, cash PKR 100, empty bank PKR 0, supplier opening PKR 10 and net
+  PKR 150 through the actual UI. Stock remains 6 units; exactly three journals,
+  no capital event, and exact confirmation replay creates no additional postings.
+- All financial tests use owned disposable loopback replica sets, never Atlas.
+  No production records, environment secrets, branches, commits, pushes or
+  deployments were changed. Step 1 work is preserved. Step 3 is not started.
+
+
+## Locked Step 3 - Financial Reports
+
+OWNER-only GET /api/v2/accounts/reports?from=2026-10-01T00:00:00.000Z&to=2026-11-01T00:00:00.000Z.
+Uses the existing authenticated shop, manual access, subscription and OWNER middleware.
+No client shop selection and no financial mutations. All component reads share a snapshot
+transaction. Responses have Cache-Control: no-store and the existing apiResponse envelope.
+Dates must be canonical UTC, start inclusive/end exclusive, in a positive range up to 366 days.
+The frontend Through date is inclusive and translated to the following UTC midnight.
+Displayed timestamps are Pakistan-local; reporting date boundaries remain explicitly UTC.
+
+Response data: currency, asOf, range, coverage, sales, expenses, cashBank, customers,
+suppliers, capital, inventory, opening, profit. All monetary fields ending Minor are
+integer paisa; checked BigInt sums reject overflow. Legacy PKR inputs must round-trip to
+paisa without inventing precision. A section with insufficient evidence returns status
+UNAVAILABLE and a message, not a fabricated zero. Other sections remain readable.
+
+- sales: originalGrossMinor, originalDiscountsMinor, additionsMinor, returnsMinor,
+  discountChangesMinor, netDiscountsMinor, revenueMinor, invoiceCount, adjustmentCount,
+  excludedUntimedCancellations. Original snapshots belong to original creation dates;
+  ADJUSTMENT/CANCELLATION item and discount deltas belong to occurredAt. Dated LEGACY
+  cancellations reverse on cancelledAt. Untimed legacy cancellations retain their existing
+  excluded policy and are counted when their original invoice is in range (INCOMPLETE).
+  Other missing original snapshots, incompatible money or contradictory movement evidence
+  fail the section closed. Quotations and PAYMENT events do not count as sales. Cash
+  receipts, refunds and credit movements are never added again as revenue.
+- expenses: prepared test accounting required. Source-linked event/journal postings and
+  timestamps are checked. spentMinor, reversedMinor and netMinor plus categories with
+  totalMinor use actual expense/reversal dates. Purchases, supplier payments, customer
+  refunds, capital and openings are not operating expenses.
+- cashBank: each same-shop cash/bank account has currentBalanceMinor and, where covered,
+  selected-range openingMinor, closingMinor, netMovementMinor and first five chronological
+  transactions. Existing paginated statements provide full history. All are derived from
+  posted journals, not inferred invoice totals. Openings, transfers and capital movements
+  are retained as their actual event types, not reclassified as revenue. Ranges starting
+  before confirmed preparation or entirely in the future return null range amounts with
+  rangeAvailable=false, while a prepared current balance remains visible. Through-today
+  statement reads cap their end at now (existing statements reject future boundaries).
+  An unprepared account is unavailable, not zero. Inactive accounts are not silently omitted.
+- customers: current authoritative stored debtMinor and storeCreditMinor, separately,
+  checked through existing customer reconciliation. Any discrepancy marks totals
+  PROVISIONAL and individual customers Needs review; reading never repairs balances.
+- suppliers: current posted payable per supplier after existing cutover/reconciliation.
+  Any unresolved supplier makes totalMinor=null and status INCOMPLETE. Deferred receipts
+  are evidence only, never added as debt. Individual unavailable reasons remain visible.
+- capital: current reconciled contributionsMinor, withdrawalsMinor, balanceMinor per
+  partner and overall, using the existing capital/event reconciliation including reversals.
+  Neither partner capital nor unallocated opening equity is revenue or profit.
+- inventory: current same-shop product quantities and referenceValueMinor = current
+  quantity times current product cost, explicitly PROVISIONAL. This is a reference estimate,
+  NOT historical valuation or COGS. Confirmed setup provides a separate HISTORICAL opening
+  snapshot at its original cutoff; it is never rolled forward as if it were current value.
+- profit: UNAVAILABLE. Order lines do not snapshot historical purchase costs. Purchase
+  receipts preserve receipt costs but do not allocate costed layers to sold units; opening
+  stock, manual changes, damaged returns and cost changes lack continuous valuation.
+  No profit or sales-minus-expenses approximation is presented. Reliable future COGS would
+  require a separately approved valuation/cutover policy and auditable costed movements.
+
+Selected dates apply only to sales, expense activity and cash statements. Customer debt,
+supplier debt, partner capital and stock are CURRENT snapshots, not historical balances.
+Posted accounting sections remain disabled by default, test-only and preparation-gated.
+Sales, customer and inventory reads can still show existing shop evidence when accounting
+is disabled. No production accounting activation, migrations or historical backfills.
+
+Bounded scans: at most 1,000 evidence rows per query; 500 customers; 100 suppliers,
+partners or cash/bank accounts. Above the bound, that section is unavailable rather than
+silently truncated. Use narrower flow dates or existing paginated detailed screens.
+Missing/untimed historical records and incomplete test journal coverage prevent presenting
+this module as a complete historical production financial statement.
+
+Verification: focused arithmetic and disposable real MongoDB/HTTP report checks cover
+precision, discounts, dated returns, cancellation previews, partial payment/debt, separate
+store credit, opening snapshots, expense/capital reversals, cash range balances, disabled
+states, read-only behavior and role/shop isolation. The existing real Chrome supplier
+runner includes two Financial Reports groups in addition to prior business regressions.
+
+
+## Locked Step 4 - Supplier Credits & Refunds
+
+This section supersedes earlier statements that paid-goods returns, supplier credits and
+refunds are unsupported. Accounting remains disabled by default and NODE_ENV=test-only.
+All supplier financial APIs remain OWNER-only, authenticated, shop/subscription checked.
+
+A supplier has two independent journal-derived balances: SUPPLIER_PAYABLE (credit-normal)
+and SUPPLIER_CREDIT (debit-normal asset, unique per shop/entity). Credit is created only
+from accepted, eligible post-cutover goods returns. The Supplier Account labels this asset
+"available credit / refund due": these are the SAME pool, never two additive balances.
+No supplier opening credit is invented, no historical receipts are reposted, and no existing
+customer debt/store-credit accounting is changed.
+
+Return value at original received unit cost is split: min(return value, current payable)
+debits payable; the remainder debits supplier credit; purchases clearing is credited with
+the complete return value. Stock, audit logs, immutable settlement and journal commit in
+one existing MongoDB transaction. Creating/confirming an order still does not post money.
+Receiving new goods still creates payable, not an automatic credit application.
+
+New endpoints under /api/v2/accounts/suppliers/:id:
+- POST /refunds: requestKey, reference, reason, occurredAt (canonical UTC), amountMinor,
+  accountId and confirmation="CONFIRM SUPPLIER REFUND RECEIVED". Dr selected prepared
+  cash/bank, Cr supplier credit. Record only money actually received. Not sales revenue.
+- POST /credit-applications: requestKey, reference, reason, occurredAt, amountMinor and
+  confirmation="CONFIRM SUPPLIER CREDIT APPLICATION". Dr payable, Cr supplier credit;
+  no cash and no operating expense. Amount cannot exceed either current balance.
+Existing POST /returns now allows excess over payable. Existing
+POST /settlements/:eventId/reverse supports PAYMENT, RETURN, REFUND and CREDIT_APPLICATION.
+Explicit confirmation remains "CONFIRM SUPPLIER REVERSAL". It records the exact inverse
+with authenticated actor and actual reversal date; it never edits the original event.
+
+Balance/reconciliation responses add creditAccountId, creditMinor, refundDueMinor (same
+amount, alias for clarity), refundsReceivedMinor and creditAppliedMinor (net of reversals).
+Both balances must reconcile before any new settlement. Unavailable remains null, not zero.
+Financial Reports now show payable and supplier credit separately; credits/refunds never
+enter sales, expenses or partner capital totals. Credit statements use the existing account
+history APIs and global register, with new SUPPLIER_REFUND and SUPPLIER_CREDIT_APPLICATION
+source kinds, source references, actor snapshots and reversal links.
+
+Settlement history adds payableReductionMinor, creditMovementMinor and creditAccountId.
+Magnitude fields retain their original values on reversal; kind/originalKind determine the
+inverse direction. Existing PAYMENT/RETURN records without split fields retain their old
+meaning: entire amount reduced payable, no credit. No migration or read-time rewrite.
+
+Corrections fail if they would make credit, payable, cash/bank or stock invalid. In
+particular a return's credited portion must still be available before reversal. Reverse
+its consumed refunds/applications first (and restore actual money/goods). A refund reversal
+requires enough actual cash/bank to return that money. Credits are fungible at supplier
+level; applications/payments remain UNAPPLIED_SUPPLIER_LEVEL, not guessed allocations to
+specific receipts or opening debt. Original receipt/return/payment references remain intact.
+
+Shared shop/account revision claims, conditional stock writes, unique request/reference
+indexes and immutable source journals prevent concurrent double spending. Failed or
+conflicting writes roll back atomically. Identical requests replay the original result;
+uncertain network outcomes retain the exact key in the existing SupplierAction workflow.
+Chronological account posting guards and supplier/cash cutoffs remain enforced. Deferred
+historical deliveries are still excluded from return/credit creation pending reconciliation.
+
+OWNER use: Purchases -> delivery -> Return details; then Supplier Account -> Use supplier
+credit -> Supplier refunded money (choose receiving cash/bank) or Apply credit to outstanding
+payable. Review and explicitly confirm. History -> Correct -> Review reversal records a
+traceable inverse after actual funds/goods have been restored. Full credit statements remain
+available through the existing Transactions screen; no duplicate financial module was added.
+
+Step 4 verification: TypeScript build passed; complete backend suite 411 passed, zero
+failures/skips. Focused supplier replica-set suite 31 passed (included in the full suite).
+Real Chrome/HTTP/MongoDB 8.3.4 integration passed 24 scenario groups, including paid-goods
+returns, partial refunds/applications, identical replay and UI reversals. Tests explicitly
+verify legacy split-field compatibility, reports excluding refunds from revenue/expenses,
+concurrent refund-versus-application, journal rollback (including first credit-account
+creation), actual foreign-account rejection and unchanged customer/partner balances.
+Production environment files were bypassed; databases were disposable loopback replica sets.
+
+
+## Locked Step 5 - First round corrections (safe portions and explicit blockers)
+
+1. Existing business roles use PATCH /api/v2/accounts/entities/:id/roles with
+expectedRevision. The OWNER UI exposes it without replacing the entity. Customer role
+follows its existing customer link; supplier/partner history removal guards remain intact.
+Business setup (identity, roles, brands) and Supplier history (financial activity) are separate
+labels/links, not duplicate identities or ledgers.
+
+2. Purchase/receiving reference is now optional. Omitted/empty reference generates
+PO-AUTO-N or GR-AUTO-N using purchaseCounter/receiptCounter on the existing Shop model,
+in the SAME purchase/receiving transaction. Legacy shops need no migration: incrementing
+a missing counter starts at 1. Existing occupied identifiers are skipped (bounded 1,000
+attempts, otherwise fail closed). Unique shop/reference indexes remain authoritative.
+Manual references remain accepted for compatibility, unchanged; existing documents are not
+renumbered. Exact request replay is checked before allocating a number. Aborted writes do
+not issue an identifier or advance the committed counter; committed identifiers are never
+reused. Concurrent conflicts require the existing identical-key retry policy.
+Both order and receipt support optional notes (500 chars) and supplierDocumentNo (100
+chars). Metadata participates in idempotency identity and is displayed/searchable. Supplier
+invoice/challan identifiers are evidence, not assumed unique internal references. Legacy
+hashes without optional metadata remain compatible. Generated receipt references are also
+saved on corresponding stock logs, preserving all source integrations.
+
+3. Explicit linking uses the existing registered-brand and product-brand APIs. Product
+free-text brand must match the chosen same-shop registered brand; nothing is auto-migrated.
+New OWNER-only GET /api/v2/accounts/entities/:id/products?page=1&limit=10 provides entries
+(_id, name, brand, unit, stockQuantity, brandId), pagination and sales.status/message.
+Each query/lookup is shop-scoped. Only explicit, currently matching links count; deleted
+products and stale text/brand mismatches are excluded. At most 100 results per page and
+1,000 associated brands are supported; larger reviews fail closed. Brand association does
+not prove purchase supplier. Historical company sales remain UNAVAILABLE because mutable
+company/brand associations were not captured on original sales.
+
+4. Valuation audit: order/original/adjustment lines snapshot SELLING prices, not purchase
+costs. Goods receipts snapshot agreed original receipt costs, but do not identify costed
+units consumed by sales. Stock logs track quantities, not continuous inventory value.
+Product.costPrice is mutable; manual/opening quantities and damaged returns do not create
+complete cost layers. Existing setup is a dated owner-confirmed opening snapshot, not a
+continuously maintained valuation ledger. Therefore no reliable historical or prospective
+COGS/profit rollout was improvised in this corrections pass. Financial Reports add actual
+shop/date-scoped evidence counts (invoicesInRange, receiptCostRecordsInRange,
+quantityOnlyStockRecordsInRange) and explicit false costAtSaleSnapshots /
+continuousCostedStockLedger. Gross AND operating profit remain unavailable, never current
+cost multiplied into historical sales or sales-minus-expenses presented as profit.
+
+Required separate valuation implementation: agree FIFO versus moving weighted average,
+confirm physical quantity and evidenced opening cost at an explicit per-shop/product cutoff,
+then atomically maintain immutable costed movements and sale-unit cost snapshots across
+receiving, manual changes, POS, quotation conversion, returns (RESTOCK versus DAMAGED),
+exchanges, cancellations and supplier returns/reversals. Supplier return original-cost versus
+remaining-layer differences and damaged write-off policy require explicit rules. Cost changes
+must not rewrite consumed costs. Reconcile stock quantities AND value; only complete periods
+can expose gross profit, then reconciled operating expenses produce operating profit. Missing
+cost evidence must block completion. This is a significant accounting/cutover extension,
+not safe to substitute with present product prices or a destructive historical migration.
+No inventory/COGS financial mutation or historical backfill was added in this pass.
+
+5. Supplier Account now exposes the existing /cutover-preview and /cutover workflow for
+verified historical openings, even when whole-business setup can no longer be reset.
+OWNER reviews every deferred delivery, states unpaid amount (0 if externally settled),
+records evidence notes and other verified debt, chooses explicit same-shop payable,
+purchases-clearing and opening-equity accounts, acknowledges no double count, then confirms.
+Account creation is explicit, uses existing test-only APIs, and itself posts no balance.
+No account routing is guessed. Backend digest, cutoff, immutable opening, unique keys and
+balanced atomic journal safeguards are reused unchanged. Original deferred receipts stay
+DEFERRED and are not reposted; later eligible receiving posts normally. UI bound matches
+existing maximum 100 reviewed receipts; larger/ambiguous reviews remain blocked.
+Existing verified customer debt/store credit remain their existing authoritative balances;
+customer review now lists actual reconciliation issues and warns against duplicate openings.
+Unlinked/inconsistent customer invoice/ledger evidence is NOT repaired merely by owner text.
+A separate approved source-linked customer opening/reconciliation plan is still required for
+such records; no fictitious sale, receipt, payment, purchase or partner investment was created.
+
+Verification: TypeScript build passed; full backend suite 414 passed, zero failures/skips.
+Focused real-replica purchase suite 19 passed (included). Frontend lint/build and 79 tests
+passed. Actual Chrome/HTTP/disposable MongoDB integration passed 27 scenario groups,
+including existing regressions, role editing, explicit product-brand stock association,
+automatic references/notes/challan, legacy collision skipping, duplicate replay, concurrent
+numbering, transactional counter rollback and owner-reviewed deferred supplier openings.
+The review test recorded only the verified unpaid 75 paisa of a 100-paisa deferred receipt,
+kept that receipt unchanged, and subsequently posted a new 100-paisa delivery as payable
+(total 175), without inventing the externally settled 25-paisa payment. Main existing stock,
+cash/bank, supplier, customer, expense and capital balances remained consistent.
+Accounting is still disabled by default and test-only. No production data access/migration,
+branches, commits, pushes, deployment or full-project survey occurred.

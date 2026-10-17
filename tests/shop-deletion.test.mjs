@@ -1,3 +1,5 @@
+const {BusinessSetup}=await import('../dist/models/businessSetup.model.js');
+const {CapitalEvent}=await import('../dist/models/capitalEvent.model.js');
 const {Expense,ExpenseCategory}=await import('../dist/models/expense.model.js');
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -39,7 +41,7 @@ function reset(isActive = false) {
     users: [{ _id: adminId, role: 'ADMIN', shopId }, { _id: ownerId, role: 'OWNER', shopId },
       { _id: cashierId, role: 'CASHIER', shopId }, { _id: id(6), role: 'OWNER', shopId: otherId }],
   };
-  for (const key of ['categories', 'products', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts', 'suppliercutovers', 'suppliersettlements', 'expenses', 'expensecategories'])
+  for (const key of ['categories', 'products', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts', 'suppliercutovers', 'suppliersettlements', 'expenses', 'expensecategories', 'capital', 'setup'])
     db[key] = [{ _id: id(10), shopId }, { _id: id(11), shopId: otherId }];
   db.orders = [{ _id: id(12), shopId, type: 'INVOICE' }, { _id: id(13), shopId, type: 'QUOTATION' },
     { _id: id(14), shopId: otherId, type: 'INVOICE' }];
@@ -71,7 +73,7 @@ Shop.deleteOne = async (filter, { session }) => {
   return { deletedCount: count - session.pending.shops.length };
 };
 for (const [Model, key] of [[Category, 'categories'], [Product, 'products'], [Order, 'orders'],
-  [Customer, 'customers'], [StockLog, 'logs'], [CustomerLedger, 'ledgers'], [InvoiceAdjustment, 'adjustments'], [User, 'users'], [BusinessEntity, 'entities'], [FinancialAccount, 'accounts'], [BusinessBrand, 'brands'], [ProductBrandLink, 'brandlinks'], [BusinessTransaction.collection, 'journals'],[PurchaseOrder,'purchases'],[GoodsReceipt.collection,'receipts'],[SupplierCutover.collection,'suppliercutovers'],[SupplierSettlement.collection,'suppliersettlements'],[Expense.collection,'expenses'],[ExpenseCategory,'expensecategories']]) {
+  [Customer, 'customers'], [StockLog, 'logs'], [CustomerLedger, 'ledgers'], [InvoiceAdjustment, 'adjustments'], [User, 'users'], [BusinessEntity, 'entities'], [FinancialAccount, 'accounts'], [BusinessBrand, 'brands'], [ProductBrandLink, 'brandlinks'], [BusinessTransaction.collection, 'journals'],[PurchaseOrder,'purchases'],[GoodsReceipt.collection,'receipts'],[SupplierCutover.collection,'suppliercutovers'],[SupplierSettlement.collection,'suppliersettlements'],[Expense.collection,'expenses'],[ExpenseCategory,'expensecategories'],[CapitalEvent.collection,'capital'],[BusinessSetup.collection,'setup']]) {
   Model.deleteMany = async (filter, { session }) => {
     assert.equal(String(filter.shopId), shopId);
     assert.ok(session?.pending, 'every deletion participates in the transaction');
@@ -95,7 +97,7 @@ try {
     reset(); const before = structuredClone(db);
     assert.equal((await remove()).status, 200);
     assert.equal(db.shops.some(s => s._id === shopId), false);
-    for (const key of ['categories', 'products', 'orders', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts', 'expenses', 'expensecategories']) {
+    for (const key of ['categories', 'products', 'orders', 'customers', 'logs', 'ledgers', 'adjustments', 'entities', 'accounts', 'journals', 'brands', 'brandlinks', 'purchases', 'receipts', 'expenses', 'expensecategories', 'capital', 'setup']) {
       assert.equal(db[key].some(row => row.shopId === shopId), false, key);
       assert.deepEqual(db[key], before[key].filter(row => row.shopId === otherId));
     }

@@ -4,6 +4,7 @@ import {apiError} from '../utils/apiError.js';
 const schema=new Schema({
     shopId:{type:Schema.Types.ObjectId,required:true,ref:'Shop'},purchaseOrderId:{type:Schema.Types.ObjectId,required:true,ref:'PurchaseOrder'},purchaseReference:{type:String,required:true},
     reference:{type:String,required:true},requestKey:{type:String,required:true},requestHash:{type:String,required:true},
+    notes:String,supplierDocumentNo:String,
     supplierId:{type:Schema.Types.ObjectId,required:true,ref:'BusinessEntity'},supplierName:{type:String,required:true},
     items:{type:[new Schema({productId:{type:Schema.Types.ObjectId,required:true,ref:'Product'},name:{type:String,required:true},brand:String,unit:String,
         quantity:{type:Number,required:true,min:1,validate:Number.isSafeInteger},unitCostMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger},totalMinor:{type:Number,required:true,min:0,validate:Number.isSafeInteger}}, {_id:false})],required:true},

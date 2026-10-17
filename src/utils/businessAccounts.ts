@@ -1,3 +1,4 @@
+import {BusinessSetup} from '../models/businessSetup.model.js';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
 import {Shop} from '../models/shop.model.js';
@@ -75,6 +76,27 @@ export async function initializeSupplierCutover(actor:Actor,supplierId:string,bo
     return {cutover,replayed:false};
 }
 
+// Legacy events have no split fields: their entire value reduced payable.
+function supplierParts(event:any){
+    const kind=event.kind==='REVERSAL'?event.originalKind:event.kind;
+    const payable=event.payableReductionMinor??(['PAYMENT','RETURN'].includes(kind)?event.amountMinor:0);
+    const credit=event.creditMovementMinor??0;
+    if(!Number.isSafeInteger(payable)||payable<0||!Number.isSafeInteger(credit)||credit<0||
+        (kind==='RETURN'?BigInt(payable)+BigInt(credit)!==BigInt(event.amountMinor):
+         kind==='PAYMENT'?payable!==event.amountMinor||credit!==0:
+         kind==='REFUND'?payable!==0||credit!==event.amountMinor:
+         kind==='CREDIT_APPLICATION'?payable!==event.amountMinor||credit!==event.amountMinor:true))throw new apiError(409,'Supplier settlement split requires reconciliation');
+    return {kind,payable,credit};
+}
+function supplierPostings(event:any):Posting[]{
+    const {kind,payable,credit}=supplierParts(event),rows:Posting[]=[];
+    const add=(accountId:any,debitMinor:number,creditMinor:number)=>{if(debitMinor||creditMinor){if(!accountId)throw new apiError(409,'Supplier credit account missing');rows.push({accountId:String(accountId),debitMinor,creditMinor});}};
+    if(kind==='RETURN'){add(event.payableAccountId,payable,0);add(event.creditAccountId,credit,0);add(event.offsetAccountId,0,event.amountMinor);}
+    if(kind==='PAYMENT'){add(event.payableAccountId,payable,0);add(event.offsetAccountId,0,event.amountMinor);}
+    if(kind==='REFUND'){add(event.offsetAccountId,event.amountMinor,0);add(event.creditAccountId,0,credit);}
+    if(kind==='CREDIT_APPLICATION'){add(event.payableAccountId,payable,0);add(event.creditAccountId,0,credit);}
+    return event.kind==='REVERSAL'?rows.map(r=>({...r,debitMinor:r.creditMinor,creditMinor:r.debitMinor})):rows;
+}
 // No repair/backfill: any unreviewed deferred evidence or unexpected posting closes access.
 export async function reconcileSupplier(actor:Actor,supplierId:string,session:Session,excludeReceiptId?:string){
     const {entity,receipts}=await supplierEvidence(actor,supplierId,session);
@@ -84,8 +106,10 @@ export async function reconcileSupplier(actor:Actor,supplierId:string,session:Se
     const payable=await accountInShop(actor,String(cutover.payableAccountId),session),offset=await accountInShop(actor,String(cutover.offsetAccountId),session),equity=await accountInShop(actor,String(cutover.equityAccountId),session);
     if(payable.kind!=='SUPPLIER_PAYABLE'||String(payable.entityId)!==String(entity._id)||offset.kind!=='PURCHASES_CLEARING'||equity.kind!=='OPENING_EQUITY'||[payable,offset,equity].some(a=>!a.isActive))issues.push({reference:String(cutover._id),problem:'Supplier accounts unavailable or inconsistent'});
     const settlements=await SupplierSettlement.find({shopId:actor.shopId,supplierId:entity._id}).sort({occurredAt:1,_id:1}).session(session);
-    const journals=await BusinessTransaction.find({shopId:actor.shopId,$or:[{'postings.accountId':payable._id},{'source.kind':'PURCHASE_RECEIPT','source.referenceId':{$in:receipts.map(r=>r._id)}},{'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REVERSAL']},'source.referenceId':{$in:settlements.map(r=>r._id)}}]}).session(session);
-    const expected=new Set<string>();let expectedBalance=BigInt(cutover.openingBalanceMinor);
+    const creditAccount=await FinancialAccount.findOne({shopId:actor.shopId,entityId:entity._id,kind:'SUPPLIER_CREDIT'}).session(session);
+    if(creditAccount&&(!creditAccount.isActive||creditAccount.authority!=='JOURNAL'))issues.push({reference:String(creditAccount._id),problem:'Supplier credit account unavailable'});
+    const journals=await BusinessTransaction.find({shopId:actor.shopId,$or:[{'postings.accountId':{$in:[payable._id,...(creditAccount?[creditAccount._id]:[])]}},{'source.kind':'PURCHASE_RECEIPT','source.referenceId':{$in:receipts.map(r=>r._id)}},{'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REFUND','SUPPLIER_CREDIT_APPLICATION','SUPPLIER_REVERSAL']},'source.referenceId':{$in:settlements.map(r=>r._id)}}]}).session(session);
+    const expected=new Set<string>();let expectedBalance=BigInt(cutover.openingBalanceMinor),expectedCredit=0n,refunds=0n,applications=0n;
     function check(kind:string,referenceId:string,value:number,at:Date,debitAccount:any,reduce=false){
         const matched=journals.filter(j=>j.source.kind===kind&&String(j.source.referenceId)===referenceId);
         for(const j of matched)expected.add(String(j._id));
@@ -98,8 +122,8 @@ export async function reconcileSupplier(actor:Actor,supplierId:string,session:Se
         const original=event.reversalOf?settlements.find(e=>String(e._id)===String(event.reversalOf)):null;
         const effectiveKind=event.kind==='REVERSAL'?event.originalKind:event.kind;
         if(String(event.payableAccountId)!==String(payable._id)||event.occurredAt<=cutover.cutoffAt||event.currency!=='PKR')issues.push({reference:event.reference,problem:'Settlement outside supplier cutover'});
-        if(event.kind==='REVERSAL'&&(!original||original.kind==='REVERSAL'||original.kind!==event.originalKind||original.amountMinor!==event.amountMinor||String(original.offsetAccountId)!==String(event.offsetAccountId)||original.occurredAt>event.occurredAt||String(original.receiptId??'')!==String(event.receiptId??'')||JSON.stringify(original.items.toObject())!==JSON.stringify(event.items.toObject())))issues.push({reference:event.reference,problem:'Invalid supplier reversal source'});
-        if(effectiveKind==='PAYMENT'){
+        if(event.kind==='REVERSAL'&&(!original||original.kind==='REVERSAL'||original.kind!==event.originalKind||original.amountMinor!==event.amountMinor||String(original.offsetAccountId)!==String(event.offsetAccountId)||original.occurredAt>event.occurredAt||original.payableReductionMinor!==event.payableReductionMinor||original.creditMovementMinor!==event.creditMovementMinor||String(original.creditAccountId??'')!==String(event.creditAccountId??'')||String(original.receiptId??'')!==String(event.receiptId??'')||JSON.stringify(original.items.toObject())!==JSON.stringify(event.items.toObject())))issues.push({reference:event.reference,problem:'Invalid supplier reversal source'});
+        if(effectiveKind==='PAYMENT'||effectiveKind==='REFUND'){
             const cash=await accountInShop(actor,String(event.offsetAccountId),session);
             const clearing=cash.cashCutoverId?await FinancialAccount.findOne({_id:cash.cashCutoverId,shopId:actor.shopId,kind:'SETTLEMENT_CLEARING'}).session(session):null;
             if(!['CASH','BANK'].includes(cash.kind)||!clearing?.cashIntegration||event.occurredAt<=clearing.cashIntegration.cutoffAt||!clearing.cashIntegration.accountIds.some(a=>String(a)===String(cash._id))||!event.amountMinor||event.items.length)issues.push({reference:event.reference,problem:'Invalid supplier payment account or amount'});
@@ -117,9 +141,19 @@ export async function reconcileSupplier(actor:Actor,supplierId:string,session:Se
             const logs=await StockLog.find({shopId:actor.shopId,supplierSettlementId:event._id}).session(session);
             if(logs.length!==event.items.length||event.items.some(item=>!logs.some(l=>String(l.productId)===String(item.productId)&&l.quantityDelta===(event.kind==='REVERSAL'?1:-1)*item.quantity&&String(l.sourceReceiptId)===String(event.receiptId))))issues.push({reference:event.reference,problem:'Return stock audit does not reconcile'});
         }
-        const increase=event.kind==='REVERSAL';
-        check('SUPPLIER_'+event.kind,String(event._id),event.amountMinor,event.occurredAt,event.offsetAccountId,!increase);
-        expectedBalance+=(increase?1n:-1n)*BigInt(event.amountMinor);
+        const parts=supplierParts(event),reverse=event.kind==='REVERSAL',sign=reverse?-1n:1n;
+        if(parts.credit&&(!creditAccount||String(event.creditAccountId)!==String(creditAccount._id)))issues.push({reference:event.reference,problem:'Invalid supplier credit account'});
+        if(parts.kind==='CREDIT_APPLICATION'&&(event.items.length||String(event.offsetAccountId)!==String(event.creditAccountId)))issues.push({reference:event.reference,problem:'Invalid credit application'});
+        const matched=journals.filter(j=>j.source.kind==='SUPPLIER_'+event.kind&&String(j.source.referenceId)===String(event._id));
+        matched.forEach(j=>expected.add(String(j._id)));
+        const wanted=supplierPostings(event),journal=matched[0];
+        if(wanted.length){
+            if(matched.length!==1||!journal||+journal.occurredAt!==+event.occurredAt||journal.currency!=='PKR'||journal.postings.length!==wanted.length||wanted.some(w=>!journal.postings.some(p=>String(p.accountId)===w.accountId&&p.debitMinor===w.debitMinor&&p.creditMinor===w.creditMinor)))issues.push({reference:event.reference,problem:'Missing or inconsistent supplier journal'});
+        }else if(matched.length)issues.push({reference:event.reference,problem:'Unexpected zero-value posting'});
+        expectedBalance-=sign*BigInt(parts.payable);
+        expectedCredit+=sign*BigInt(parts.credit)*(parts.kind==='RETURN'?1n:-1n);
+        if(parts.kind==='REFUND')refunds+=sign*BigInt(event.amountMinor);
+        if(parts.kind==='CREDIT_APPLICATION')applications+=sign*BigInt(event.amountMinor);
     }
     // Net quantities, not incidental ObjectId ordering between equal timestamps,
     // decide remaining eligibility. Mutations validate each prior committed state.
@@ -145,7 +179,9 @@ export async function reconcileSupplier(actor:Actor,supplierId:string,session:Se
     if(expectedBalance<0n)issues.push({reference:String(payable._id),problem:'Unsupported negative supplier payable'});
     const actual=await journalBalance(actor.shopId,payable,session);
     if(BigInt(actual)!==expectedBalance)issues.push({reference:String(payable._id),problem:'Supplier journal balance does not reconcile'});
-    return {authoritative:invoiceAccountingEnabled()&&issues.length===0,cutover,accountId:payable._id,balanceMinor:issues.length===0&&invoiceAccountingEnabled()?actual:null,currency:'PKR',issues,deferredCount:receipts.filter(r=>r.accountingStatus==='DEFERRED').length};
+    const actualCredit=creditAccount?await journalBalance(actor.shopId,creditAccount,session):0;
+    if(expectedCredit<0n||BigInt(actualCredit)!==expectedCredit)issues.push({reference:String(entity._id),problem:'Supplier credit journal balance does not reconcile'});
+    return {authoritative:invoiceAccountingEnabled()&&issues.length===0,cutover,accountId:payable._id,balanceMinor:issues.length===0&&invoiceAccountingEnabled()?actual:null,creditAccountId:creditAccount?._id??null,creditMinor:issues.length===0&&invoiceAccountingEnabled()?actualCredit:null,refundDueMinor:issues.length===0&&invoiceAccountingEnabled()?actualCredit:null,refundsReceivedMinor:signedBalance(refunds,0n,'DEBIT'),creditAppliedMinor:signedBalance(applications,0n,'DEBIT'),currency:'PKR',issues,deferredCount:receipts.filter(r=>r.accountingStatus==='DEFERRED').length};
 }
 export async function requireSupplierPayable(actor:Actor,supplierId:string,session:Session){
     supplierAccountingEnabled();const result=await reconcileSupplier(actor,supplierId,session);
@@ -169,14 +205,19 @@ export async function postSupplierReceipt(actor:Actor,receiptId:string,session:S
 }
 
 // Supplier-level settlements are deliberately unapplied, not guessed receipt allocations.
-export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind:'PAYMENT'|'RETURN'|'REVERSAL',session:Session,eventId?:string){
+export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind:'PAYMENT'|'RETURN'|'REFUND'|'CREDIT_APPLICATION'|'REVERSAL',session:Session,eventId?:string){
     supplierAccountingEnabled();const user=await owner(actor,session,true),supplierIdValue=id(supplierId);
-    const allowed=['requestKey','reference','occurredAt','reason',...(kind==='PAYMENT'?['amountMinor','accountId']:kind==='RETURN'?['receiptId','items']:['confirmation'])];
-    if(Object.keys(body).some(k=>!allowed.includes(k)))throw new apiError(400,'Unsupported supplier settlement fields; allocations and cash refunds are unavailable');
+    const allowed=['requestKey','reference','occurredAt','reason',...(['PAYMENT','REFUND'].includes(kind)?['amountMinor','accountId',...(kind==='REFUND'?['confirmation']:[])]:kind==='CREDIT_APPLICATION'?['amountMinor','confirmation']:kind==='RETURN'?['receiptId','items']:['confirmation'])];
+    if(Object.keys(body).some(k=>!allowed.includes(k)))throw new apiError(400,'Unsupported supplier settlement fields');
     const requestKey=text(body.requestKey,100,'request key'),reference=text(body.reference,50,'settlement reference').toUpperCase(),reason=text(body.reason,300,'settlement reason'),occurredAt=utcDate(body.occurredAt);
     if(!/^[\w-]{8,100}$/.test(requestKey)||!/^[A-Z0-9][A-Z0-9/_-]*$/.test(reference))throw new apiError(400,'Valid request key and settlement reference required');
     let input:any={supplierId:supplierIdValue,kind,reference,reason,occurredAt:occurredAt.toISOString()};
-    if(kind==='PAYMENT'){safeMinor(body.amountMinor);if(!body.amountMinor)throw new apiError(400,'Positive supplier payment required');input={...input,amountMinor:body.amountMinor,accountId:id(body.accountId)};}
+    if(['PAYMENT','REFUND','CREDIT_APPLICATION'].includes(kind)){
+        safeMinor(body.amountMinor);if(!body.amountMinor)throw new apiError(400,'Positive supplier amount required');
+        input={...input,amountMinor:body.amountMinor,...(kind!=='CREDIT_APPLICATION'?{accountId:id(body.accountId)}:{})};
+        if(kind==='REFUND'&&body.confirmation!=='CONFIRM SUPPLIER REFUND RECEIVED')throw new apiError(400,'Confirm the supplier refund was actually received');
+        if(kind==='CREDIT_APPLICATION'&&body.confirmation!=='CONFIRM SUPPLIER CREDIT APPLICATION')throw new apiError(400,'Confirm supplier credit application');
+    }
     if(kind==='RETURN'){
         if(!Array.isArray(body.items)||!body.items.length||body.items.length>100)throw new apiError(400,'Provide 1 to 100 returned products');
         const items=body.items.map((r:any)=>{if(!r||!Number.isSafeInteger(r.quantity)||r.quantity<1)throw new apiError(400,'Whole positive return quantities required');return {productId:id(r.productId),quantity:r.quantity};}).sort((a:any,b:any)=>a.productId.localeCompare(b.productId));
@@ -193,7 +234,7 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
     const state=await requireSupplierPayable(actor,supplierIdValue,session),cutover=state.cutover!;
     if(occurredAt<=cutover.cutoffAt)throw new apiError(409,'Supplier settlement must be strictly after cutoff');
     let amountMinor=0,offsetAccountId=cutover.offsetAccountId,receipt:any=null,items:any[]=[],original:any=null;
-    if(kind==='PAYMENT'){
+    if(kind==='PAYMENT'||kind==='REFUND'){
         const cash=await preparedCashAccount(actor,input.accountId,session);
         if(occurredAt<=cash.cutoffAt)throw new apiError(409,'Supplier payment must follow cash/bank cutoff');
         offsetAccountId=cash.account._id;amountMinor=input.amountMinor;
@@ -213,16 +254,26 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
             return {...row,name:line.name,unitCostMinor:line.unitCostMinor,totalMinor:Number(value)};
         });
         const value=items.reduce((sum,r)=>sum+BigInt(r.totalMinor),0n);if(value>BigInt(Number.MAX_SAFE_INTEGER))throw new apiError(400,'Return exceeds safe monetary range');amountMinor=Number(value);
+    }else if(kind==='CREDIT_APPLICATION'){
+        offsetAccountId=state.creditAccountId!;amountMinor=input.amountMinor;
     }else{
         original=await SupplierSettlement.findOne({_id:input.eventId,shopId:actor.shopId,supplierId:supplierIdValue}).session(session);
         if(!original)throw new apiError(404,'Supplier settlement not found');
         if(original.kind==='REVERSAL'||await SupplierSettlement.exists({shopId:actor.shopId,reversalOf:original._id}).session(session))throw new apiError(409,'Settlement already reversed or not reversible');
         if(occurredAt<original.occurredAt)throw new apiError(409,'Reversal cannot predate original settlement');
         amountMinor=original.amountMinor;offsetAccountId=original.offsetAccountId;items=original.items.map((r:any)=>r.toObject());
-        if(original.kind==='PAYMENT')await preparedCashAccount(actor,String(offsetAccountId),session);
-        else{receipt=await GoodsReceipt.findOne({_id:original.receiptId,shopId:actor.shopId,supplierId:supplierIdValue}).session(session);if(!receipt)throw new apiError(409,'Original receipt unavailable for reversal');}
+        if(original.kind==='PAYMENT'||original.kind==='REFUND')await preparedCashAccount(actor,String(offsetAccountId),session);
+        else if(original.kind==='RETURN'){receipt=await GoodsReceipt.findOne({_id:original.receiptId,shopId:actor.shopId,supplierId:supplierIdValue}).session(session);if(!receipt)throw new apiError(409,'Original receipt unavailable for reversal');}
     }
-    if(kind!=='REVERSAL'&&BigInt(amountMinor)>BigInt(state.balanceMinor!))throw new apiError(409,kind==='PAYMENT'?'Supplier payment exceeds outstanding payable':'Return exceeds remaining supplier payable; supplier refund-due/credit workflow is not supported');
+    if(['PAYMENT','CREDIT_APPLICATION'].includes(kind)&&amountMinor>state.balanceMinor!)throw new apiError(409,'Supplier payment/application exceeds outstanding payable');
+    if(['REFUND','CREDIT_APPLICATION'].includes(kind)&&amountMinor>state.creditMinor!)throw new apiError(409,'Insufficient available supplier credit');
+    let creditAccountId=state.creditAccountId,payableReductionMinor=kind==='REFUND'?0:kind==='RETURN'?Math.min(amountMinor,state.balanceMinor!):amountMinor;
+    let creditMovementMinor=kind==='RETURN'?amountMinor-payableReductionMinor:['REFUND','CREDIT_APPLICATION'].includes(kind)?amountMinor:0;
+    if(original){const parts=supplierParts(original);payableReductionMinor=parts.payable;creditMovementMinor=parts.credit;creditAccountId=original.creditAccountId??null;}
+    if(kind==='RETURN'&&creditMovementMinor&&!creditAccountId){
+        const credit=await createFinancialAccount(actor,{code:'SC_'+supplierIdValue,name:'Supplier credit',kind:'SUPPLIER_CREDIT',entityId:supplierIdValue},session);creditAccountId=credit._id;
+    }
+    if(original?.kind==='RETURN'&&creditMovementMinor>state.creditMinor!)throw new apiError(409,'Return credit was consumed; reverse its refunds/applications before reversing this return');
     const settlementId=new mongoose.Types.ObjectId(),stockDirection=kind==='REVERSAL'?1:-1;
     for(const item of items){
         const product=await Product.findOne({_id:item.productId,shopId:actor.shopId}).session(session);
@@ -234,15 +285,16 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
         await StockLog.create([{shopId:actor.shopId,productId:product._id,quantityDelta:stockDirection*item.quantity,reason:kind==='REVERSAL'?'PURCHASE_RETURN_REVERSAL':'PURCHASE_RETURN',supplierSettlementId:settlementId,sourceReceiptId:receipt._id,purchaseReference:receipt.purchaseReference,receivingReference:receipt.reference,createdBy:user._id,createdAt:occurredAt,updatedAt:new Date()}],{session});
     }
     const [settlement]=await SupplierSettlement.create([{_id:settlementId,shopId:actor.shopId,supplierId:supplierIdValue,kind,reference,requestKey,requestHash,reason,occurredAt,recordedAt:new Date(),amountMinor,payableAccountId:cutover.payableAccountId,offsetAccountId,items,
+        ...(original&&original.payableReductionMinor===undefined?{}:{payableReductionMinor,creditMovementMinor}),...(creditAccountId?{creditAccountId}:{}),
         ...(receipt?{receiptId:receipt._id,receiptReference:receipt.reference,purchaseReference:receipt.purchaseReference}:{}),...(original?{reversalOf:original._id,originalKind:original.kind}:{}),createdBy:user._id,createdByName:user.username,createdByRole:'OWNER'}],{session});
-    if(amountMinor>0)await post(actor,{requestKey:'supplier-settlement-'+settlementId,reason,occurredAt:occurredAt.toISOString(),postings:[{accountId:String(cutover.payableAccountId),debitMinor:kind==='REVERSAL'?0:amountMinor,creditMinor:kind==='REVERSAL'?amountMinor:0},{accountId:String(offsetAccountId),debitMinor:kind==='REVERSAL'?amountMinor:0,creditMinor:kind==='REVERSAL'?0:amountMinor}]},session,{kind:kind==='PAYMENT'?'SUPPLIER_PAYMENT':kind==='RETURN'?'SUPPLIER_RETURN':'SUPPLIER_REVERSAL',referenceId:String(settlementId)});
+    if(amountMinor>0)await post(actor,{requestKey:'supplier-settlement-'+settlementId,reason,occurredAt:occurredAt.toISOString(),postings:supplierPostings(settlement)},session,{kind:('SUPPLIER_'+kind) as any,referenceId:String(settlementId)});
     await requireSupplierPayable(actor,supplierIdValue,session);
     return {settlement,replayed:false};
 }
 
 export async function supplierSettlementHistory(actor:Actor,supplierId:string,input:any,session:Session){
     await requireSupplierPayable(actor,id(supplierId),session);
-    const {from,to,pattern,type,sourceId}=historyFilters(input,['PAYMENT','RETURN','REVERSAL']);
+    const {from,to,pattern,type,sourceId}=historyFilters(input,['PAYMENT','RETURN','REFUND','CREDIT_APPLICATION','REVERSAL']);
     const page=input.page??1,limit=input.limit??20;
     if(!Number.isSafeInteger(page)||page<1||page>100000||!Number.isSafeInteger(limit)||limit<1||limit>100)throw new apiError(400,'Invalid settlement pagination');
     const filter:any={shopId:actor.shopId,supplierId,...(type?{kind:type}:{}),...(from||to?{occurredAt:{...(from?{$gte:from}:{}),...(to?{$lt:to}:{})}}:{})};
@@ -298,7 +350,7 @@ export async function businessTransaction<T>(actor: Actor, work: (session: Sessi
     } catch (error: any) {
         if (session.inTransaction()) await session.abortTransaction().catch(() => {});
         if (error?.hasErrorLabel?.('UnknownTransactionCommitResult')) throw new apiError(503, 'Transaction outcome uncertain; check or retry the identical request key');
-        if (error?.code === 11000 || error?.code === 112 || error?.hasErrorLabel?.('TransientTransactionError')) throw new apiError(409, 'Business records changed or key already exists; retry the identical request');
+        if (error?.name === 'VersionError' || error?.code === 11000 || error?.code === 112 || error?.hasErrorLabel?.('TransientTransactionError')) throw new apiError(409, 'Business records changed or key already exists; retry the identical request');
         throw error;
     } finally {await session.endSession();}
 }
@@ -343,6 +395,7 @@ export async function setBusinessRoles(actor: Actor, entityId: string, roles: st
     await owner(actor, session);
     const entity = await getBusinessEntity(actor, entityId, session);
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !Array.isArray(roles) || !roles.length || new Set(roles).size !== roles.length || roles.some(r => !businessRoles.includes(r as any)) || roles.includes('CUSTOMER') !== !!entity.customerId) throw new apiError(400, 'Retain the linked customer identity and valid roles');
+    if (!roles.includes('PARTNER') && await FinancialAccount.exists({shopId:actor.shopId,entityId:entity._id,kind:'PARTNER_CAPITAL'}).session(session)) throw new apiError(409,'Capital history requires partner role');
     if (!roles.includes('SUPPLIER') && (await FinancialAccount.exists({shopId: actor.shopId, entityId: entity._id, kind: 'SUPPLIER_PAYABLE'}).session(session) || await PurchaseOrder.exists({shopId:actor.shopId,supplierId:entity._id}).session(session))) throw new apiError(409, 'Supplier account or purchase history requires supplier role');
     await owner(actor, session, true);
     const result = await BusinessEntity.findOneAndUpdate({_id: entity._id, shopId: actor.shopId, revision: expectedRevision}, {$set: {roles: [...roles].sort()}, $inc: {revision: 1}}, {session, new: true, runValidators: true});
@@ -371,10 +424,11 @@ export async function createFinancialAccount(actor: Actor, input: {code: string,
     await owner(actor, session);
     const code = text(input.code, 50, 'account code').toUpperCase(), name = text(input.name, 100, 'account name');
     if (!/^[A-Z0-9_-]+$/.test(code) || !Object.hasOwn(accountKinds, input.kind)) throw new apiError(400, 'Valid account code and kind required');
-    const party = ['CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY', 'SUPPLIER_PAYABLE'].includes(input.kind);
+    const party = ['CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY', 'SUPPLIER_PAYABLE', 'SUPPLIER_CREDIT', 'PARTNER_CAPITAL'].includes(input.kind);
     if (party !== !!input.entityId) throw new apiError(400, 'Only business balance accounts require a business identity');
     const entity = input.entityId ? await getBusinessEntity(actor, input.entityId, session) : null;
-    if (input.kind === 'SUPPLIER_PAYABLE' && !entity?.roles.includes('SUPPLIER')) throw new apiError(400, 'Supplier role required');
+    if (['SUPPLIER_PAYABLE','SUPPLIER_CREDIT'].includes(input.kind) && !entity?.roles.includes('SUPPLIER')) throw new apiError(400, 'Supplier role required');
+    if (input.kind === 'PARTNER_CAPITAL' && !entity?.roles.includes('PARTNER')) throw new apiError(400, 'Partner role required');
     const legacy = ['CUSTOMER_RECEIVABLE', 'STORE_CREDIT_LIABILITY'].includes(input.kind);
     if (legacy && !entity?.customerId) throw new apiError(400, 'Existing customer identity required');
     const existing = await FinancialAccount.findOne({shopId: actor.shopId, code}).session(session);
@@ -453,7 +507,7 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
     if(type)range['source.kind']=type;
     if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)}]}];
-    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'expense.reference':pattern},{'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
+    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
     const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), ...invoiceSourceLookup(actor.shopId),
         {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
@@ -491,7 +545,7 @@ export async function getBusinessTransactions(actor:Actor,input:{page?:number,li
     if(type)scope['source.kind']=type;
     const selection:any={};
     if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
-    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'expense.reference':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
+    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
     const [result]=await BusinessTransaction.aggregate([{$match:scope},...invoiceSourceLookup(actor.shopId),{$match:selection},{$sort:{occurredAt:1,_id:1}},{$facet:{entries:[{$skip:(page-1)*limit},{$limit:limit}],count:[{$count:'value'}]}}]).session(session).option({maxTimeMS:5000});
     const count=result.count[0]?.value??0;
     return {coverage:journalCoverage,entries:await journalViews(actor.shopId,result.entries,session),pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};
@@ -509,7 +563,7 @@ export async function getBusinessTransaction(actor:Actor,transactionId:string,se
         if(original)originalTransaction=(await journalViews(actor.shopId,[original],session))[0]??null;
     }else if(journal.source.kind==='SUPPLIER_REVERSAL'){
         const reversal=await SupplierSettlement.findOne({_id:journal.source.referenceId,shopId:actor.shopId,kind:'REVERSAL'}).session(session);
-        const original=reversal?.reversalOf?await BusinessTransaction.findOne({shopId:actor.shopId,'source.referenceId':reversal.reversalOf,'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_RETURN']}}).session(session).lean():null;
+        const original=reversal?.reversalOf?await BusinessTransaction.findOne({shopId:actor.shopId,'source.referenceId':reversal.reversalOf,'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REFUND','SUPPLIER_CREDIT_APPLICATION']}}).session(session).lean():null;
         if(original)originalTransaction=(await journalViews(actor.shopId,[original],session))[0]??null;
     }
     return {coverage:journalCoverage,transaction,originalTransaction};
@@ -534,7 +588,7 @@ export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryI
 
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
-async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REVERSAL' | 'EXPENSE' | 'EXPENSE_REVERSAL', referenceId?: string}, confirmed = false) {
+async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REFUND' | 'SUPPLIER_CREDIT_APPLICATION' | 'SUPPLIER_REVERSAL' | 'EXPENSE' | 'EXPENSE_REVERSAL' | 'CAPITAL_CONTRIBUTION' | 'CAPITAL_WITHDRAWAL' | 'CAPITAL_REVERSAL', referenceId?: string}, confirmed = false) {
     const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
     if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
     const user = await owner(actor, session, false, cashierSale);
@@ -553,8 +607,10 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
     for (const account of accounts) {
         if (account.isActive === false) throw new apiError(409, 'Selected financial account is inactive');
         if (account.authority !== 'JOURNAL') throw new apiError(409, 'Customer debt and credit remain in the existing ledger; cutover is not enabled');
+        if (account.kind === 'SUPPLIER_CREDIT' && !['SUPPLIER_RETURN','SUPPLIER_REFUND','SUPPLIER_CREDIT_APPLICATION','SUPPLIER_REVERSAL'].includes(source.kind)) throw new apiError(409, 'Supplier credit requires a verified supplier settlement');
+        if (account.kind === 'PARTNER_CAPITAL' && !['CAPITAL_CONTRIBUTION','CAPITAL_WITHDRAWAL','CAPITAL_REVERSAL'].includes(source.kind)) throw new apiError(409, 'Partner capital requires a verified capital event');
         if (account.kind === 'PURCHASES_CLEARING' && !['PURCHASE_RECEIPT','SUPPLIER_RETURN','SUPPLIER_REVERSAL'].includes(source.kind)) throw new apiError(409, 'Purchases clearing requires a verified goods receipt');
-        if (account.kind === 'SUPPLIER_PAYABLE' && !['SUPPLIER_OPENING','PURCHASE_RECEIPT','SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REVERSAL'].includes(source.kind) && await SupplierCutover.exists({shopId:actor.shopId,payableAccountId:account._id}).session(session)) throw new apiError(409, 'Initialized supplier payable requires a verified supplier event');
+        if (account.kind === 'SUPPLIER_PAYABLE' && !['SUPPLIER_OPENING','PURCHASE_RECEIPT','SUPPLIER_PAYMENT','SUPPLIER_RETURN','SUPPLIER_REFUND','SUPPLIER_CREDIT_APPLICATION','SUPPLIER_REVERSAL'].includes(source.kind) && await SupplierCutover.exists({shopId:actor.shopId,payableAccountId:account._id}).session(session)) throw new apiError(409, 'Initialized supplier payable requires a verified supplier event');
         if (account.kind === 'SETTLEMENT_CLEARING' && !['INVOICE_RECEIPT', 'INVOICE_REFUND'].includes(source.kind)) throw new apiError(409, 'Settlement clearing requires a verified invoice cash event');
         if (account.cashCutoverId && ['MANUAL', 'OPENING'].includes(source.kind)) throw new apiError(409, 'Prepared cash accounts require source-linked integration or transfers');
         if (account.entityId) await getBusinessEntity(actor, String(account.entityId), session);
@@ -566,7 +622,7 @@ async function post(actor: Actor, input: JournalInput, session: Session, source:
         const delta = account.normalSide === 'DEBIT' ? BigInt(row.debitMinor) - BigInt(row.creditMinor) : BigInt(row.creditMinor) - BigInt(row.debitMinor);
         const next = BigInt(prior.balanceMinor) + delta;
         signedBalance(next, 0n, 'DEBIT');
-        if (['CASH', 'BANK'].includes(account.kind) && next < 0n) throw new apiError(409, 'Insufficient cash or bank funds');
+        if (['CASH', 'BANK', 'PARTNER_CAPITAL','SUPPLIER_CREDIT','SUPPLIER_PAYABLE'].includes(account.kind) && next < 0n) throw new apiError(409, 'Insufficient cash or bank funds');
         const claim = await FinancialAccount.updateOne({_id: account._id, shopId: actor.shopId, postingRevision: account.postingRevision},
             {$inc: {postingRevision: 1}, $set: {lastPostedAt: occurredAt, ...(source.kind === 'OPENING' && String(account._id) === source.referenceId ? {openingAt: occurredAt} : {})}}, {session, runValidators: true});
         if (claim.modifiedCount !== 1) throw new apiError(409, 'Account changed; retry the identical request');
@@ -591,9 +647,10 @@ export async function reverseBusinessJournal(actor: Actor, input: {transactionId
     await owner(actor, session);
     const original = await BusinessTransaction.findOne({_id: id(input.transactionId), shopId: actor.shopId}).session(session);
     if (!original || original.source.kind === 'REVERSAL') throw new apiError(400, 'Select an original transaction in this shop');
-    if (['EXPENSE', 'EXPENSE_REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REVERSAL'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
+    if (['CAPITAL_CONTRIBUTION', 'CAPITAL_WITHDRAWAL', 'CAPITAL_REVERSAL', 'EXPENSE', 'EXPENSE_REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REFUND', 'SUPPLIER_CREDIT_APPLICATION', 'SUPPLIER_REVERSAL'].includes(original.source.kind)) throw new apiError(409, 'Correct invoice cash through a verified settlement event, not a standalone reversal');
     if (original.source.kind === 'OPENING') {
         const target = await accountInShop(actor, String(original.source.referenceId), session);
+        if (await BusinessSetup.exists({shopId:actor.shopId,state:'CONFIRMED','review.accounts.inventoryAccountId':target._id}).session(session)) throw new apiError(409,'Confirmed inventory opening requires separate reconciliation');
         if (target.cashCutoverId) throw new apiError(409, 'Prepared opening cannot be reversed; reconcile before changing cutover');
     }
     if (utcDate(input.occurredAt) < original.occurredAt) throw new apiError(400, 'Reversal cannot predate its source');
@@ -846,8 +903,8 @@ export async function reconcileCashBank(actor: Actor, input: {clearingAccountId:
     const undatedEntries = await InvoiceAdjustment.find(undated).select('_id invoiceNo').sort({_id: 1}).skip((page - 1) * limit).limit(limit).session(session).lean();
     // Supplier cash bypasses invoice settlement clearing, so report it separately.
     const supplierEvents=await SupplierSettlement.find({shopId:actor.shopId,offsetAccountId:{$in:config.accountIds}}).select('_id supplierId').session(session).lean();
-    const supplierJournals=await BusinessTransaction.find({shopId:actor.shopId,'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_REVERSAL']},'postings.accountId':{$in:config.accountIds}}).session(session).lean();
-    const supplierAccounts=await FinancialAccount.find({shopId:actor.shopId,kind:'SUPPLIER_PAYABLE',_id:{$in:supplierJournals.flatMap(j=>j.postings.map(p=>p.accountId))}}).session(session).lean();
+    const supplierJournals=await BusinessTransaction.find({shopId:actor.shopId,'source.kind':{$in:['SUPPLIER_PAYMENT','SUPPLIER_REFUND','SUPPLIER_REVERSAL']},'postings.accountId':{$in:config.accountIds}}).session(session).lean();
+    const supplierAccounts=await FinancialAccount.find({shopId:actor.shopId,kind:{$in:['SUPPLIER_PAYABLE','SUPPLIER_CREDIT']},_id:{$in:supplierJournals.flatMap(j=>j.postings.map(p=>p.accountId))}}).session(session).lean();
     const supplierIds=[...new Set([...supplierEvents.map(e=>String(e.supplierId)),...supplierAccounts.flatMap(a=>a.entityId?[String(a.entityId)]:[])])];
     const supplierReconciliation=[];
     for(const supplierId of supplierIds)supplierReconciliation.push({supplierId,...await reconcileSupplier(actor,supplierId,session)});
@@ -923,4 +980,19 @@ export async function postExpenseMovement(actor: Actor, event: any, session: Ses
         {accountId:String(event.expenseAccountId),debitMinor:reverse?0:event.amountMinor,creditMinor:reverse?event.amountMinor:0},
         {accountId:String(event.accountId),debitMinor:reverse?event.amountMinor:0,creditMinor:reverse?0:event.amountMinor}
     ]}, session, {kind:event.kind,referenceId:String(event._id)});
+}
+
+// Only the capital controller supplies these immutable, same-transaction events.
+export async function postCapitalMovement(actor: Actor, event: any, session: Session) {
+    if (!invoiceAccountingEnabled()) throw new apiError(409, 'Capital posting requires prepared test accounting');
+    const {cutoffAt} = await preparedCashAccount(actor, String(event.accountId), session);
+    if (cutoffAt > new Date() || event.occurredAt < cutoffAt) throw new apiError(409, 'Capital posting must follow cash/bank cutoff');
+    const capital = await accountInShop(actor, String(event.capitalAccountId), session);
+    const partner = await getBusinessEntity(actor, String(event.partnerId), session);
+    if (capital.kind !== 'PARTNER_CAPITAL' || String(capital.entityId) !== String(partner._id) || !partner.roles.includes('PARTNER') || partner.partnerActive === false) throw new apiError(409, 'Active partner capital account required');
+    const incoming = (event.direction === 'CONTRIBUTION') !== (event.kind === 'CAPITAL_REVERSAL');
+    return post(actor, {requestKey:'capital-'+String(event._id),reason:event.description,occurredAt:event.occurredAt.toISOString(),postings:[
+        {accountId:String(event.accountId),debitMinor:incoming?event.amountMinor:0,creditMinor:incoming?0:event.amountMinor},
+        {accountId:String(event.capitalAccountId),debitMinor:incoming?0:event.amountMinor,creditMinor:incoming?event.amountMinor:0}
+    ]},session,{kind:event.kind,referenceId:String(event._id)});
 }
