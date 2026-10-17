@@ -1344,7 +1344,7 @@ try {
   await click('Business setup');await wait('document.body.innerText.includes("Brand associations")');
   await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
-  await click('Close');await click('Customers');await click('Balance details');await wait('document.body.innerText.includes("Balances match")');
+  await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances match")');
   assert.ok(await evaluate('document.querySelector("dialog").innerText.includes("40.00")'));await click('Close');
   await click('Companies & Suppliers');await fill('[aria-label="Search businesses"]','');await click('Add business');
   const customerCreatesBefore=calls.filter(c=>c.endpoint==='/customers/create-customer').length;

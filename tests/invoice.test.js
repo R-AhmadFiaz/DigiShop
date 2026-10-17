@@ -16,6 +16,20 @@ test('POS accounting checkout sends a body key and explicit account, retaining t
   assert.match(source,/paymentAccounts\.data\?\.accountingEnabled && paidAmount > 0 \? \{ receiptAccountId \}/);
   assert.match(source,/if \(lock\.current \|\| customerBusy\) return/);
 });
+
+test('customer collection reuses invoice settlement and sends preview-bound cash routing',()=>{
+  const customers=fs.readFileSync(new URL('../src/pages/Customers.jsx',import.meta.url),'utf8');
+  assert.match(customers,/customerId:customer\._id,page,limit:10/);
+  assert.match(customers,/Receive Payment/);
+  assert.match(customers,/to=\{'\/owner\/sales\/'\+order\._id\}/);
+  assert.doesNotMatch(customers,/method:\s*['"]POST/);
+  const form=fs.readFileSync(new URL('../src/components/InvoiceAdjustment.jsx',import.meta.url),'utf8');
+  assert.match(form,/useLoad\('\/orders\/payment-accounts'\)/);
+  assert.match(form,/body\[field\]=routing\[field\]/);
+  assert.match(form,/setPreview\(result\); setReviewBody\(body\)/);
+  assert.match(form,/confirmationToken: preview\.confirmationToken/);
+  assert.match(form,/I have received/);
+});
 test("adjustment uses stable line identities, dispositions, revision and no client-supplied prices", () => {
   const body = adjustmentBody({ ...input, returns: { "original-line": { quantity: "2", disposition: "DAMAGED" } }, additions: [{ _id: "product", quantity: "2", retailPrice: 999 }] });
   assert.deepEqual(body.returns, [{ lineId: "original-line", quantity: 2, disposition: "DAMAGED" }]);

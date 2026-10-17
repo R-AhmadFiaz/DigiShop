@@ -50,6 +50,8 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
   const [reason, setReason] = useState("");
   const [recipient, setRecipient] = useState(null);
   const [funds, setFunds] = useState({ cashReceivedAmount: "0", creditRedeemedAmount: "0", cashRefundAmount: "0", creditIssueAmount: "0" });
+  const [routing,setRouting]=useState({receiptAccountId:'',refundAccountId:''});
+  const paymentAccounts=useLoad('/orders/payment-accounts');
   const [preview, setPreview] = useState(null);
   const [reviewBody, setReviewBody] = useState(null);
   const [cashConfirmed, setCashConfirmed] = useState(false);
@@ -66,6 +68,15 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
     lock.current = true; setBusy(true); setError(""); invalidate();
     try {
       const body = adjustmentBody({ order, mode, key, reason, returns, additions, discountType, discountValue, funds, recipient });
+      if(paymentAccounts.loading||paymentAccounts.error||typeof paymentAccounts.data?.accountingEnabled!=='boolean')throw new Error(paymentAccounts.error||'Wait for payment accounts to load.');
+      if(paymentAccounts.data.accountingEnabled){
+        for(const [amount,field,label] of [[body.cashReceivedAmount,'receiptAccountId','receiving'],[body.cashRefundAmount,'refundAccountId','refund']]){
+          if(amount>0){
+            if(!paymentAccounts.data.accounts.some(a=>a._id===routing[field]))throw new Error('Select the '+label+' cash/bank account.');
+            body[field]=routing[field];
+          }
+        }
+      }
       const result = await api(endpoint + "/preview", { method: "POST", body });
       setPreview(result); setReviewBody(body);
     } catch (e) { setError(e.message + (e.status === 409 ? " Reload the invoice before trying again." : "")); }
@@ -120,6 +131,8 @@ export default function InvoiceAdjustment({ order, mode, onSaved, onClose }) {
         <div className="row g-2">
           {Object.entries({ cashReceivedAmount: "Additional cash received", ...(order.customerId ? { creditRedeemedAmount: "Store credit to redeem" } : {}), ...(mode !== "payments" ? { cashRefundAmount: "Cash to refund", creditIssueAmount: "Refund as store credit" } : {}) }).map(([field, label]) => <div className="col-sm-6" key={field}><Field label={label}><input className="form-control" type="number" min="0" step="0.01" value={funds[field]} onChange={e => setFunds(current => ({ ...current, [field]: e.target.value }))} /></Field></div>)}
         </div>
+        <Notice loading={paymentAccounts.loading} error={paymentAccounts.error}/>
+        {paymentAccounts.data?.accountingEnabled&&[[funds.cashReceivedAmount,'receiptAccountId','Receive into'],[funds.cashRefundAmount,'refundAccountId','Refund from']].map(([amount,field,label])=>Number(amount)>0&&<Field key={field} label={label}><select aria-label={label} className="form-select" value={routing[field]} onChange={e=>setRouting(current=>({...current,[field]:e.target.value}))}><option value="">Choose cash or bank</option>{paymentAccounts.data.accounts.map(account=><option key={account._id} value={account._id}>{account.name}</option>)}</select></Field>)}
       </fieldset>
       {!order.customerId && mode !== "payments" && Number(funds.creditIssueAmount) > 0 && !order.creditRecipientId && <fieldset disabled={locked}><p>Store-credit recipient (original invoice stays anonymous)</p><CustomerPicker value={recipient} onChange={value => { invalidate(); setRecipient(value); }} required /></fieldset>}
       {order.creditRecipientId && !order.customerId && <p className="small">Store credit will go to the previously recorded recipient. The original invoice remains anonymous.</p>}
