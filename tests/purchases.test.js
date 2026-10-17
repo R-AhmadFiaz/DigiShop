@@ -31,3 +31,16 @@ test('purchase and supplier routes stay inside OWNER routing and use real endpoi
   assert.match(source,/savePending\(storageKey,request\)/);assert.match(source,/Retry same request/);assert.match(source,/lock\.current=true/);
   assert.doesNotMatch(source,/activate|BUSINESS_ACCOUNTING_ENABLED/);
 });
+
+test('new supplier setup requires explicit zero-opening confirmation and purchase receiving links to it',()=>{
+  const source=fs.readFileSync(new URL('../src/components/SupplierOpening.jsx',import.meta.url),'utf8');
+  assert.match(source,/preview\.entries\.length===0/);
+  assert.match(source,/enrollNewSupplier:true/);
+  assert.match(source,/openingBalanceMinor:0,otherOpeningMinor:0,reviews:\[\]/);
+  assert.match(source,/This is a new supplier/);
+  assert.match(source,/type="checkbox" className="form-check-input" required/);
+  assert.match(source,/availability\.data\?\.accountingEnabled!==true/);
+  assert.match(source,/CONFIRM SUPPLIER OPENING/);
+  const purchase=fs.readFileSync(new URL('../src/pages/owner/PurchaseDetails.jsx',import.meta.url),'utf8');
+  assert.match(purchase,/Prepare or review supplier opening/);
+});
