@@ -1747,7 +1747,7 @@ try {
   );
   await screenshot("stock-history");
   await click("Customers");
-  await wait('document.body.innerText.includes("Outstanding debt") && document.body.innerText.includes("Store credit")');
+  await wait('document.body.innerText.includes("Customer owes us") && document.body.innerText.includes("Store credit")');
   await click("AI Assistant");
   await wait('document.body.innerText.includes("Speak")');
   await fill('[aria-label="Ask about your shop"]', "How many bulbs?");

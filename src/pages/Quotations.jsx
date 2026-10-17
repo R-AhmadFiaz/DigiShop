@@ -1,3 +1,4 @@
+import RecordTable from '../components/RecordTable';
 import { useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { api } from "../api/client";
@@ -71,51 +72,13 @@ export default function Quotations() {
               {quotations.length === 0 ? (
                 <Empty>No quotations created in this session.</Empty>
               ) : (
-                <div className="table-responsive">
-                  <table className="table table-sm align-middle">
-                    <thead>
-                      <tr>
-                        <th>Created</th>
-                        <th>Products</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {quotations.map((draft) => (
-                        <tr key={draft.order._id}>
-                          <td>{dateText(draft.order.createdAt)}</td>
-                          <td>
-                            {draft.receipt.lines
-                              .map((line) => line.name)
-                              .join(", ")}
-                          </td>
-                          <td>{money(draft.order.totalPrice)}</td>
-                          <td>{draft.converted ? "Converted" : "Draft"}</td>
-                          <td>
-                            <div className="d-flex gap-2">
-                              <button
-                                className="btn btn-outline-secondary btn-sm"
-                                onClick={() => setSelected(draft.receipt)}
-                              >
-                                {draft.converted ? "View invoice" : "View"}
-                              </button>
-                              {!draft.converted && (
-                                <button
-                                  className="btn btn-primary btn-sm"
-                                  onClick={() => setConverting(draft)}
-                                >
-                                  Make sale
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <RecordTable label="Quotation register" rows={quotations} rowKey={d=>d.order._id} columns={[
+ {key:'date',label:'Created',render:d=>dateText(d.order.createdAt)},
+ {key:'products',label:'Products',render:d=>d.receipt.lines.length+' product lines'},
+ {key:'total',label:'Quoted total',numeric:true,render:d=>money(d.order.totalPrice)},
+ {key:'status',label:'Status',render:d=>d.converted?'Converted':'Draft'},
+ {key:'actions',label:'Actions',render:d=><div className="d-flex gap-2"><button className="btn btn-outline-secondary btn-sm" onClick={()=>setSelected(d.receipt)}>{d.converted?'View invoice':'View'}</button>{!d.converted&&<button className="btn btn-primary btn-sm" onClick={()=>setConverting(d)}>Make sale</button>}</div>}
+ ]} details={d=><RecordTable label="Quotation products" rows={d.receipt.lines} rowKey={(_,i)=>i} columns={[{key:'name',label:'Product'},{key:'quantity',label:'Quantity',numeric:true},{key:'price',label:'Unit price',numeric:true,render:l=>money(l.unitPrice)}]}/>}/>
               )}
             </section>
           )}

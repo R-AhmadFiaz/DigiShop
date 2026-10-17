@@ -4,6 +4,7 @@ import { useLoad } from '../../api/hooks';
 import { query } from '../../api/client';
 import { pkr, pakistanTime } from '../../api/purchases';
 import { Field, Notice, PageTitle } from '../../components/Common';
+import RecordTable from '../../components/RecordTable';
 
 function Report({ title, value, children }) {
   return <section className="panel mb-3"><h2 className="h5">{title}</h2>
@@ -11,7 +12,7 @@ function Report({ title, value, children }) {
   </section>;
 }
 function Table({ headings, rows }) {
-  return rows.length ? <div className="table-responsive"><table className="table table-sm"><thead><tr>{headings.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row,i)=><tr key={i}>{row.map((cell,j)=><td key={j}>{cell}</td>)}</tr>)}</tbody></table></div> : <p className="text-body-secondary">No records.</p>;
+  return <RecordTable label={headings.join(' / ')} rows={rows} rowKey={(_,i)=>i} columns={headings.map((h,i)=>({key:h,label:h,numeric:/amount|total|quantity|price|cost|balance|expense|opening|closing|movement|current|outstanding|credit|money|capital/i.test(h),render:row=>row[i]}))} empty="No records."/>;
 }
 export default function FinancialReports() {
   const today = new Date().toISOString().slice(0,10);

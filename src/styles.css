@@ -592,6 +592,19 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .badge { font-size: 14px; }
 .form-check-input { width: 1.2em; height: 1.2em; }
 .table td, .table th { padding-left: 8px; padding-right: 8px; }
+.record-register { border: 1px solid var(--bs-border-color); border-radius: 4px; }
+.record-table thead th { white-space: nowrap; }
+.record-table > tbody > tr:nth-child(even) > td { background: #f7faf9; }
+.record-table > tbody > .record-clickable:hover > td { background: #e6f5f1; }
+.record-clickable { cursor: pointer; }
+.record-clickable:focus-visible { outline: 2px solid #0f766e; outline-offset: -2px; }
+.record-number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.record-actions { width: 1%; white-space: nowrap; }
+.record-detail > td { background: #f0fdfa !important; padding: 12px !important; }
+.record-facts { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 3fr); gap: 4px 12px; margin-bottom: 12px; }
+.record-facts dt { color: #4b5563; font-weight: 600; }
+.record-facts dd { margin: 0; overflow-wrap: anywhere; }
+.record-balance { border-left: 4px solid #0f766e; padding: 8px 12px; background: #f0fdfa; font-size: 17px; font-variant-numeric: tabular-nums; }
 .table input[type=number] { min-width: 80px; }
 .sale-total, .receipt-totals, .fw-semibold { font-variant-numeric: tabular-nums; }
 .screen-tabs { flex-wrap: wrap; }

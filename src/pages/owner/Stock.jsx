@@ -1,3 +1,4 @@
+import RecordTable, {RecordFacts} from '../../components/RecordTable';
 import { useState } from "react";
 import { api, query } from "../../api/client";
 import { useLoad } from "../../api/hooks";
@@ -274,56 +275,14 @@ function StockHistory({ products }) {
         </div>
       </form>
       <Notice error={filterError || logs.error} loading={logs.loading} />
-      {logs.data?.logs.length > 0 ? (
-        <div className="table-responsive">
-          <table className="table table-sm">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Product</th>
-                <th>Change</th>
-                <th>Reason</th>
-                <th>Invoice</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.data.logs.map((log) => (
-                <tr key={log._id}>
-                  <td>{dateText(log.createdAt)}</td>
-                  <td>
-                    {log.productId?.name || "Product unavailable"}
-                    <small className="d-block text-body-secondary">
-                      {log.productId?.brand}
-                    </small>
-                  </td>
-                  <td
-                    className={
-                      log.quantityDelta > 0
-                        ? "text-success"
-                        : "text-body-secondary"
-                    }
-                  >
-                    {log.quantityDelta > 0 ? "+" : ""}
-                    {log.quantityDelta}
-                  </td>
-                  <td>
-                    {log.reason === "Ordered Created"
-                      ? "Sale"
-                      : log.reason === "Order Sold"
-                        ? "Quotation sale"
-                        : log.reason === "Order get cancelled"
-                          ? "Cancelled sale"
-                          : log.reason}
-                  </td>
-                  <td>{log.invoiceNo || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        !logs.loading && !logs.error && <Empty>No stock history found.</Empty>
-      )}
+      {logs.data&&<RecordTable label="Stock movement register" rows={logs.data.logs} columns={[
+ {key:'date',label:'Date',render:l=>dateText(l.createdAt)},
+ {key:'product',label:'Product',render:l=><>{l.productId?.name||'Product unavailable'}<small className="d-block text-body-secondary">{l.productId?.brand}</small></>},
+ {key:'added',label:'Stock added (+)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta>0?'+'+l.quantityDelta:'—':'Unavailable'},
+ {key:'removed',label:'Stock reduced (−)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta<0?l.quantityDelta:'—':'Unavailable'},
+ {key:'action',label:'Action',render:l=>l.reason==='Ordered Created'?'Sale':l.reason==='Order Sold'?'Quotation sale':l.reason==='Order get cancelled'?'Cancelled sale':l.reason?.length>60?l.reason.slice(0,57)+'…':l.reason},
+ {key:'invoice',label:'Invoice',render:l=>l.invoiceNo||'—'}
+ ]} details={l=><RecordFacts items={[["Reason",l.reason],["Stock change",l.quantityDelta],["Purchase",l.purchaseReference||'—'],["Delivery",l.receivingReference||'—'],["Return handling",l.disposition||'—'],["Returned units",l.returnedQuantity??'Unavailable']]}/>} empty="No stock history found."/>}
       <Pagination pagination={logs.data?.pagination} onPage={setPage} />
     </section>
   );

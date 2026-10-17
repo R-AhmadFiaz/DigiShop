@@ -1,3 +1,4 @@
+import RecordTable from '../../components/RecordTable';
 import { Link, useSearchParams } from "react-router-dom";
 import { query } from "../../api/client";
 import { useDebounce, useLoad } from "../../api/hooks";
@@ -80,45 +81,15 @@ function InvoiceHistory() {
       />
       <section className="panel">
         <Notice error={invoices.error} loading={invoices.loading} />
-        {invoices.data?.orders.length > 0 ? (
-          <div className="table-responsive">
-            <table className="table table-sm align-middle">
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Date</th>
-                  <th>Sale</th>
-                  <th>Total</th>
-                  <th>Paid</th>
-                  <th>Due</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.data.orders.map((order) => (
-                  <tr key={order._id}>
-                    <td>
-                      <Link to={order._id + "?" + params.toString()}>
-                        {order.invoiceNo || "View invoice"}
-                      </Link>
-                    </td>
-                    <td>{dateText(order.createdAt)}</td>
-                    <td>
-                      {order.saleType === "WHOLESALE" ? "Wholesale" : "Retail"}
-                    </td>
-                    <td>{money(order.totalPrice)}</td>
-                    <td>{money(order.paidAmount)}</td>
-                    <td>{money(order.amountDue)}</td>
-                    <td>{order.status.toLowerCase()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          !invoices.loading &&
-          !invoices.error && <Empty>No invoices found.</Empty>
-        )}
+        {invoices.data&&<RecordTable label="Sales invoice register" rows={invoices.data.orders} columns={[
+ {key:'date',label:'Date',render:o=>dateText(o.createdAt)},
+ {key:'invoice',label:'Invoice',render:o=><Link to={o._id+'?'+params.toString()}>{o.invoiceNo||'View invoice'}</Link>},
+ {key:'sale',label:'Sale',render:o=>o.saleType==='WHOLESALE'?'Wholesale':'Retail'},
+ {key:'total',label:'Bill total',numeric:true,render:o=>money(o.totalPrice)},
+ {key:'paid',label:'Paid / settled',numeric:true,render:o=>money(o.paidAmount)},
+ {key:'due',label:'Customer owes',numeric:true,render:o=>money(o.amountDue)},
+ {key:'status',label:'Status',render:o=>o.status.toLowerCase()}
+ ]} empty="No invoices found."/>}
         <Pagination pagination={invoices.data?.pagination} onPage={setPage} />
       </section>
     </>

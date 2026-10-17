@@ -3,6 +3,7 @@ import { query } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { dateText, money, Notice, Pagination } from "./Common";
 import { displayName } from "../utils/identity";
+import RecordTable, {RecordFacts} from './RecordTable';
 
 export function FinancialMovements({ financial = {} }) {
   const labels = {
@@ -17,12 +18,15 @@ export function FinancialMovements({ financial = {} }) {
 export function EventDocument({ event, order }) {
   return <>
     <h3 className="h6">{event.kind.toLowerCase()} · Revision {event.revisionAfter}</h3>
-    <p>{dateText(event.occurredAt)} · Recorded by {displayName(event.createdByName) || "Unavailable"}</p>
-    <p>{event.reason}</p>
-    {(event.movements || []).map((movement, index) => {
+    <RecordFacts items={[["Date",dateText(event.occurredAt)],["Recorded by",displayName(event.createdByName)||"Unavailable"],["Reason",event.reason]]}/>
+    <RecordTable label="Returned and added products" rowKey={(_,index)=>index} rows={(event.movements||[]).map((m,index)=>({...m,_id:index}))} columns={[
+      {key:'kind',label:'Action',render:m=>m.kind==='RETURN'?'Returned':'Added'},
+      {key:'name',label:'Product',render:movement=>{
       const line = [...(event.before?.items || []), ...(event.after?.items || []), ...(order.items || [])].find(i => i.lineId === movement.lineId);
-      return <p key={index}>{movement.kind === "RETURN" ? "Returned" : "Added"}: {line?.name || "Product unavailable"} × {movement.quantity} @ {money(movement.unitPriceMinor / 100)}{movement.disposition ? ` · ${movement.disposition === "DAMAGED" ? "Damaged — not restocked" : "Restocked"}` : ""}</p>;
-    })}
+      return line?.name||'Product unavailable';}},
+      {key:'quantity',label:'Quantity',numeric:true},{key:'price',label:'Unit price',numeric:true,render:m=>money(m.unitPriceMinor/100)},
+      {key:'stock',label:'Stock handling',render:m=>m.disposition==='DAMAGED'?'Damaged — not restocked':m.disposition==='RESTOCK'?'Restocked':'—'}
+    ]} empty="No product movements."/>
     <FinancialMovements financial={event.financial} />
     {event.after && <p>Invoice total: {money(event.after.totalMinor / 100)} · Outstanding: {money(event.after.dueMinor / 100)}</p>}
   </>;
@@ -33,11 +37,14 @@ export default function InvoiceHistory({ order, onPrint }) {
   return <section className="panel mt-3 no-print">
     <h2 className="h6">Adjustment and payment history</h2>
     <Notice error={history.error} loading={history.loading} />
-    {history.data?.history.length === 0 && <p className="text-body-secondary">No recorded movements. Earlier payments are not inferred.</p>}
-    {history.data?.history.map(event => <article key={event._id} className="border-bottom py-3">
-      <EventDocument event={event} order={order} />
-      <button className="btn btn-outline-secondary btn-sm" onClick={() => onPrint(event)}>Open printable record</button>
-    </article>)}
+    {history.data&&<RecordTable label="Invoice adjustment and payment register" rows={history.data.history} columns={[
+      {key:'date',label:'Date',render:e=>dateText(e.occurredAt)},
+      {key:'action',label:'Action',render:e=>e.kind.toLowerCase()+' · Revision '+e.revisionAfter},
+      {key:'received',label:'Money received (+)',numeric:true,render:e=>Number.isSafeInteger(e.financial?.cashReceivedMinor)?money(e.financial.cashReceivedMinor/100):'Unavailable'},
+      {key:'refunded',label:'Money refunded (−)',numeric:true,render:e=>Number.isSafeInteger(e.financial?.cashRefundMinor)?money(e.financial.cashRefundMinor/100):'Unavailable'},
+      {key:'due',label:'Invoice due after',numeric:true,render:e=>Number.isSafeInteger(e.after?.dueMinor)?money(e.after.dueMinor/100):'Unavailable'},
+      {key:'print',label:'Print',render:event=><button className="btn btn-outline-secondary btn-sm" onClick={()=>onPrint(event)}>Open printable record</button>}
+    ]} details={event=><EventDocument event={event} order={order}/>} empty="No recorded movements. Earlier payments are not inferred."/>}
     <Pagination pagination={history.data?.pagination} onPage={setPage} />
   </section>;
 }

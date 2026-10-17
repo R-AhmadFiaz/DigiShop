@@ -18,7 +18,9 @@ source=replaceLabels(source)
   .replaceAll('Account ready and selected','Account selected')
   .replaceAll('not live stock valuation or profit','not current stock value or profit')
   .replaceAll('not revenue or profit','not sales or profit')
+  .replace("document.querySelector('tbody')?.innerText.includes('Real browser electricity payment')", "document.querySelector('tbody')?.innerText.includes('EXP-LOCAL')")
   .replaceAll("await wait(\"!!document.querySelector('.product-result:not(:disabled)')\");await evaluate(\"document.querySelector('.product-result:not(:disabled)').click()\");", "await wait(\"(()=>{const b=document.querySelector('.product-result:not(:disabled)');if(!b)return false;b.click();return true;})()\");")
+  .replace("await fill('[aria-label=\"Search products by name or brand\"]','Quote Brand');await wait(\"(()=>{const b=document.querySelector('.product-result:not(:disabled)');if(!b)return false;b.click();return true;})()\");", "await fill('[aria-label=\"Search products by name or brand\"]','Quote Brand');await wait(\"(()=>{const b=[...document.querySelectorAll('.product-result:not(:disabled)')].find(e=>e.textContent.includes('Quote Brand'));if(!b)return false;b.click();return true;})()\");")
   .replace("await wait(\"document.body.innerText.includes('Open supplier Khata')\")", "await wait(\"!!document.querySelector('dialog a[href*=\\\"/accounts/suppliers/\\\"]')\")")
   .replaceAll('retained for an identical retry','saved for a safe retry')
   .replace("const selectedAccounts={};", "await evaluate(\"[...document.querySelectorAll('summary')].find(e=>e.textContent==='Existing debt or manual account selection').click()\");const selectedAccounts={};")
@@ -28,6 +30,30 @@ source=source.replaceAll(/(['"])\.\.\/dist\/([^'"]+)\1/g,(_,quote,file)=>quote+p
   .replaceAll("'mongoose'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/mongoose/index.js')).href))
   .replaceAll("'jsonwebtoken'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/jsonwebtoken/index.js')).href));
 const checks=`
+  await navigation('/owner/accounts/transactions?account='+ap._id);
+  const authoritativeStatement=ok(await get('/accounts/financial/'+ap._id+'/history?limit=20'));
+  for(const event of authoritativeStatement.transactions){
+    const selector='tr[data-record-id="'+event.eventId+'"]';await wait('!!document.querySelector('+JSON.stringify(selector)+')');
+    const cells=await evaluate('[...document.querySelector('+JSON.stringify(selector)+').cells].map(c=>c.innerText)');
+    const delta=event.accountPosting.balanceDeltaMinor;
+    const format=n=>'PKR '+(n/100).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
+    assert.equal(cells[3],delta>0?format(delta):'—');assert.equal(cells[4],delta<0?format(-delta):'—');assert.equal(cells[5],format(event.runningBalanceMinor));
+  }
+  const firstStatementRow='tr[data-record-id="'+authoritativeStatement.transactions[0].eventId+'"]';
+  await evaluate('(()=>{const r=document.querySelector('+JSON.stringify(firstStatementRow)+');r.focus();r.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));})()');
+  await wait('!!document.querySelector("dialog[open]")');await click('Close');
+  await navigation('/owner/purchases/'+postedPo._id);
+  const deliverySelector='[aria-label="Goods delivery register"] tr[data-record-id]';
+  await wait('!!document.querySelector('+JSON.stringify(deliverySelector)+')');
+  const beforeRegisterDetails=await snapshot();
+  await evaluate('document.querySelector('+JSON.stringify(deliverySelector)+').click()');
+  await wait('!!document.querySelector(".record-detail")');
+  assert.ok(await evaluate('document.querySelector(".record-detail").innerText.includes("Received by")'));
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:740,deviceScaleFactor:1,mobile:true});
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Register scroll stays inside the page');
+  assert.ok(await evaluate('getComputedStyle(document.querySelector(".record-register")).overflowX==="auto"'),'Record tables retain horizontal scroll');
+  assert.deepEqual(await snapshot(),beforeRegisterDetails,'Opening record details performs no financial writes');
+  pass('Khata register directions/running balances equal authoritative postings, keyboard details work, mobile horizontal scroll and read-only expansion');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await navigation('/owner/products');
   await wait('!!document.querySelector(".table tbody td")');

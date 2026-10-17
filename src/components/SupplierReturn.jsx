@@ -1,3 +1,4 @@
+import RecordTable, {RecordFacts} from "./RecordTable";
 import { useEffect, useState } from 'react';
 import { api, query } from '../api/client';
 import { useLoad } from '../api/hooks';
@@ -28,11 +29,15 @@ export default function SupplierReturn({receipt,onClose,onChanged}) {
     <p className="text-body-secondary">Returns first reduce what we owe. Any extra becomes money the supplier owes us. Record a refund only after receiving the money.</p>
     <Notice loading={!history&&!error} error={error||balance.error}/>{balance.error&&<p>Accounting is unavailable or requires supplier setup. Return quantities cannot be confirmed.</p>}
     {receipt.accountingStatus==='DEFERRED'&&<p className="alert alert-warning">Check this old delivery and its starting balance before recording a return.</p>}
-    {quantities&&<div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Received</th><th>Already returned</th><th>Can return</th><th>Original cost</th></tr></thead><tbody>{receipt.items.map(r=><tr key={r.productId}><td>{r.name}</td><td>{r.quantity}</td><td>{quantities[r.productId].returned}</td><td>{quantities[r.productId].eligible}</td><td>{pkr(r.unitCostMinor)}</td></tr>)}</tbody></table></div>}
+    {quantities&&<div className="table-responsive"><table className="table table-sm record-table"><thead><tr><th>Product</th><th className="text-end">Received</th><th className="text-end">Already returned</th><th className="text-end">Can return</th><th className="text-end">Original cost</th></tr></thead><tbody>{receipt.items.map(r=><tr key={r.productId}><td>{r.name}</td><td className="text-end record-number">{r.quantity}</td><td className="text-end record-number">{quantities[r.productId].returned}</td><td className="text-end record-number">{quantities[r.productId].eligible}</td><td className="text-end record-number">{pkr(r.unitCostMinor)}</td></tr>)}</tbody></table></div>}
     <SupplierAction onChanged={()=>{setRevision(v=>v+1);balance.reload();setValues({});onChanged();}}>{({prepare,locked})=><form onSubmit={e=>submit(e,prepare)}><fieldset disabled={locked||!ready}>
       {receipt.items.map(r=><Field label={'Return '+r.name} key={r.productId}><input className="form-control" type="number" min="0" max={quantities?.[r.productId].eligible??0} step="1" value={values[r.productId]??''} onChange={e=>setValues({...values,[r.productId]:e.target.value})}/></Field>)}
       <Field label="Return reference"><input name="reference" className="form-control" maxLength={50} required pattern="[A-Za-z0-9][A-Za-z0-9/_-]*"/></Field><Field label="Return reason"><input name="reason" className="form-control" required maxLength={300}/></Field><button className="btn btn-primary" type="submit" disabled={!Object.values(quantities||{}).some(q=>q.eligible>0)}>Review return</button>
     </fieldset></form>}</SupplierAction>
-    {history&&<><h3 className="h6 mt-3">Confirmed returns and corrections</h3>{history.length===0?<p>No returns recorded.</p>:history.map(e=><p key={e._id}>{e.reference} · {activity(e.kind)} · {pakistanTime(e.occurredAt)} · {pkr(e.amountMinor)} · {e.createdByName||'Unavailable'}{e.kind==='REVERSAL'?' — correction of a previous return':''}</p>)}</>}
+    {history&&<><h3 className="h6 mt-3">Confirmed returns and corrections</h3><RecordTable label="Supplier goods return register" rows={history} columns={[
+ {key:'date',label:'Date (Pakistan)',render:e=>pakistanTime(e.occurredAt)},
+ {key:'action',label:'Action',render:e=>e.kind==='REVERSAL'?'Correction of supplier return':activity(e.kind)},
+ {key:'reference',label:'Reference'},{key:'value',label:'Return / correction value',numeric:true,render:e=>pkr(e.amountMinor)}
+ ]} details={e=><><RecordFacts items={[["Recorded by",e.createdByName||'Unavailable'],["Note",e.reason],["Original record",e.reversalOf||'—']]}/><RecordTable label={'Returned products '+e.reference} rows={e.items||[]} rowKey={i=>i.productId} columns={[{key:'name',label:'Product'},{key:'quantity',label:'Quantity',numeric:true},{key:'cost',label:'Original unit cost',numeric:true,render:i=>pkr(i.unitCostMinor)}]}/></>} empty="No returns recorded."/></>}
   </section>;
 }

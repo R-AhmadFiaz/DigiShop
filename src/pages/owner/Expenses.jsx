@@ -1,3 +1,4 @@
+import RecordTable, {RecordFacts} from "../../components/RecordTable";
 import { useState } from 'react';
 import { api, query } from '../../api/client';
 import { useDebounce, useLoad } from '../../api/hooks';
@@ -20,7 +21,7 @@ export default function Expenses() {
     try{await api(root+'/categories',{method:'POST',body:{name:categoryName}});setCategoryName('');categories.reload();setSuccess('Category saved.');}catch(e){setError(e.message);}finally{setBusy(false);}
   }
   return <>
-    <PageTitle title="Expenses"/>
+    <PageTitle title="Expenses"/>{list.data&&<p className="record-balance">Expenses after corrections: <strong>{pkr(list.data.totalMinor)}</strong></p>}
     <p className="text-body-secondary">Record shop costs here, such as rent and electricity. Use the other screens for purchases, supplier payments and customer refunds.</p>
     <Notice loading={setup.loading} error={setup.error||error} success={success}/>
     {!setup.loading&&(!setup.data?.available||!setup.data?.accounts?.length)&&<div className="alert alert-warning">Finish money-record setup and prepare a cash/bank account before paying an expense.</div>}
@@ -29,8 +30,15 @@ export default function Expenses() {
       <button className="btn btn-primary mb-3" disabled={locked||!setup.data?.available||!setup.data?.accounts?.length} onClick={()=>{setCreating(true);setError('');}}>Record expense</button>
       <div className="row g-2 mb-3"><div className="col-sm-4"><Field label="Month (Pakistan time)"><input type="month" className="form-control" value={month} onChange={e=>{setMonth(e.target.value);setPage(1);}}/></Field></div><div className="col-sm-8"><Field label="Search expenses"><input className="form-control" maxLength={100} placeholder="Category, description, account or reference" value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/></Field></div></div>
       <Notice loading={list.loading} error={list.error}/>
-      {list.data&&<><p className="fw-semibold">Expenses after corrections: {pkr(list.data.totalMinor)}</p><p className="text-body-secondary">Totals follow the selected month and search. Corrections count on the day recorded. This is not profit.</p><div className="d-flex flex-wrap gap-3 mb-3">{list.data.breakdown.map(row=><span key={row.categoryId}>{row.category}: <strong>{pkr(row.netMinor)}</strong></span>)}</div>
-        <div className="table-responsive"><table className="table table-sm"><thead><tr><th>Date / time (Pakistan)</th><th>Category</th><th>Description</th><th>Amount</th><th>Paid from</th><th>Activity</th><th/></tr></thead><tbody>{list.data.entries.map(row=><tr key={row._id}><td>{expenseTime(row.occurredAt)}</td><td>{row.categoryName}</td><td>{row.description}</td><td>{pkr(row.amountMinor)}</td><td>{row.accountName} ({row.accountKind==='CASH'?'Cash':'Bank'})</td><td>{row.kind==='EXPENSE'?'Expense':'Reversal'}</td><td><button className="btn btn-outline-secondary btn-sm" onClick={()=>setSelected(row._id)}>Details</button></td></tr>)}</tbody></table></div>{!list.data.entries.length&&<Empty>No expenses for this selection.</Empty>}<Pagination pagination={list.data.pagination} onPage={setPage}/></>}
+      {list.data&&<><p className="text-body-secondary">Totals follow the selected month and search. Corrections count on the day recorded. This is not profit.</p><div className="d-flex flex-wrap gap-3 mb-3">{list.data.breakdown.map(row=><span key={row.categoryId}>{row.category}: <strong>{pkr(row.netMinor)}</strong></span>)}</div>
+        <RecordTable label="Shop expense register" rows={list.data.entries} columns={[
+ {key:'date',label:'Date / time (Pakistan)',render:r=>expenseTime(r.occurredAt)},
+ {key:'categoryName',label:'Category'},{key:'action',label:'Action',render:r=>r.kind==='EXPENSE'?'Expense':'Reversal'},
+ {key:'paid',label:'Money paid (−)',numeric:true,render:r=>r.kind==='EXPENSE'?pkr(r.amountMinor):'—'},
+ {key:'restored',label:'Money restored (+)',numeric:true,render:r=>r.kind==='EXPENSE_REVERSAL'?pkr(r.amountMinor):'—'},
+ {key:'account',label:'Paid from',render:r=>r.accountName+' ('+(r.accountKind==='CASH'?'Cash':'Bank')+')'},
+ {key:'reference',label:'Reference',render:r=>r.reference||'—'}
+ ]} onOpen={r=>setSelected(r._id)} empty="No expenses for this selection."/><Pagination pagination={list.data.pagination} onPage={setPage}/></>}
       {creating&&<Modal title="Record expense" busy={locked} onClose={()=>setCreating(false)}><form onSubmit={event=>{
         event.preventDefault();if(locked)return;setError('');const values=Object.fromEntries(new FormData(event.currentTarget));
         try{const amountMinor=minorAmount(values.amount);if(amountMinor<=0)throw new Error('Enter a positive amount.');const occurredAt=new Date(values.date+'+05:00').toISOString();
