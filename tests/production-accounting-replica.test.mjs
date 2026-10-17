@@ -241,6 +241,30 @@ await test('production activation: actual HTTP and disposable loopback replica s
       assert.equal(await InvoiceAdjustment.countDocuments({orderId:legacy._id,kind:'SALE'}),0);
       assert.equal(await BusinessTransaction.countDocuments({shopId:c.shop._id,'source.kind':'INVOICE_RECEIPT'}),1);
     });
+    await t.test('brand-new PREPARING shop accepts zero cash and explicitly confirms empty inventory without activating',async()=>{
+      const fresh=await fixture('zeroshopowner','03666666666'),shopId=fresh.shop._id;
+      ok(await http('POST',root+'/prepare',{expectedRevision:0,requestKey:'zero-shop-prepare',reason:'Brand-new shop with no historical activity',strategy:'CLEAN_START',confirmation:'PREPARE ACCOUNTING'},fresh.owner));
+      const cash=ok(await http('POST','/accounts/financial',{code:'MAIN-CASH',name:'main cash',kind:'CASH'},fresh.owner));
+      const input={cutoffAt:new Date().toISOString(),reason:'New shop with no opening stock or money',cash:[{accountId:cash._id,amountMinor:0}],suppliers:[],expectedNetAssetsMinor:0,acknowledgeLegacyCustomerBalances:true,acknowledgeUnallocatedEquity:true};
+      assert.equal((await http('PUT','/accounts/existing-setup',{expectedRevision:0,input:{...input,cash:[{accountId:cash._id,amountMinor:-1}]}},fresh.owner)).status,400);
+      assert.equal((await http('PUT','/accounts/existing-setup',{expectedRevision:0,input:{...input,cash:[{accountId:cash._id,amountMinor:null}]}},fresh.owner)).status,400);
+      const saved=ok(await http('PUT','/accounts/existing-setup',{expectedRevision:0,input},fresh.owner));
+      assert.equal(saved.setup.state,'DRAFT');assert.equal(saved.setup.input.cash[0].amountMinor,0);assert.equal(saved.setup.input.expectedNetAssetsMinor,0);
+      assert.equal(saved.evidence.cash[0].declaredMinor,0);assert.equal(saved.evidence.cash[0].status,'INCOMPLETE');
+      assert.equal(saved.evidence.inventoryStatus,'REVIEW_REQUIRED');assert.deepEqual(saved.evidence.inventory,[]);assert.deepEqual(saved.evidence.blockers,[]);
+      const restored=ok(await http('GET','/accounts/existing-setup',undefined,fresh.owner));assert.equal(restored.setup.input.cash[0].amountMinor,0);
+      assert.equal(await BusinessTransaction.countDocuments({shopId}),0);
+      const reviewed=ok(await http('POST','/accounts/existing-setup/preview',{expectedRevision:restored.setup.revision},fresh.owner));
+      assert.equal(reviewed.evidence.totals.inventoryMinor,0);assert.equal(reviewed.evidence.totals.netAssetsMinor,0);assert.equal(reviewed.evidence.totals.differenceMinor,0);assert.deepEqual(reviewed.evidence.blockers,[]);
+      const confirm={expectedRevision:reviewed.expectedRevision,previewToken:reviewed.previewToken,requestKey:'zero-shop-confirm',confirmation:'CONFIRM EXISTING BUSINESS SETUP'};
+      const confirmed=ok(await http('POST','/accounts/existing-setup/confirm',confirm,fresh.owner));assert.equal(confirmed.setup.state,'CONFIRMED');assert.equal(confirmed.setup.review.evidence.inventoryStatus,'COMPLETE');
+      assert.equal(ok(await http('POST','/accounts/existing-setup/confirm',confirm,fresh.owner)).replayed,true);
+      assert.equal(ok(await http('GET','/accounts/financial/'+cash._id,undefined,fresh.owner)).balanceMinor,0);
+      for(const model of [Product,Customer,Order,BusinessTransaction,mongoose.models.StockLog])assert.equal(await model.countDocuments({shopId}),0);
+      assert.equal((await Shop.findById(shopId)).accounting.state,'PREPARING');
+      assert.equal(ok(await http('POST',root+'/preview',{},fresh.owner)).ready,true);
+      assert.equal((await Shop.findById(shopId)).accounting.state,'PREPARING');
+    });
   }finally{
     if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();
     await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));await fs.rm(temp,{recursive:true,force:true,maxRetries:10,retryDelay:150});
