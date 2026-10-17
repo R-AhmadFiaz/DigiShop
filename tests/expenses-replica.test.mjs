@@ -137,7 +137,7 @@ await test('expenses: real HTTP and disposable loopback replica set',{skip:!exis
             try{assert.equal((await http('POST','/'+event._id+'/reverse',reverse())).status,409);assert.ok(ok(await http('GET','/reconciliation')).entries.some(e=>e.issues.length));}finally{await BusinessTransaction.collection.insertOne(journal);}
         });
         await t.test('production accounting guard remains closed',async()=>{
-            process.env.NODE_ENV='production';try{assert.equal((await http('POST','',body())).status,503);}finally{process.env.NODE_ENV='test';}
+            process.env.NODE_ENV='production';try{assert.equal((await http('POST','',body())).status,409);}finally{process.env.NODE_ENV='test';}
         });
         await t.test('Pakistan monthly boundaries and dated reversals keep historical months unchanged',async()=>{
             const now=new Date(Date.now()+5*3600000),boundary=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)-5*3600000);

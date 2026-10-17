@@ -16,7 +16,7 @@ export const existingSetup=(operation:string)=>asyncHandler(async(req,res)=>{
             return {setup:setup??null,evidence:setup?.state==='CONFIRMED'?setup.review?.evidence:await setupEvidence(actor,setup?.input??null,session)};
         }
         if(operation==='confirm'){
-            if(!invoiceAccountingEnabled())throw new apiError(409,'Financial setup confirmation requires test-only accounting');
+            if(!invoiceAccountingEnabled())throw new apiError(409,'Financial setup confirmation requires prepared accounting');
             const requestKey=setupText(body.requestKey,100);
             if(!/^[\w-]{8,100}$/.test(requestKey)||body.confirmation!=='CONFIRM EXISTING BUSINESS SETUP')throw new apiError(400,'Type CONFIRM EXISTING BUSINESS SETUP to acknowledge irreversible openings');
             const requestHash=createHash('sha256').update(JSON.stringify({actor:String(actor._id),expectedRevision:body.expectedRevision,previewToken:body.previewToken,confirmation:body.confirmation,requestKey})).digest('hex');

@@ -159,7 +159,7 @@ await test('partner capital: real HTTP and disposable loopback replica set',{ski
         });
         await t.test('disabled and production accounting guards remain intact',async()=>{
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;assert.equal((await partners()).total,null);assert.equal((await http('POST','/capital',data())).status,409);
-            process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';try{assert.equal((await http('POST','/capital',data())).status,503);}finally{process.env.NODE_ENV='test';}
+            process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';try{assert.equal((await http('POST','/capital',data())).status,409);}finally{process.env.NODE_ENV='test';}
         });
         await t.test('prepared foreign shops cannot access or post another shop capital',async()=>{
             const otherTx=work=>accounts.businessTransaction(b.actor,work);

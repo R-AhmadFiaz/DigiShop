@@ -1,3 +1,4 @@
+import {accountingMode, claimAccountingShop} from '../utils/accountingActivation.js';
 import { listQuery } from "../utils/listQuery.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { type Request, type Response } from "express";
@@ -100,6 +101,7 @@ const session = await mongoose.startSession()
 session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined)
 
 try {
+    await claimAccountingShop(req.user, session);
     if (creditMinor || accounting) {
         const replay = await InvoiceAdjustment.findOne({shopId, kind: 'SALE', requestKey}).session(session)
         if (replay) {
@@ -262,7 +264,7 @@ const [createOrder] = await Order.create([{
     totalPrice,
     amountDue,
     paidAmount: recordedPaidAmount,
-    ...(accounting ? {accountingMode: 'INTEGRATION_TEST'} : {}),
+    ...(accounting ? {accountingMode: accountingMode()} : {}),
     ...(creditMinor || accounting ? {settlementState: creditFunding} : {}),
     customerId,
     shopId,
@@ -426,6 +428,7 @@ export const cancelOrder = asyncHandler(async(req: Request, res: Response) => {
     
     
     try {
+    await claimAccountingShop(req.user, session);
         
         
         const orderInDb = await Order.findOneAndUpdate(
@@ -797,6 +800,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
     session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined)
 
     try {
+    await claimAccountingShop(req.user, session);
         if (accounting) {
             const replay = await InvoiceAdjustment.findOne({shopId, kind: 'SALE', requestKey}).session(session)
             if (replay) {
@@ -893,7 +897,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             subtotal: quotation.subtotal,
             totalPrice: quotation.totalPrice,
             paidAmount: recordedPaidAmount,
-            ...(accounting ? {accountingMode: 'INTEGRATION_TEST', settlementState: {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: creditMinor, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: creditMinor}} : {}),
+            ...(accounting ? {accountingMode: accountingMode(), settlementState: {cashNetMinor: moneyMinor(paidAmount), creditNetMinor: creditMinor, openingCashMinor: moneyMinor(paidAmount), openingCreditMinor: creditMinor}} : {}),
             amountDue: due,
             customerId,
             status: 'PENDING',

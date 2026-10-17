@@ -13,6 +13,7 @@ import * as accounts from './businessAccounts.js';
 import {moneyMinor,safeMinor} from './invoiceAccounting.js';
 import {invoiceAccountingEnabled} from './invoiceAccountingIntegration.js';
 import {apiError} from './apiError.js';
+import {Shop} from '../models/shop.model.js';
 
 export function setupId(value:unknown){if(typeof value!=='string'||!/^[a-f\d]{24}$/i.test(value))throw new apiError(400,'Valid setup selection required');return value.toLowerCase();}
 export function setupText(value:unknown,max:number){if(typeof value!=='string'||!value.trim()||value.length>max)throw new apiError(400,'Provide valid setup details');return value.trim();}
@@ -48,6 +49,12 @@ export async function setupEvidence(actor:any,input:any,session:mongoose.ClientS
     const orders=await Order.find(filter).select('_id revision totalPrice paidAmount amountDue status customerId updatedAt').sort({_id:1}).limit(10001).session(session).lean();
     const blockers:string[]=[],inventory:any[]=[],customerRows:any[]=[],supplierRows:any[]=[],cashRows:any[]=[];
     const enabled=invoiceAccountingEnabled();
+    const shop=await Shop.findById(actor.shopId).session(session).lean();
+    if(shop?.accounting?.strategy==='CLEAN_START'){
+        if(customers.some(c=>c.remainingMoney!==0||(c.storeCreditBalanceMinor??0)!==0))blockers.push('Clean start cannot carry demo customer debt or store credit. Use explicit reviewed reconciliation; balances will not be cleared.');
+        if(input?.suppliers?.some((s:any)=>s.otherOpeningMinor!==0||s.reviews.some((r:any)=>r.unpaidMinor!==0)))blockers.push('Clean start requires explicitly reviewed zero supplier opening debt.');
+        if(journals.some(j=>!['OPENING','SUPPLIER_OPENING'].includes(j.source.kind)))blockers.push('Existing posted activity requires reviewed reconciliation, not a clean start.');
+    }
     if(products.length>1000||customers.length>1000||suppliers.length>100||financial.length>500||journals.length>1000||receipts.length>10000||ledger.length>10000||orders.length>10000)blockers.push('This shop exceeds the guided review limits; a separately reviewed reconciliation is required.');
     if(!enabled)blockers.push('Financial confirmation is unavailable: accounting is disabled. Draft review is still available.');
     if(!input)blockers.push('Save a setup draft with a cutoff, declared balances and review acknowledgements.');

@@ -1,4 +1,5 @@
 import {existingSetup} from '../controllers/businessSetup.controller.js';
+import {accountingActivation} from '../controllers/accountingActivation.controller.js';
 import {financialReports} from '../controllers/financialReports.controller.js';
 import {capital} from '../controllers/capital.controller.js';
 import {expenses} from '../controllers/expense.controller.js';
@@ -10,6 +11,9 @@ import {businessAccounts} from '../controllers/businessAccounts.controller.js';
 export const businessAccountsRouter = Router();
 // CASHIER retains only the existing /orders/payment-accounts selector.
 businessAccountsRouter.use(verifyJWT, verifyShopUser, verifyOwner);
+businessAccountsRouter.get('/activation',accountingActivation('status'));
+for(const operation of ['prepare','preview','confirm','pause','resume','enroll'])
+    businessAccountsRouter.post('/activation/'+operation,accountingActivation(operation));
 businessAccountsRouter.get('/reports',financialReports);
 businessAccountsRouter.route('/entities').get(businessAccounts('entities')).post(businessAccounts('createEntity'));
 businessAccountsRouter.route('/entities/:id').get(businessAccounts('entity'));

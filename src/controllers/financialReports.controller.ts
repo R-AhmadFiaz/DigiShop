@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import {Shop} from '../models/shop.model.js';
 import {Order} from '../models/order.model.js';
 import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
 import {Product} from '../models/product.model.js';
@@ -36,18 +37,23 @@ export const financialReports = asyncHandler(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const data = await accounts.businessTransaction(actor, async session => {
         const shopId = actor.shopId, dates = {$gte: range.start, $lt: range.end};
+        const shop=await Shop.findById(shopId).session(session).lean();
+        const cleanCutoff=shop?.accounting?.strategy==='CLEAN_START'&&shop.accounting.activatedAt?shop.accounting.cutoffAt:null;
+        const salesDates=cleanCutoff?{$gte:new Date(Math.max(+range.start,+cleanCutoff+1)),$lt:range.end}:dates;
         const enabled = invoiceAccountingEnabled();
-        const requireAccounting = () => { if (!enabled) throw new apiError(409, 'Prepared test accounting is required; live accounting is disabled'); };
+        const postedStatus = process.env.NODE_ENV==='test'?'POSTED_TEST':'POSTED';
+        const requireAccounting = () => { if (!enabled) throw new apiError(409, 'Activated, prepared accounting is required; financial balances are unavailable'); };
         const sales = await section(async () => {
-            const originals = await bounded(Order.find({shopId, type: 'INVOICE', status: {$in: ['PENDING', 'DELIVERED', 'CANCELLED']}, createdAt: dates}), session);
-            const events = await bounded(InvoiceAdjustment.find({shopId, kind: {$in: ['ADJUSTMENT', 'CANCELLATION']}, occurredAt: dates}), session);
+            const originals = await bounded(Order.find({shopId, type: 'INVOICE', status: {$in: ['PENDING', 'DELIVERED', 'CANCELLED']}, createdAt: salesDates}), session);
+            const events = await bounded(InvoiceAdjustment.find({shopId, kind: {$in: ['ADJUSTMENT', 'CANCELLATION']}, occurredAt: salesDates}), session);
             const cancellations = await bounded(InvoiceAdjustment.find({shopId, kind: 'CANCELLATION', orderId: {$in: originals.map(r => r._id)}}).select('orderId'), session);
             const ids = events.map(e => e.orderId);
             const linked = await bounded(Order.find({shopId, type: 'INVOICE', _id: {$in: ids}}).select('_id'), session);
             if (events.some(e => !linked.some(o => String(o._id) === String(e.orderId)))) throw new apiError(409, 'Unlinked sales events require reconciliation');
-            const legacy = await bounded(Order.find({shopId, type: 'INVOICE', status: 'CANCELLED', cancellationMode: 'LEGACY', cancelledAt: dates}), session);
+            const legacy = await bounded(Order.find({shopId, type: 'INVOICE', status: 'CANCELLED', cancellationMode: 'LEGACY', cancelledAt: salesDates}), session);
             return reportSales(originals, events, legacy, new Set(cancellations.map(e => String(e.orderId))));
         });
+        if(cleanCutoff){sales.financialStartAt=cleanCutoff;sales.coverageMessage='Clean-start financial sales exclude invoices at or before the opening cutoff. Original Sales and AI histories remain unchanged and may include demo activity.';}
         const expenses = await section(async () => {
             requireAccounting();
             await accounts.selectInvoicePaymentAccounts(actor, session);
@@ -62,7 +68,7 @@ export const financialReports = asyncHandler(async (req, res) => {
                 const value = BigInt(row.amountMinor); if (reverse) reversed += value; else spent += value;
                 const key = String(row.categoryId), category = categories.get(key) ?? {name: row.categoryName, total: 0n}; category.total += reverse ? -value : value; categories.set(key, category);
             }
-            return {status: 'POSTED_TEST', spentMinor: reportMinor(spent), reversedMinor: reportMinor(reversed), netMinor: reportMinor(spent - reversed), categories: [...categories].map(([id, c]) => ({id, name: c.name, totalMinor: reportMinor(c.total)}))};
+            return {status: postedStatus, spentMinor: reportMinor(spent), reversedMinor: reportMinor(reversed), netMinor: reportMinor(spent - reversed), categories: [...categories].map(([id, c]) => ({id, name: c.name, totalMinor: reportMinor(c.total)}))};
         });
         const cashBank = await section(async () => {
             requireAccounting();
@@ -76,13 +82,13 @@ export const financialReports = asyncHandler(async (req, res) => {
                     // A date-only through-today filter ends tomorrow. Statements must
                     // use a non-future boundary; future movements cannot be reported.
                     const end = new Date(Math.min(+range.end, Date.now()));
-                    if (range.start < clearing.cashIntegration.cutoffAt || range.start >= end) return {status: 'POSTED_TEST', rangeAvailable: false, currentBalanceMinor: current.balanceMinor, openingMinor: null, closingMinor: null, netMovementMinor: null, transactions: [], message: 'Selected dates are before confirmed coverage or in the future; range balances unavailable.'};
+                    if (range.start < clearing.cashIntegration.cutoffAt || range.start >= end) return {status: postedStatus, rangeAvailable: false, currentBalanceMinor: current.balanceMinor, openingMinor: null, closingMinor: null, netMovementMinor: null, transactions: [], message: 'Selected dates are before confirmed coverage or in the future; range balances unavailable.'};
                     const statement = await accounts.getAccountStatement(actor, {accountId: String(row._id), from: range.start.toISOString(), to: end.toISOString(), limit: 5}, session);
-                    return {status: 'POSTED_TEST', rangeAvailable: true, currentBalanceMinor: statement.balanceMinor, openingMinor: statement.rangeOpeningBalanceMinor, closingMinor: statement.rangeClosingBalanceMinor, netMovementMinor: statement.rangeNetChangeMinor, transactions: statement.transactions};
+                    return {status: postedStatus, rangeAvailable: true, currentBalanceMinor: statement.balanceMinor, openingMinor: statement.rangeOpeningBalanceMinor, closingMinor: statement.rangeClosingBalanceMinor, netMovementMinor: statement.rangeNetChangeMinor, transactions: statement.transactions};
                 });
                 entries.push({id: row._id, name: row.name, kind: row.kind, active: row.isActive, ...result});
             }
-            return {status: 'POSTED_TEST', entries};
+            return {status: postedStatus, entries};
         });
         const customers = await section(async () => {
             const rows = await bounded(Customer.find({shopId}).sort({name: 1, _id: 1}), session, 500);
@@ -98,17 +104,17 @@ export const financialReports = asyncHandler(async (req, res) => {
             requireAccounting(); const rows = await bounded(BusinessEntity.find({shopId, roles: 'SUPPLIER'}).sort({name: 1, _id: 1}), session, 100);
             let total = 0n, credit = 0n; const entries = [];
             for (const row of rows) {
-                const state = await section(async () => { const s = await accounts.requireSupplierPayable(actor, String(row._id), session); if (s.balanceMinor === null || s.creditMinor === null) throw new apiError(409, 'Supplier balance unavailable'); total += BigInt(s.balanceMinor); credit += BigInt(s.creditMinor); return {status: 'POSTED_TEST', balanceMinor: s.balanceMinor, creditMinor: s.creditMinor}; });
+                const state = await section(async () => { const s = await accounts.requireSupplierPayable(actor, String(row._id), session); if (s.balanceMinor === null || s.creditMinor === null) throw new apiError(409, 'Supplier balance unavailable'); total += BigInt(s.balanceMinor); credit += BigInt(s.creditMinor); return {status: postedStatus, balanceMinor: s.balanceMinor, creditMinor: s.creditMinor}; });
                 entries.push({id: row._id, name: row.name, ...state});
             }
-            const complete = entries.every(r => r.status === 'POSTED_TEST');
-            return {status: complete ? 'POSTED_TEST' : 'INCOMPLETE', totalMinor: complete ? reportMinor(total) : null, creditMinor: complete ? reportMinor(credit) : null, entries};
+            const complete = entries.every(r => r.status === postedStatus);
+            return {status: complete ? postedStatus : 'INCOMPLETE', totalMinor: complete ? reportMinor(total) : null, creditMinor: complete ? reportMinor(credit) : null, entries};
         });
         const capital = await section(async () => {
             requireAccounting(); await accounts.selectInvoicePaymentAccounts(actor, session);
             const rows = await bounded(BusinessEntity.find({shopId, roles: 'PARTNER'}).sort({name: 1, _id: 1}), session, 100);
             const entries = []; for (const row of rows) entries.push({id: row._id, name: row.name, ...await position(shopId, String(row._id), session)});
-            return {status: 'POSTED_TEST', ...await position(shopId, undefined, session), entries};
+            return {status: postedStatus, ...await position(shopId, undefined, session), entries};
         });
         const inventory = await section(async () => {
             const rows = await bounded(Product.find({shopId}).select('name unit stockQuantity costPrice').sort({name: 1, _id: 1}), session);
@@ -124,7 +130,7 @@ export const financialReports = asyncHandler(async (req, res) => {
             receiptCostRecordsInRange:await GoodsReceipt.countDocuments({shopId,occurredAt:dates}).session(session),
             quantityOnlyStockRecordsInRange:await StockLog.countDocuments({shopId,createdAt:dates}).session(session),
             costAtSaleSnapshots:false,continuousCostedStockLedger:false};
-        return {currency: 'PKR', asOf: new Date(), range: {from: range.start, to: range.end, convention: 'UTC; start inclusive, end exclusive'}, coverage: 'Posted accounting is test-only and may not include historical business activity. Date filters apply to sales, expenses and cash statements. Debt, capital and inventory are current snapshots.', sales, expenses, cashBank, customers, suppliers, capital, inventory, opening: setup ? {status: 'HISTORICAL', cutoffAt: (setup.input as any)?.cutoffAt, totals: (setup.review as any)?.evidence?.totals} : null, profit: {status: 'UNAVAILABLE', evidence:valuationEvidence, message: 'Sales do not snapshot cost at sale. Opening stock, manual stock changes, purchase costs and damaged returns do not form a complete costed inventory ledger. Historical cost of goods sold and profit cannot be calculated reliably.'}};
+        return {currency: 'PKR', asOf: new Date(), range: {from: range.start, to: range.end, convention: 'UTC; start inclusive, end exclusive'}, coverage: 'Posted accounting covers confirmed openings and supported posted events; unposted historical activity is excluded. Date filters apply to sales, expenses and cash statements. Debt, capital and inventory are current snapshots.', sales, expenses, cashBank, customers, suppliers, capital, inventory, opening: setup ? {status: 'HISTORICAL', cutoffAt: (setup.input as any)?.cutoffAt, totals: (setup.review as any)?.evidence?.totals} : null, profit: {status: 'UNAVAILABLE', evidence:valuationEvidence, message: 'Sales do not snapshot cost at sale. Opening stock, manual stock changes, purchase costs and damaged returns do not form a complete costed inventory ledger. Historical cost of goods sold and profit cannot be calculated reliably.'}};
     });
     res.status(200).json(new apiResponse(200, data, 'Financial reports'));
 });

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { apiError } from "../utils/apiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Shop } from "../models/shop.model.js";
+import {accountingContext, enforceAccountingWrite, preparationPath} from '../utils/accountingActivation.js';
 import type { IUser } from "../models/user.model.js";
 
 export const SHOP_DEACTIVATED_MESSAGE = "Shop has been deactivated. Contact administrator.";
@@ -35,7 +36,17 @@ export const verifyShopUser = asyncHandler(async (req: Request, res: Response, n
     if (!shop.subscriptionActive || !shop.subscriptionExpiry || shop.subscriptionExpiry <= new Date()) {
         throw new apiError(403, "Subscription expired or inactive");
     }
-    next();
+    const path = req.originalUrl.split('?')[0]!.replace(/\/$/, '');
+    const activation = path.startsWith('/api/v2/accounts/activation');
+    const preparation = req.user.role === 'OWNER' && preparationPath(path);
+    const state=shop.accounting?.state ?? 'DISABLED';
+    const mutation=!['GET','HEAD','OPTIONS'].includes(req.method);
+    const financial=/^\/api\/v2\/(orders|purchases|accounts)(\/|$)/.test(path);
+    // Preparation freezes opening evidence. Emergency pause targets financial
+    // workflows; it does not disable ordinary product management or read-only AI.
+    if (!activation) enforceAccountingWrite(state, preparation, mutation &&
+        (state==='PREPARING' ? !/^\/api\/v2\/ai(\/|$)/.test(path) : financial));
+    accountingContext.run({shopId:String(shop._id),state:shop.accounting?.state ?? 'DISABLED',preparation}, () => next());
 });
 
 export const verifyOwner = (req: Request, res: Response, next: NextFunction) => {

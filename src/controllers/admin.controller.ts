@@ -1,4 +1,5 @@
 import {BusinessSetup} from '../models/businessSetup.model.js';
+import {AccountingActivationEvent} from '../models/accountingActivationEvent.model.js';
 import {CapitalEvent} from '../models/capitalEvent.model.js';
 import {Expense, ExpenseCategory} from '../models/expense.model.js';
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -41,6 +42,7 @@ export const deleteShop = asyncHandler(async (req, res) => {
         // Existing permanent-shop deletion is the sole ledger deletion exception.
         await BusinessTransaction.collection.deleteMany({shopId: new mongoose.Types.ObjectId(shopId)}, {session});
         await BusinessSetup.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
+        await AccountingActivationEvent.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
         await CapitalEvent.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
         await Expense.collection.deleteMany({shopId:new mongoose.Types.ObjectId(shopId)},{session});
         await ExpenseCategory.deleteMany({shopId},{session});

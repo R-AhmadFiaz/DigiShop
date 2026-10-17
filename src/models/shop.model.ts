@@ -12,6 +12,8 @@ interface IShop {
     subscriptionActive: boolean,
     isActive: boolean,
     subscriptionExpiry: Date | null,
+    accounting?: {state: 'PREPARING' | 'ACTIVE' | 'PAUSED', revision: number, strategy: 'CLEAN_START' | 'RECONCILE', cutoffAt?: Date, activatedAt?: Date, setupId?: Types.ObjectId},
+    accountingWriteRevision: number,
     createdAt: Date,
     updatedAt: Date
 }
@@ -45,6 +47,13 @@ const shopSchema = new Schema<IShop>(
         },
         purchaseCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
         receiptCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
+        accountingWriteRevision: {type:Number,default:0},
+        accounting: {type: new Schema({
+            state: {type:String,enum:['PREPARING','ACTIVE','PAUSED'],required:true},
+            revision: {type:Number,required:true,min:1},
+            strategy: {type:String,enum:['CLEAN_START','RECONCILE'],required:true},
+            cutoffAt: Date, activatedAt: Date, setupId: Schema.Types.ObjectId
+        }, {_id:false})},
         subscriptionActive: {
             type: Boolean,
             default: false

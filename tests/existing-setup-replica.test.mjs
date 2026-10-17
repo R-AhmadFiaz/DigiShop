@@ -213,7 +213,7 @@ await test('existing setup: real HTTP and disposable loopback replica set',{skip
             assert.equal((await tx(s=>accounts.getAccountBalance(a.actor,String(cash._id),s))).balanceMinor,11000);assert.equal((await Product.findById(product._id)).stockQuantity,21);
         });
         await t.test('production accounting remains disabled',async()=>{
-            process.env.NODE_ENV='production';try{assert.equal((await http('POST',base+'/confirm',confirmBody)).status,503);}finally{process.env.NODE_ENV='test';}
+            process.env.NODE_ENV='production';try{assert.equal((await http('POST',base+'/confirm',confirmBody)).status,409);}finally{process.env.NODE_ENV='test';}
         });
         await t.test('existing cash openings and zero-balance cutovers are reused without duplicate cash/equity',async()=>{
             const otherTx=work=>accounts.businessTransaction(b.actor,work),acc=(kind,code)=>otherTx(s=>accounts.createFinancialAccount(b.actor,{kind,code,name:code},s));

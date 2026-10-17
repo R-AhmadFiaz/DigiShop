@@ -80,10 +80,10 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
             const old=await sale({receiptAccountId:undefined});assert.equal((await http('PATCH',`/orders/${old.order._id}/cancel`,{})).status,200);
             assert.equal((await Product.findById(old.p._id)).stockQuantity,20);
         });
-        await t.test('explicit flag refuses non-test environments and cannot enable live posting',async()=>{
+        await t.test('global flag alone does not activate production accounting or disrupt legacy POS',async()=>{
             process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';
             const p=await product(),before=await Order.countDocuments();
-            try{assert.equal((await http('POST','/orders/create-order',saleBody(p))).status,503);assert.equal(await Order.countDocuments(),before);}finally{process.env.NODE_ENV='test';}
+            try{assert.equal((await http('POST','/orders/create-order',saleBody(p))).status,201);assert.equal(await Order.countDocuments(),before+1);assert.equal(await Order.countDocuments({accountingMode:'LIVE'}),0);}finally{process.env.NODE_ENV='test';}
             assert.equal(invoiceAccountingEnabled(),true);
         });
         await t.test('OWNER sale creates one initial source, exact cash posting, snapshots and idempotent replay',async()=>{
@@ -471,7 +471,7 @@ await test('Phase 2B actual HTTP financial writers with isolated MongoDB transac
             assert.equal((await http('GET',`/accounts/financial/${id}`)).status,409);
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;
             try{assert.equal((await http('GET',`/accounts/financial/${cash._id}`)).status,409);assert.equal((await http('POST','/accounts/financial',{code:'BLOCKED',name:'Blocked',kind:'BANK'})).status,409);assert.equal((await http('GET','/accounts/entities')).status,200);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
-            process.env.NODE_ENV='production';try{assert.equal((await http('POST',`/accounts/financial/${id}/opening`,body)).status,503);}finally{process.env.NODE_ENV='test';}
+            process.env.NODE_ENV='production';try{assert.equal((await http('POST',`/accounts/financial/${id}/opening`,body)).status,409);}finally{process.env.NODE_ENV='test';}
         });
         await t.test('public cutover preparation rolls back invalid evidence and permits only confirmed test balances',async()=>{
             const till=(await http('POST','/accounts/financial',{code:'PREVIEW_TILL',name:'Prepared till',kind:'CASH'})).body.data;

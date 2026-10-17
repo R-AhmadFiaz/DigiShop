@@ -1,3 +1,4 @@
+import {accountingContext, claimAccountingShop,productionPostingActive} from './accountingActivation.js';
 import {BusinessSetup} from '../models/businessSetup.model.js';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
@@ -322,6 +323,7 @@ function utcDate(value: unknown): Date {
 async function owner(actor: Actor, session: Session, write = false, cashierSale = false) {
     if (!session?.inTransaction()) throw new apiError(400, 'An active MongoDB transaction is required');
     if (!actor || !((actor.role === 'OWNER') || (cashierSale && actor.role === 'CASHIER')) || !mongoose.isValidObjectId(actor._id) || !mongoose.isValidObjectId(actor.shopId)) throw new apiError(403, 'Owner shop access required');
+    await claimAccountingShop(actor, session, write);
     const user = await User.findOne({_id: actor._id, shopId: actor.shopId, role: actor.role}).session(session);
     const shopScope = {_id: actor.shopId, ...(actor.role === 'OWNER' ? {ownerId: actor._id} : {})};
     const shop = await Shop.findOne(shopScope).session(session);
@@ -344,7 +346,9 @@ export async function businessTransaction<T>(actor: Actor, work: (session: Sessi
     session.startTransaction({readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}});
     try {
         await owner(actor, session, write);
-        const result = await work(session);
+        const shop = await Shop.findById(actor.shopId).session(session);
+        const prior = accountingContext.getStore();
+        const result = await accountingContext.run({shopId:String(actor.shopId),state:shop?.accounting?.state ?? 'DISABLED',preparation:prior?.shopId===String(actor.shopId) && prior.preparation === true}, () => work(session));
         await session.commitTransaction();
         return result;
     } catch (error: any) {
@@ -589,6 +593,7 @@ export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryI
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
 async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REFUND' | 'SUPPLIER_CREDIT_APPLICATION' | 'SUPPLIER_REVERSAL' | 'EXPENSE' | 'EXPENSE_REVERSAL' | 'CAPITAL_CONTRIBUTION' | 'CAPITAL_WITHDRAWAL' | 'CAPITAL_REVERSAL', referenceId?: string}, confirmed = false) {
+    if (process.env.NODE_ENV === 'production' && !invoiceAccountingEnabled()) throw new apiError(409, 'Accounting preparation or activation is required');
     const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
     if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
     const user = await owner(actor, session, false, cashierSale);
@@ -758,9 +763,9 @@ export async function validateInvoiceCashRouting(actor: Actor, routing: {receipt
 async function cashierSaleEvent(actor: Actor, eventId: string, session: Session) {
     await owner(actor, session, false, true);
     const event = await InvoiceAdjustment.findOne({_id: id(eventId), shopId: actor.shopId}).session(session).lean();
-    if (!event || event.kind !== 'SALE' || event.createdByRole !== 'CASHIER' || String(event.createdBy) !== String(actor._id) || event.cashRouting?.mode !== 'INTEGRATION_TEST' ||
+    if (!event || event.kind !== 'SALE' || event.createdByRole !== 'CASHIER' || String(event.createdBy) !== String(actor._id) || !['INTEGRATION_TEST','LIVE'].includes(event.cashRouting?.mode ?? '') ||
         event.financial?.cashRefundMinor !== 0 || event.financial?.creditIssuedMinor !== 0 || event.financial?.creditRestoredMinor !== 0 ||
-        process.env.BUSINESS_ACCOUNTING_ENABLED !== 'true' || process.env.NODE_ENV !== 'test' ||
+        !invoiceAccountingEnabled() ||
         !await Order.exists({_id: event.orderId, shopId: actor.shopId, createdBy: actor._id, type: 'INVOICE'}).session(session)) throw new apiError(403, 'Cashier posting requires their own initial sale');
     return event;
 }
@@ -909,7 +914,7 @@ export async function reconcileCashBank(actor: Actor, input: {clearingAccountId:
     const supplierReconciliation=[];
     for(const supplierId of supplierIds)supplierReconciliation.push({supplierId,...await reconcileSupplier(actor,supplierId,session)});
     const orphanedSupplierCashJournals=supplierJournals.filter(j=>!supplierEvents.some(e=>String(e._id)===String(j.source.referenceId))).map(j=>({journalId:j._id,referenceId:j.source.referenceId}));
-    return {state: 'PREPARED' as const, livePostingEnabled: false, cutoffAt: config.cutoffAt, balances, entries,
+    return {state: 'PREPARED' as const, livePostingEnabled: productionPostingActive(), cutoffAt: config.cutoffAt, balances, entries,
         supplierReconciliation,orphanedSupplierCashJournals,
         pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)},
         missingInitialEvents: {recordCount: missingInitial[0]?.missingCount[0]?.value ?? 0, entries: missingInitial[0]?.missingEntries ?? []},
@@ -984,7 +989,7 @@ export async function postExpenseMovement(actor: Actor, event: any, session: Ses
 
 // Only the capital controller supplies these immutable, same-transaction events.
 export async function postCapitalMovement(actor: Actor, event: any, session: Session) {
-    if (!invoiceAccountingEnabled()) throw new apiError(409, 'Capital posting requires prepared test accounting');
+    if (!invoiceAccountingEnabled()) throw new apiError(409, 'Capital posting requires prepared accounting');
     const {cutoffAt} = await preparedCashAccount(actor, String(event.accountId), session);
     if (cutoffAt > new Date() || event.occurredAt < cutoffAt) throw new apiError(409, 'Capital posting must follow cash/bank cutoff');
     const capital = await accountInShop(actor, String(event.capitalAccountId), session);

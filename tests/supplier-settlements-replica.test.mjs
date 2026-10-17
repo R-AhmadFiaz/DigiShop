@@ -185,7 +185,7 @@ await test('supplier settlements: actual HTTP and disposable loopback replica se
         });
         await t.test('disabled mode and production guard reject new supplier financial mutations',async()=>{
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;assert.equal((await http('POST',base+'/payments',payment(1,bank))).status,409);assert.equal((await http('POST',base+'/returns',returned(receipt))).status,409);
-            process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';try{assert.equal((await http('POST',base+'/payments',payment(1,bank))).status,503);}finally{process.env.NODE_ENV='test';}
+            process.env.BUSINESS_ACCOUNTING_ENABLED='true';process.env.NODE_ENV='production';try{assert.equal((await http('POST',base+'/payments',payment(1,bank))).status,409);}finally{process.env.NODE_ENV='test';}
         });
         const creditSupplier=await tx(s=>accounts.createBusinessEntity(a.actor,{key:'credit-supplier',name:'Credit supplier',roles:['SUPPLIER']},s));
         const creditAp=await account('SUPPLIER_PAYABLE','CREDIT-AP',creditSupplier._id),creditBase='/accounts/suppliers/'+creditSupplier._id;

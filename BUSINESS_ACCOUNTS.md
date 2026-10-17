@@ -1911,3 +1911,8 @@ kept that receipt unchanged, and subsequently posted a new 100-paisa delivery as
 cash/bank, supplier, customer, expense and capital balances remained consistent.
 Accounting is still disabled by default and test-only. No production data access/migration,
 branches, commits, pushes, deployment or full-project survey occurred.
+
+
+## Production activation policy update
+
+See [ACCOUNTING_ACTIVATION.md](ACCOUNTING_ACTIVATION.md) for the current explicit production permission, per-shop activation, clean-start/reconciliation, account enrollment, pause/resume and deployment contracts. This supersedes historical test-only restrictions above. Defaults remain disabled; no automatic demo cleanup or production migration is provided.

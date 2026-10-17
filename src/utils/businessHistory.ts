@@ -12,12 +12,14 @@ import {SupplierCutover} from '../models/supplierCutover.model.js';
 import {Order} from '../models/order.model.js';
 import {apiError} from './apiError.js';
 import {balancedPostings, signedBalance} from './businessAccounting.js';
+import {productionPostingActive,accountingMode} from './accountingActivation.js';
 import {signedLedgerMinor} from './invoiceSettlement.js';
 
 export const journalTypes = ['MANUAL', 'OPENING', 'REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'TRANSFER', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REFUND', 'SUPPLIER_CREDIT_APPLICATION', 'SUPPLIER_REVERSAL', 'EXPENSE', 'EXPENSE_REVERSAL', 'CAPITAL_CONTRIBUTION', 'CAPITAL_WITHDRAWAL', 'CAPITAL_REVERSAL'];
 export const legacyTypes = ['PURCHASE', 'CANCELLATION', 'PAYMENT', 'ADJUSTMENT', 'CREDIT_ISSUED', 'CREDIT_REDEEMED', 'CREDIT_RESTORED'];
-export const journalCoverage = {mode:'INTEGRATION_TEST', complete:false, livePostingEnabled:false,
-    records:'BUSINESS_JOURNAL', excludes:['Unposted legacy activity','Noncash settlement events without a journal','Deferred supplier receipts, supplier refund-due balances and full inventory valuation']};
+export const journalCoverage = {get mode(){return accountingMode();}, complete:false,
+    get livePostingEnabled(){return productionPostingActive();},
+    records:'BUSINESS_JOURNAL', excludes:['Unposted legacy activity','Noncash settlement events without a journal','Deferred supplier receipts and full historical inventory valuation']};
 
 export function historyFilters(input: {from?: unknown, to?: unknown, q?: unknown, type?: unknown, sourceId?: unknown}, types: string[]) {
     function date(value: unknown) {

@@ -1,3 +1,4 @@
+import {accountingMode, claimAccountingShop, requireInvoiceCutover} from '../utils/accountingActivation.js';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
 import {Order} from '../models/order.model.js';
@@ -92,6 +93,7 @@ export async function invoiceEligibility(order: any, session: mongoose.ClientSes
     if (order.accountingMode && !invoiceAccountingEnabled()) return {...base, adjustmentEligible: false, paymentEligible: false, cancellationEligible: false, reason: 'Accounting invoice is locked while integration is disabled'};
     if (!['PENDING', 'DELIVERED'].includes(order.status)) return {...base, adjustmentEligible: false, paymentEligible: false, cancellationEligible: false, reason: 'Invoice is locked'};
     try {
+        await requireInvoiceCutover(order, session);
         planInvoiceAdjustment(order, {requestKey: 'eligibility-read', expectedRevision: base.revision, reason: 'Read eligibility', returns: [], additions: []}, [], true);
         await verifiedInvoiceFunding(order, session);
         return {...base, adjustmentEligible: true, paymentEligible: order.amountDue > 0 && !!order.customerId,
@@ -131,6 +133,7 @@ export function invoicePreview(kind: Operation) {
             if (!shop.subscriptionActive || !shop.subscriptionExpiry || shop.subscriptionExpiry <= new Date()) throw new apiError(403, 'Subscription expired or inactive');
             const order = await Order.findOne({_id: String(req.params.orderId), shopId: req.user.shopId, type: 'INVOICE'}).session(session);
             if (!order) throw new apiError(404, 'Invoice not found');
+            await requireInvoiceCutover(order, session);
             const accounting = invoiceAccountingEnabled();
             if (!accounting && order.accountingMode) throw new apiError(409, 'Accounting invoice is locked while integration is disabled');
             if ((order.revision ?? 0) !== input.expectedRevision) throw new apiError(409, 'Invoice changed; reload before preview');
@@ -271,6 +274,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
     const session = await mongoose.startSession();
     session.startTransaction(accounting ? {readConcern: {level: 'snapshot'}, writeConcern: {w: 'majority'}} : undefined);
     try {
+        await claimAccountingShop(actor, session);
         const shop = await Shop.findById(actor.shopId).session(session);
         if (!shop || String(shop.ownerId) !== String(actor._id)) throw new apiError(403, 'Owner shop access required');
         if (shop.isActive === false) throw new apiError(403, 'Shop has been deactivated. Contact administrator.');
@@ -283,6 +287,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
         }
         const order = await Order.findOne({_id: orderId, shopId: actor.shopId, type: 'INVOICE'}).session(session);
         if (!order) throw new apiError(404, 'Invoice not found');
+        await requireInvoiceCutover(order, session);
         if (!accounting && order.accountingMode) throw new apiError(409, 'Accounting invoice is locked while integration is disabled');
         if ((order.revision ?? 0) !== input.expectedRevision) throw new apiError(409, 'Invoice changed; reload before adjusting');
         const products = await Product.find({shopId: actor.shopId, _id: {$in: input.additions.map(item => item.productId)}}).session(session);
@@ -306,7 +311,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             discountType: plan.after.discountType, discountValue: plan.after.discountValue,
             paidAmount: moneyMajor(settlement.settledMinor), amountDue: moneyMajor(settlement.dueMinor),
             settlementState: settlement.settlementState,
-            ...(accounting ? {accountingMode: 'INTEGRATION_TEST'} : {}),
+            ...(accounting ? {accountingMode: accountingMode()} : {}),
             returnState: !plan.after.items.length ? 'FULL' : plannedInput.returns.length || order.returnState === 'PARTIAL' || order.returnState === 'FULL' ? 'PARTIAL' : 'NONE'};
         if (kind === 'CANCELLATION') Object.assign(changes, {status: 'CANCELLED', cancelledAt: occurredAt, cancellationMode: 'SETTLED'});
         if (settlement.recipientId) changes.creditRecipientId = settlement.recipientId;
@@ -336,7 +341,7 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             revisionBefore: input.expectedRevision, revisionAfter: input.expectedRevision + 1,
             createdBy: actor._id, createdByName: actor.username, reason: input.reason.trim(),
             ...(accounting ? {createdByRole: actor.role} : {}),
-            ...(accounting ? {cashRouting: {mode: 'INTEGRATION_TEST', ...routing}} : {}),
+            ...(accounting ? {cashRouting: {mode: accountingMode(), ...routing}} : {}),
             before: plan.before, after: plan.after, movements: plan.movements,
             financial: {salesDeltaMinor: plan.after.totalMinor - plan.before.totalMinor, debtDeltaMinor: settlement.debtDeltaMinor,
                 cashReceivedMinor: settlement.cashReceivedMinor, cashRefundMinor: settlement.cashRefundMinor,

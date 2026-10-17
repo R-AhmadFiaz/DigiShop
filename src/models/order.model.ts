@@ -43,7 +43,7 @@ const orderItemSchema = new Schema<IOrderItems>({
 // Order interface
 
 export interface IOrder extends Document{
-    accountingMode?: 'INTEGRATION_TEST',
+    accountingMode?: 'INTEGRATION_TEST' | 'LIVE',
     revision?: number,
     originalSnapshot?: Record<string, any>,
     returnState?: 'NONE' | 'PARTIAL' | 'FULL',
@@ -141,7 +141,7 @@ const orderSchema = new Schema<IOrder>(
             trim: true
         },
         revision: {type: Number, default: 0, min: 0},
-        accountingMode: {type: String, enum: ['INTEGRATION_TEST']},
+        accountingMode: {type: String, enum: ['INTEGRATION_TEST','LIVE']},
         returnState: {type: String, enum: ['NONE', 'PARTIAL', 'FULL'], default: 'NONE'},
         // Set once by the internal adjustment core; existing public writes are unchanged.
         originalSnapshot: {type: Schema.Types.Mixed, immutable: true},

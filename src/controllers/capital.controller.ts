@@ -42,7 +42,7 @@ export const capital=(operation:string)=>asyncHandler(async(req,res)=>{
     res.setHeader('Cache-Control','no-store');const actor=req.user,body=req.body??{};
     const data=await accounts.businessTransaction(actor,async session=>{
         if(operation==='setup'){
-            const available=invoiceAccountingEnabled();return {available,accounts:available?await accounts.selectInvoicePaymentAccounts(actor,session):[],message:available?'Prepared test accounting only.':'Capital posting and balances unavailable; accounting is disabled.'};
+            const available=invoiceAccountingEnabled();return {available,accounts:available?await accounts.selectInvoicePaymentAccounts(actor,session):[],message:available?'Prepared accounting; posting is subject to shop activation.':'Capital posting and balances unavailable; accounting is disabled.'};
         }
         if(operation==='createPartner'){
             if(body.entityId){
@@ -87,7 +87,7 @@ export const capital=(operation:string)=>asyncHandler(async(req,res)=>{
             const entries=[];for(const row of rows)entries.push({...await accounts.getBusinessEntity(actor,String(row._id),session),capital:ready?await position(actor.shopId,String(row._id),session):null});
             return {entries,available:ready,message,total:ready?await position(actor.shopId,undefined,session):null,pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};
         }
-        if(!invoiceAccountingEnabled())throw new apiError(409,'Capital posting and history require prepared test accounting');
+        if(!invoiceAccountingEnabled())throw new apiError(409,'Capital posting and history require prepared accounting');
         await accounts.selectInvoicePaymentAccounts(actor,session);
         if(operation==='post'||operation==='reverse'){
             const requestKey=text(body.requestKey,100);if(!/^[\w-]{8,100}$/.test(requestKey))throw new apiError(400,'Valid idempotency key required');

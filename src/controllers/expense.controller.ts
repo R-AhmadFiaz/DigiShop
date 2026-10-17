@@ -29,7 +29,7 @@ function pageNumber(value: unknown, fallback: number, max: number) {
     if (typeof value !== 'string' || !/^\d+$/.test(value) || !Number.isSafeInteger(+value) || +value < 1 || +value > max) throw new apiError(400, 'Invalid pagination');
     return +value;
 }
-function enabled() { if (!invoiceAccountingEnabled()) throw new apiError(409, 'Accounting unavailable; expenses require prepared test accounting'); }
+function enabled() { if (!invoiceAccountingEnabled()) throw new apiError(409, 'Accounting unavailable; expenses require prepared accounting'); }
 
 export const expenses = (operation: string) => asyncHandler(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');

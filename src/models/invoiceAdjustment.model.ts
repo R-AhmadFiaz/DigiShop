@@ -29,7 +29,7 @@ const adjustmentSchema = new Schema({
     requestHash: {type: String, required: true},
     sourceQuotationId: {type: Schema.Types.ObjectId},
     cashRouting: {type: new Schema({
-        mode: {type: String, enum: ['INTEGRATION_TEST'], required: true},
+        mode: {type: String, enum: ['INTEGRATION_TEST','LIVE'], required: true},
         receiptAccountId: {type: Schema.Types.ObjectId}, refundAccountId: {type: Schema.Types.ObjectId}
     }, {_id: false})},
     revisionBefore: {type: Number, required: true},
