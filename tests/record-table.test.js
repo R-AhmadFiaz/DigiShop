@@ -8,21 +8,25 @@ import fs from 'node:fs';
 const server=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});
 try{
   const {default:RecordTable,RecordFacts}=await server.ssrLoadModule('/src/components/RecordTable.jsx');
+  const {activity}=await server.ssrLoadModule('/src/api/purchases.js');
+  await test('stock action labels explain movements without changing source codes',()=>{
+    for(const [code,label] of Object.entries({PURCHASE_RECEIVED:'Goods Received',PURCHASE_RETURN:'Goods Returned',RESTOCK:'Returned to Stock','Ordered Created':'Sold','Order Sold':'Sold from Quotation'}))assert.equal(activity(code),label);
+  });
   const columns=[{key:'reference',label:'Reference'},{key:'amount',label:'Amount',numeric:true}];
   await test('shared table styles center headers, values, placeholders and action buttons',()=>{
     const rows=[{_id:'empty',reference:'—',amount:'—'},{_id:'paid',reference:'INV-1',amount:'PKR 5,000.00'},{_id:'zero',reference:'Name — note',amount:0}];
     const html=renderToStaticMarkup(createElement(RecordTable,{label:'Alignment',columns,rows}));
     assert.match(html,/class="record-reference record-placeholder">—<\/td>/);
-    assert.match(html,/class="text-end record-number record-placeholder">—<\/td>/);
-    assert.match(html,/class="text-end record-number">PKR 5,000.00<\/td>/);
-    assert.match(html,/class="text-end record-number">0<\/td>/);
+    assert.match(html,/class="record-number record-placeholder">—<\/td>/);
+    assert.match(html,/class="record-number">PKR 5,000.00<\/td>/);
+    assert.match(html,/class="record-number">0<\/td>/);
     assert.match(html,/class="record-reference">Name — note<\/td>/);
-    assert.match(html,/<th[^>]*class="text-end record-number"[^>]*>Amount<\/th>/);
+    assert.match(html,/<th[^>]*class="record-number"[^>]*>Amount<\/th>/);
     const css=fs.readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
     assert.match(css,/table th, table td,\s*table \.text-start, table \.text-end\s*\{\s*text-align: center !important;/);
     assert.match(css,/table \.btn\s*\{\s*text-align: center !important; justify-content: center;/);
     assert.match(css,/table \{ font-size: 14\.5px; \}/);
-    assert.match(css,/table th \{ font-size: 14px; font-weight: 600; \}/);
+    assert.match(css,/table th \{ font-size: 14px; font-weight: 600; position: relative; \}/);
     assert.doesNotMatch(css,/\.record-table th:not\(\.record-number\).*text-align: left/);
   });
   await test('register preserves supplied event order, amounts and unavailable values',()=>{
@@ -48,7 +52,7 @@ try{
   await test('date, reference, amount and action columns get distinct layout classes',()=>{
     const html=renderToStaticMarkup(createElement(RecordTable,{label:'Statement',columns:[{key:'date',label:'Date'},{key:'reference',label:'Reference'},{key:'amount',label:'Amount',numeric:true},{key:'open',label:'Action'}],rows:[{_id:'event',date:'1 Jan 2026',reference:'INV-100',amount:100,open:'View'}]}));
     assert.match(html,/class="record-date"/);assert.match(html,/class="record-reference"/);
-    assert.match(html,/class="text-end record-number"/);assert.match(html,/class="record-actions"/);
+    assert.match(html,/class="record-number"/);assert.match(html,/class="record-actions"/);
   });
   await test('invoice and delivery histories retain immutable record actions and API paths',()=>{
     const invoice=fs.readFileSync(new URL('../src/components/InvoiceHistory.jsx',import.meta.url),'utf8');

@@ -3,6 +3,9 @@ import { amount } from './invoice.js';
 export const pkr = minor => Number.isSafeInteger(minor) ? 'PKR ' + (minor / 100).toLocaleString('en-PK', {minimumFractionDigits:2,maximumFractionDigits:2}) : 'Unavailable';
 export const pakistanTime = value => value ? new Date(value).toLocaleString('en-PK', {timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'}) : 'Unavailable';
 const activityNames = {
+  PURCHASE_RECEIVED:'Goods Received', PURCHASE_RETURN:'Goods Returned',
+  RESTOCK:'Returned to Stock', 'Ordered Created':'Sold', 'Order Sold':'Sold from Quotation',
+  'Order get cancelled':'Cancelled sale', Sale:'Sold', 'Quotation sale':'Sold from Quotation',
   SUPPLIER_PAYABLE:'We owe supplier', CUSTOMER_RECEIVABLE:'Customer owes us',
   STORE_CREDIT_LIABILITY:'Customer store credit', SUPPLIER_CREDIT:'Supplier owes us',
   OPENING_EQUITY:'Starting business value', PURCHASES_CLEARING:'Received-goods account',

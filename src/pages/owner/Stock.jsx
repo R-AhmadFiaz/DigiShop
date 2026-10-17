@@ -1,4 +1,5 @@
 import RecordTable, {RecordFacts} from '../../components/RecordTable';
+import { activity } from '../../api/purchases';
 import { useState } from "react";
 import { api, query } from "../../api/client";
 import { useLoad } from "../../api/hooks";
@@ -280,7 +281,7 @@ function StockHistory({ products }) {
  {key:'product',label:'Product',render:l=><>{l.productId?.name||'Product unavailable'}<small className="d-block text-body-secondary">{l.productId?.brand}</small></>},
  {key:'added',label:'Stock added (+)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta>0?'+'+l.quantityDelta:'—':'Unavailable'},
  {key:'removed',label:'Stock reduced (−)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta<0?l.quantityDelta:'—':'Unavailable'},
- {key:'action',label:'Action',render:l=>l.reason==='Ordered Created'?'Sale':l.reason==='Order Sold'?'Quotation sale':l.reason==='Order get cancelled'?'Cancelled sale':l.reason?.length>60?l.reason.slice(0,57)+'…':l.reason},
+ {key:'action',label:'Action',render:l=>activity(l.reason)},
  {key:'invoice',label:'Invoice',render:l=>l.invoiceNo||'—'}
  ]} details={l=><RecordFacts items={[["Reason",l.reason],["Stock change",l.quantityDelta],["Purchase",l.purchaseReference||'—'],["Delivery",l.receivingReference||'—'],["Return handling",l.disposition||'—'],["Returned units",l.returnedQuantity??'Unavailable']]}/>} empty="No stock history found."/>}
       <Pagination pagination={logs.data?.pagination} onPage={setPage} />

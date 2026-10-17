@@ -118,8 +118,10 @@ table th, table td,
 table .text-start, table .text-end {
   text-align: center !important;
 }
-table th { font-size: 14px; font-weight: 600; }
+table th { font-size: 14px; font-weight: 600; position: relative; }
 table .btn { text-align: center !important; justify-content: center; }
+table td > .d-flex { justify-content: center !important; }
+table td .form-control, table td .form-select { text-align: center; }
 .table th {
   color: #4b5563;
   font-size: 14px;
@@ -608,6 +610,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .record-table thead th { font-size: 14px; font-weight: 600; white-space: normal; line-height: 1.3; }
 .record-table td { overflow-wrap: normal; word-break: normal; }
 .record-table .record-date, .record-table .record-reference { white-space: nowrap; width: 1%; }
+.record-table .record-description { min-width: 10rem; overflow-wrap: anywhere; }
 .record-table th.record-number { white-space: normal; min-width: 7rem; }
 .record-table .record-number { width: 1%; }
 .record-table .btn { min-height: 30px; padding: 3px 8px; font-size: 14px; white-space: nowrap; }
