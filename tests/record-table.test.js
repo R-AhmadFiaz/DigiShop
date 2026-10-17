@@ -9,6 +9,18 @@ const server=await createServer({server:{middlewareMode:true,hmr:false},appType:
 try{
   const {default:RecordTable,RecordFacts}=await server.ssrLoadModule('/src/components/RecordTable.jsx');
   const columns=[{key:'reference',label:'Reference'},{key:'amount',label:'Amount',numeric:true}];
+  await test('placeholder dashes center without changing numeric or text column alignment',()=>{
+    const rows=[{_id:'empty',reference:'—',amount:'—'},{_id:'paid',reference:'INV-1',amount:'PKR 5,000.00'},{_id:'zero',reference:'Name — note',amount:0}];
+    const html=renderToStaticMarkup(createElement(RecordTable,{label:'Alignment',columns,rows}));
+    assert.match(html,/class="record-reference record-placeholder">—<\/td>/);
+    assert.match(html,/class="text-end record-number record-placeholder">—<\/td>/);
+    assert.match(html,/class="text-end record-number">PKR 5,000.00<\/td>/);
+    assert.match(html,/class="text-end record-number">0<\/td>/);
+    assert.match(html,/class="record-reference">Name — note<\/td>/);
+    assert.match(html,/<th[^>]*class="text-end record-number"[^>]*>Amount<\/th>/);
+    const css=fs.readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
+    assert.match(css,/\.record-table td\.record-placeholder\s*\{\s*text-align: center !important;/);
+  });
   await test('register preserves supplied event order, amounts and unavailable values',()=>{
     const rows=[{_id:'later',reference:'RET-2',amount:0},{_id:'earlier',reference:'INV-1',amount:null}];
     const before=JSON.stringify(rows);
