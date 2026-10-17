@@ -32,8 +32,11 @@ preview tokens, request keys and financial confirmations are retained.
 
 ## Common design
 
-White and sea green retained. Body/forms 17px; buttons 16px with 42px minimum
-height; secondary text darkened; numbers use tabular figures. Wide tables retain
+White and sea green retained. Body/forms 16px; secondary labels 14–15px;
+buttons 15px with 36px minimum desktop height and 44px mobile/touch targets.
+Cards use 14px padding, table text is 15px with 7px vertical cell padding,
+and the desktop sidebar is 216px wide. Section gaps and headings are moderately
+compact. Secondary text stays dark; numbers use tabular figures. Wide tables retain
 horizontal scrolling. The document, desktop sidebar and modal are the intentional
 vertical scroll areas; product lists and conversation do not create nested traps.
 Smaller viewports wrap headers, tabs and pagination.
@@ -64,7 +67,7 @@ no production fallback. It retains persisted stock, debt, credit, journal,
 rollback, permission and retry assertions. Evidence goes to ignored
 `tests/artifacts/readability-workflows.json`.
 
-Verified on the final build:
+Initial usability-pass verification (before the medium-density follow-up):
 
 - Lint and production build passed; all 96 frontend automated tests passed.
 - Existing fixture-based frontend browser smoke passed, including registration,
@@ -83,3 +86,15 @@ Verified on the final build:
   dialog checks. Native browser zoom and scrollbar drag were not manually tested;
   the checks verify overflow, available scrolling and reachable controls.
 - Backend working tree remained unchanged; no commits, pushes or deployments.
+
+Medium-density follow-up verification:
+
+- Lint, production build and all 96 automated tests passed.
+- All 34 real business/browser scenario groups passed on a disposable local
+  replica set, including the added computed-size checks for 16px body text,
+  15px tables, 7px cell padding, 216px sidebar and compact desktop buttons.
+- Desktop, 820px tablet, 390px mobile and narrow/zoom-equivalent layouts fit
+  without page overflow. Visible mobile controls retained 44px targets; long
+  dialogs still scrolled with reachable actions.
+- Changes were limited to the shared stylesheet, browser checks and this document.
+  No application logic, API, language, permissions or accounting changes.

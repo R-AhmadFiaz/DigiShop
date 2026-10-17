@@ -30,10 +30,19 @@ source=source.replaceAll(/(['"])\.\.\/dist\/([^'"]+)\1/g,(_,quote,file)=>quote+p
 const checks=`
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await navigation('/owner/products');
-  assert.ok(await evaluate('parseFloat(getComputedStyle(document.body).fontSize)>=16'));
+  await wait('!!document.querySelector(".table tbody td")');
+  assert.equal(await evaluate('getComputedStyle(document.body).fontSize'),'16px');
+  assert.equal(await evaluate('document.querySelector(".sidebar").getBoundingClientRect().width'),216);
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".table")).fontSize'),'15px');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".table td")).paddingTop'),'7px');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".btn")).minHeight'),'36px');
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Desktop page fits');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".sidebar")).overflowY'),'auto');
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:740,deviceScaleFactor:1,mobile:true});
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Mobile page has no horizontal overflow');
+  assert.ok(await evaluate('[...document.querySelectorAll(".btn,.form-control,.form-select")].filter(e=>e.getClientRects().length).every(e=>e.getBoundingClientRect().height>=44)'),'Mobile controls retain 44px touch targets');
+  await send('Emulation.setDeviceMetricsOverride',{width:820,height:900,deviceScaleFactor:1,mobile:false});
+  assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Tablet page fits');
   await send('Emulation.setDeviceMetricsOverride',{width:640,height:400,deviceScaleFactor:1,mobile:false});
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Narrow / zoom-equivalent viewport fits');
   await click('Add product');await wait('!!document.querySelector("dialog[open]")');
@@ -43,7 +52,7 @@ const checks=`
   assert.ok(await evaluate('document.querySelector(".dialog-header").getBoundingClientRect().top>=document.querySelector("dialog").getBoundingClientRect().top'),'Dialog heading remains reachable');
   await click('Close');
   await send('Emulation.clearDeviceMetricsOverride');
-  pass('Readable body text, scrollable desktop sidebar, mobile/zoom-equivalent layout and long-dialog actions');
+  pass('Medium-density desktop text/tables/controls, scrollable sidebar, mobile touch targets, tablet/zoom-equivalent layout and long-dialog actions');
   await click('Sign out');await wait('!!document.querySelector("[name=identity]")');await click('Register your shop');
   for(const [name,value]of Object.entries({shopName:'Readability New Shop',contactNo:'03009998877',address:'Test Market',username:'readabilitynewowner',email:'readability@local.invalid',password:'local-test-password'}))await fill('[name='+name+']',value);
   await click('Create shop');await wait('location.pathname!=="/register"&&!document.querySelector("[name=shopName]")');
