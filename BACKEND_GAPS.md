@@ -240,3 +240,12 @@ customer balances are not duplicated or overwritten. See BUSINESS_ACCOUNTS.md St
 Verification: frontend lint/build passed; 79 tests passed; real local browser integration
 passed 27 groups, backed by disposable MongoDB/Express (not mocked balances). Full backend
 414 tests passed. No production accounting activation, data access, commits or deployment.
+
+
+## Explicit production accounting activation
+
+Existing Business Setup now provides OWNER-only preparation, readiness, activation, pause/resume, audit history and additional cash/bank enrollment. Both server permissions remain off by default; keep NODE_ENV=production. Historical test-only statements above are superseded by store-backend/ACCOUNTING_ACTIVATION.md.
+
+Clean start never clears demo debt/credit, supplier obligations or history. Nonzero/unreconciled evidence blocks it. Explicit reconciliation retains verified genuine balances only; unsupported demo cleanup remains blocked. Pre-start clean-start invoices stay readable but cannot issue settlements into active accounts. Preparation freezes business mutations until activation. Confirmed openings cannot be reset. Historical GL/COGS/profit remains incomplete.
+
+Enrollment requires verified opening money, not transfers or investments. The picker loads the first 100 accounts; larger shops can use an explicit authenticated API selection. Guided readiness limits are documented; missing evidence fails closed.

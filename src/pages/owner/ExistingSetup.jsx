@@ -5,6 +5,7 @@ import {useLoad} from '../../api/hooks';
 import {pkr,minorAmount,pakistanTime} from '../../api/purchases';
 import {Field,Notice,PageTitle} from '../../components/Common';
 import SupplierAction from '../../components/SupplierAction';
+import AccountingActivation from '../../components/AccountingActivation';
 
 const root='/accounts/existing-setup';
 function Draft({setup,evidence,locked,onSaved}){
@@ -60,7 +61,8 @@ export default function ExistingSetup(){
   function changed(){setPreview(null);setConfirmation('');view.reload();}
   return <>
     <PageTitle title="Existing Business Setup"/>
-    <p className="text-body-secondary">For a shop that traded before DigiShop. Review existing records once; do not create fake sales, purchases or investments to enter opening balances. Financial confirmation remains test-only.</p>
+    <AccountingActivation onChanged={view.reload}/>
+    <p className="text-body-secondary">For a shop that traded before DigiShop. Review existing records once; do not create fake sales, purchases or investments to enter opening balances. Financial confirmation requires explicit server permission and owner preparation.</p>
     <Notice loading={view.loading} error={view.error||error}/>
     {view.data&&<SupplierAction operation="existing-setup-confirmation" onChanged={changed}>{({prepare,locked})=><>
       {confirmed&&<div className="alert alert-success">Opening setup confirmed by {view.data.setup.confirmedByName} on {pakistanTime(view.data.setup.confirmedAt)}. These are preserved opening values, not current balances. Corrections require separate reconciliation; do not repeat this setup.</div>}

@@ -1,5 +1,7 @@
 let nextSubscriptionFailure = false;
 let ownerDisplayName = "owner";
+let accountingActivationState='DISABLED',accountingActivationRevision=0;
+const accountingActivationRequests=[];
 // Optional browser smoke test. Requires installed Chrome and a frontend at localhost:5173.
 // Authenticated workflows use isolated contract responses. The final anonymous check contacts the live backend without modifying shop records.
 import assert from "node:assert/strict";
@@ -162,6 +164,13 @@ async function mock(event) {
   ) {
     status = 403;
     message = "Shop has been deactivated. Contact administrator.";
+  } else if (endpoint === '/accounts/activation') {
+    data={state:accountingActivationState,revision:accountingActivationRevision,permitted:true,history:[],cutoffAt:null};
+  } else if (endpoint.startsWith('/accounts/activation/')) {
+    if(endpoint.endsWith('/preview'))data={ready:true,blockers:[],previewToken:'activation-preview',expiresAt:new Date(Date.now()+300000).toISOString()};
+    else {accountingActivationRequests.push({endpoint,body});accountingActivationState=endpoint.endsWith('/prepare')?'PREPARING':endpoint.endsWith('/pause')?'PAUSED':'ACTIVE';accountingActivationRevision++;data={state:accountingActivationState,revision:accountingActivationRevision};}
+  } else if(endpoint==='/accounts/existing-setup') {
+    status=409;message='Opening setup requires owner review';
   } else if (endpoint === "/users/current-user") {
     if (role)
       data = {
@@ -1223,6 +1232,7 @@ try {
       await evaluate(
         "document.body.innerText.includes(" + JSON.stringify(text) + ")",
       ),
+      'Renewal information: '+text,
     );
   const paymentLink = new URL(
     await evaluate(
@@ -1302,6 +1312,25 @@ try {
   await login("OWNER");
   // Owner Accounts contract checks. These responses are isolated browser fixtures,
   // not evidence that live accounting has been enabled.
+  await send('Page.navigate',{url:'http://localhost:5173/owner/existing-setup'});
+  await wait('document.body.innerText.includes("Status: DISABLED")');
+  await fillLabel('Reason','Verified opening records');
+  await fillLabel('Type PREPARE ACCOUNTING to confirm','PREPARE ACCOUNTING');
+  await click('Begin reviewed setup');await wait('!!document.querySelector("dialog[open]")');
+  await click('Confirm and record');await wait('document.body.innerText.includes("Status: PREPARING")');
+  await click('Review activation readiness');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
+  await fillLabel('Reason','Confirm reviewed starting point');
+  await fillLabel('Type ACTIVATE ACCOUNTING to activate, or PREPARE ACCOUNTING to revise the starting point','ACTIVATE ACCOUNTING');
+  await click('Activate accounting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: ACTIVE")');
+  assert.equal(accountingActivationRequests.filter(r=>r.endpoint.endsWith('/confirm')).length,1);
+  assert.equal(accountingActivationRequests.at(-1).body.previewToken,'activation-preview');
+  await fillLabel('Reason','Pause for owner review');await fillLabel('Type PAUSE ACCOUNTING to confirm','PAUSE ACCOUNTING');
+  await click('Pause financial posting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: PAUSED")');
+  await click('Review activation readiness');await wait('document.body.innerText.includes("Ready for explicit confirmation")');
+  await fillLabel('Reason','Resume after review');await fillLabel('Type ACTIVATE ACCOUNTING to confirm','ACTIVATE ACCOUNTING');
+  await click('Resume accounting');await click('Confirm and record');await wait('document.body.innerText.includes("Status: ACTIVE")');
+  await send('Page.navigate',{url:'http://localhost:5173/owner/dashboard'});
+  await wait('!!document.querySelector(".accounts-nav summary")');
   await evaluate('document.querySelector(".accounts-nav summary").click()');
   await click('Companies & Suppliers');
   await wait('document.body.innerText.includes("No businesses found.")');
@@ -1310,7 +1339,7 @@ try {
   await click('Save business');await wait('!document.querySelector("dialog[open]")');await wait('document.body.innerText.includes("Eagle Cables")');
   assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['COMPANY','SUPPLIER']);
   await fill('[aria-label="Search businesses"]','Eagle');await sleep(300);
-  await click('View details');await wait('document.body.innerText.includes("Brand associations")');
+  await click('Business setup');await wait('document.body.innerText.includes("Brand associations")');
   await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
   await click('Close');await click('Customers');await click('Balance details');await wait('document.body.innerText.includes("Balances match")');

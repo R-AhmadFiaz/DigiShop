@@ -9,7 +9,7 @@ function Balance({ account }) {
   return <section className="mt-3" aria-label="Account balance">
     <Notice loading={result.loading} />
     {result.error && <div className="alert alert-warning">Balance unavailable: {result.error}</div>}
-    {result.data && Number.isSafeInteger(result.data.balanceMinor) && <p className="fw-semibold">Balance: PKR {money(result.data.balanceMinor / 100)} <small className="d-block text-body-secondary">Prepared test-account balance. Live accounting is not enabled.</small></p>}
+    {result.data && Number.isSafeInteger(result.data.balanceMinor) && <p className="fw-semibold">Balance: PKR {money(result.data.balanceMinor / 100)} <small className="d-block text-body-secondary">Posted balance for this prepared account.</small></p>}
   </section>;
 }
 export default function CashBank() {
@@ -25,7 +25,7 @@ export default function CashBank() {
   }
   return <>
     <PageTitle title="Cash & Bank"><button className="btn btn-primary btn-sm" onClick={()=>{setCreating(true);setError('');}}>Add account</button></PageTitle>
-    <p className="text-body-secondary">Live accounting is not enabled. Account creation requires an approved local test setup; balances require confirmed opening balances and setup.</p>
+    <p className="text-body-secondary">Balances require confirmed openings and accounting activation. <Link to="/owner/existing-setup">Review setup, activation and additional account enrollment</Link>.</p>
     <Notice success={success} />
     <input aria-label="Search accounts" className="form-control search-input mb-3" placeholder="Account name or reference" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);setSelected(null);}} />
     <section className="panel"><Notice loading={list.loading} error={list.error}/>

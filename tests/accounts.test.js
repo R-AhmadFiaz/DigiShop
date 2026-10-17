@@ -13,7 +13,7 @@ try {
       assert.ok(html.includes(title));assert.match(html,/Loading/);
       assert.doesNotMatch(html,/PKR 0\.00|Revenue|Profit|Pay supplier|Record purchase/);
       if(file==='Companies')assert.match(html,/Supplier history/);
-      if(file==='CashBank')assert.match(html,/Live accounting is not enabled/);
+      if(file==='CashBank')assert.match(html,/Balances require confirmed openings and accounting activation/);
       if(file==='Transactions')assert.match(html,/not a complete historical business ledger/);
     });
   }

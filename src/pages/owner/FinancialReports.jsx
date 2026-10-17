@@ -30,6 +30,7 @@ export default function FinancialReports() {
     {d && <>
       <p className="text-body-secondary">{d.coverage} Updated {pakistanTime(d.asOf)} (Pakistan time).</p>
       <Report title="Sales in selected dates" value={d.sales}>
+        {d.sales.coverageMessage&&<p className="text-body-secondary">{d.sales.coverageMessage} Cutoff: {pakistanTime(d.sales.financialStartAt)}.</p>}
         <p>Revenue is invoice value after discounts and returns, including credit sales. It is not cash collected.</p>
         <Table headings={['Activity','Amount']} rows={[
           ['Original sales before discounts',pkr(d.sales.originalGrossMinor)],['Original discounts',pkr(d.sales.originalDiscountsMinor)],['Products added on adjustment dates',pkr(d.sales.additionsMinor)],['Products returned / cancelled before discount',pkr(d.sales.returnsMinor)],['Discount changes on adjustment dates',pkr(d.sales.discountChangesMinor)],['Net revenue',<strong>{pkr(d.sales.revenueMinor)}</strong>]]}/>

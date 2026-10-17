@@ -23,7 +23,7 @@ export default function Expenses() {
     <PageTitle title="Expenses"/>
     <p className="text-body-secondary">Operating costs only. Purchases, supplier payments and customer refunds are recorded separately.</p>
     <Notice loading={setup.loading} error={setup.error||error} success={success}/>
-    {!setup.loading&&(!setup.data?.available||!setup.data?.accounts?.length)&&<div className="alert alert-warning">Expense posting unavailable. Prepared test accounting and a cash/bank account are required. No expense payment will be recorded.</div>}
+    {!setup.loading&&(!setup.data?.available||!setup.data?.accounts?.length)&&<div className="alert alert-warning">Expense posting unavailable. Activated accounting and a prepared cash/bank account are required. No expense payment will be recorded.</div>}
     <form className="d-flex gap-2 mb-3" onSubmit={addCategory}><input aria-label="New expense category" className="form-control" value={categoryName} onChange={e=>setCategoryName(e.target.value)} placeholder="Category, e.g. rent or electricity" maxLength={80} required/><button className="btn btn-outline-secondary text-nowrap" disabled={busy||!categoryName.trim()}>Add category</button></form>
     <SupplierAction operation="expense-operation" onChanged={changed}>{({prepare,locked})=><>
       <button className="btn btn-primary mb-3" disabled={locked||!setup.data?.available||!setup.data?.accounts?.length} onClick={()=>{setCreating(true);setError('');}}>Record expense</button>
