@@ -1,3 +1,4 @@
+import {nextReference as allocateReference} from './references.js';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
 import {PurchaseOrder,purchaseStates} from '../models/purchaseOrder.model.js';
@@ -41,16 +42,7 @@ function details(body:any){
     return result;
 }
 async function nextReference(actor:Actor,receiving:boolean,session:Session){
-    const field=receiving?'receiptCounter':'purchaseCounter',prefix=receiving?'GR-AUTO-':'PO-AUTO-';
-    // Existing manually assigned identifiers are retained and skipped, never overwritten.
-    for(let attempt=0;attempt<1000;attempt++){
-        const shop=await Shop.findOneAndUpdate({_id:actor.shopId},{$inc:{[field]:1}},{session,new:true,runValidators:true});
-        const number=shop?.[field];if(!Number.isSafeInteger(number)||number! <= 0)throw new apiError(409,'Reference numbering requires review');
-        const candidate=prefix+number;
-        const occupied=receiving?await GoodsReceipt.exists({shopId:actor.shopId,reference:candidate}).session(session):await PurchaseOrder.exists({shopId:actor.shopId,reference:candidate}).session(session);
-        if(!occupied)return candidate;
-    }
-    throw new apiError(409,'Existing reference numbering requires review; no reference was issued');
+    return allocateReference(actor.shopId,receiving?'GR':'PO',receiving?GoodsReceipt:PurchaseOrder,session,'reference',[receiving?'GR-AUTO':'PO-AUTO']);
 }
 function hash(input:any){return createHash('sha256').update(JSON.stringify(input)).digest('hex');}
 function lines(value:any,costs:boolean):{productId:string,quantity:number,unitCostMinor?:number}[] {

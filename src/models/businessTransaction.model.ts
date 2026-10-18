@@ -1,8 +1,10 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 import {apiError} from '../utils/apiError.js';
 import {balancedPostings} from '../utils/businessAccounting.js';
 
 const schema = new Schema({
+    reference: String,
     shopId: {type: Schema.Types.ObjectId, ref: 'Shop', required: true},
     requestKey: {type: String, required: true}, requestHash: {type: String, required: true},
     source: {type: new Schema({kind: {type: String, enum: ['MANUAL', 'OPENING', 'REVERSAL', 'INVOICE_RECEIPT', 'INVOICE_REFUND', 'TRANSFER', 'SUPPLIER_OPENING', 'PURCHASE_RECEIPT', 'SUPPLIER_PAYMENT', 'SUPPLIER_RETURN', 'SUPPLIER_REFUND', 'SUPPLIER_CREDIT_APPLICATION', 'SUPPLIER_REVERSAL', 'EXPENSE', 'EXPENSE_REVERSAL', 'CAPITAL_CONTRIBUTION', 'CAPITAL_WITHDRAWAL', 'CAPITAL_REVERSAL'], required: true},
@@ -28,4 +30,5 @@ for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate', 'replace
     schema.pre(operation, function () { throw new apiError(409, 'Business ledger is immutable; use a reversal'); });
 }
 schema.pre('deleteOne', {document: true, query: false}, function () { throw new apiError(409, 'Business ledger is immutable; use a reversal'); });
+automaticReference(schema,d=>d.source.kind==='TRANSFER'?'TR':d.source.kind==='REVERSAL'?'JR':d.source.kind==='MANUAL'?'JE':d.source.kind==='OPENING'?'OB':d.source.kind==='SUPPLIER_OPENING'?'SO':undefined);
 export const BusinessTransaction = model('BusinessTransaction', schema);

@@ -1,3 +1,4 @@
+import {nextReference} from './references.js';
 import {accountingContext, claimAccountingShop,productionPostingActive} from './accountingActivation.js';
 import {BusinessSetup} from '../models/businessSetup.model.js';
 import mongoose from 'mongoose';
@@ -220,8 +221,8 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
     supplierAccountingEnabled();const user=await owner(actor,session,true),supplierIdValue=id(supplierId);
     const allowed=['requestKey','reference','occurredAt','reason',...(['PAYMENT','REFUND'].includes(kind)?['amountMinor','accountId',...(kind==='REFUND'?['confirmation']:[])]:kind==='CREDIT_APPLICATION'?['amountMinor','confirmation']:kind==='RETURN'?['receiptId','items']:['confirmation'])];
     if(Object.keys(body).some(k=>!allowed.includes(k)))throw new apiError(400,'Unsupported supplier settlement fields');
-    const requestKey=text(body.requestKey,100,'request key'),reference=text(body.reference,50,'settlement reference').toUpperCase(),reason=text(body.reason,300,'settlement reason'),occurredAt=utcDate(body.occurredAt);
-    if(!/^[\w-]{8,100}$/.test(requestKey)||!/^[A-Z0-9][A-Z0-9/_-]*$/.test(reference))throw new apiError(400,'Valid request key and settlement reference required');
+    const requestKey=text(body.requestKey,100,'request key'),reference=body.reference===undefined||body.reference===null||body.reference===''?'':text(body.reference,50,'settlement reference').toUpperCase(),reason=text(body.reason,300,'settlement reason'),occurredAt=utcDate(body.occurredAt);
+    if(!/^[\w-]{8,100}$/.test(requestKey)||(reference!==''&&!/^[A-Z0-9][A-Z0-9/_-]*$/.test(reference)))throw new apiError(400,'Valid request key and settlement reference required');
     let input:any={supplierId:supplierIdValue,kind,reference,reason,occurredAt:occurredAt.toISOString()};
     if(['PAYMENT','REFUND','CREDIT_APPLICATION'].includes(kind)){
         safeMinor(body.amountMinor);if(!body.amountMinor)throw new apiError(400,'Positive supplier amount required');
@@ -295,7 +296,7 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
         if(changed.modifiedCount!==1)throw new apiError(409,'Stock changed; retry the identical supplier request');
         await StockLog.create([{shopId:actor.shopId,productId:product._id,quantityDelta:stockDirection*item.quantity,reason:kind==='REVERSAL'?'PURCHASE_RETURN_REVERSAL':'PURCHASE_RETURN',supplierSettlementId:settlementId,sourceReceiptId:receipt._id,purchaseReference:receipt.purchaseReference,receivingReference:receipt.reference,createdBy:user._id,createdAt:occurredAt,updatedAt:new Date()}],{session});
     }
-    const [settlement]=await SupplierSettlement.create([{_id:settlementId,shopId:actor.shopId,supplierId:supplierIdValue,kind,reference,requestKey,requestHash,reason,occurredAt,recordedAt:new Date(),amountMinor,payableAccountId:cutover.payableAccountId,offsetAccountId,items,
+    const [settlement]=await SupplierSettlement.create([{_id:settlementId,shopId:actor.shopId,supplierId:supplierIdValue,kind,reference:reference||await nextReference(actor.shopId,({PAYMENT:'SP',RETURN:'SR',REFUND:'SF',CREDIT_APPLICATION:'SC',REVERSAL:'SX'} as const)[kind],SupplierSettlement,session),requestKey,requestHash,reason,occurredAt,recordedAt:new Date(),amountMinor,payableAccountId:cutover.payableAccountId,offsetAccountId,items,
         ...(original&&original.payableReductionMinor===undefined?{}:{payableReductionMinor,creditMovementMinor}),...(creditAccountId?{creditAccountId}:{}),
         ...(receipt?{receiptId:receipt._id,receiptReference:receipt.reference,purchaseReference:receipt.purchaseReference}:{}),...(original?{reversalOf:original._id,originalKind:original.kind}:{}),createdBy:user._id,createdByName:user.username,createdByRole:'OWNER'}],{session});
     if(amountMinor>0)await post(actor,{requestKey:'supplier-settlement-'+settlementId,reason,occurredAt:occurredAt.toISOString(),postings:supplierPostings(settlement)},session,{kind:('SUPPLIER_'+kind) as any,referenceId:String(settlementId)});
@@ -521,7 +522,7 @@ export async function getAccountStatement(actor: Actor, input: {accountId: strin
     if (from || to) range.occurredAt = {...(from ? {$gte: from} : {}), ...(to ? {$lt: to} : {})};
     if(type)range['source.kind']=type;
     if(sourceId)range.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)}]}];
-    if (pattern) range.$or = [{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern}, {'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
+    if (pattern) range.$or = [{reference:pattern},{reason: pattern}, {'source.kind': pattern}, {createdByName: pattern}, {'invoice.invoiceNo': pattern},{'invoice.reference':pattern}, {'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern}, {'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern}, ...(/^[a-f\d]{24}$/i.test(input.q?.trim() ?? '') ? [{'source.referenceId': new mongoose.Types.ObjectId(input.q!.trim())}] : [])];
     const [result] = await BusinessTransaction.aggregate([...journalRows(actor.shopId, account._id), ...invoiceSourceLookup(actor.shopId),
         {$sort: {occurredAt: 1, _id: 1}}, {$facet: {
         entries: [{$match: range}, {$skip: skip}, {$limit: limit}], count: [{$match: range}, {$count: 'value'}],
@@ -559,7 +560,7 @@ export async function getBusinessTransactions(actor:Actor,input:{page?:number,li
     if(type)scope['source.kind']=type;
     const selection:any={};
     if(sourceId)selection.$and=[{$or:[{'source.referenceId':new mongoose.Types.ObjectId(sourceId)},{'invoice.orderId':new mongoose.Types.ObjectId(sourceId)},{'receipt.purchaseOrderId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.receiptId':new mongoose.Types.ObjectId(sourceId)},{'supplierSettlement.reversalOf':new mongoose.Types.ObjectId(sourceId)},{_id:new mongoose.Types.ObjectId(sourceId)}]}];
-    if(pattern)selection.$or=[{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
+    if(pattern)selection.$or=[{reference:pattern},{reason:pattern},{'source.kind':pattern},{createdByName:pattern},{'invoice.invoiceNo':pattern},{'invoice.reference':pattern},{'capital.reference':pattern},{'expense.reference':pattern},{'receipt.reference':pattern},{'receipt.purchaseReference':pattern},{'supplierSettlement.reference':pattern},{'supplierSettlement.receiptReference':pattern},{'supplierSettlement.purchaseReference':pattern},...(/^[a-f\d]{24}$/i.test(input.q?.trim()??'')?[{'source.referenceId':new mongoose.Types.ObjectId(input.q!.trim())},{_id:new mongoose.Types.ObjectId(input.q!.trim())}]:[])];
     const [result]=await BusinessTransaction.aggregate([{$match:scope},...invoiceSourceLookup(actor.shopId),{$match:selection},{$sort:{occurredAt:1,_id:1}},{$facet:{entries:[{$skip:(page-1)*limit},{$limit:limit}],count:[{$count:'value'}]}}]).session(session).option({maxTimeMS:5000});
     const count=result.count[0]?.value??0;
     return {coverage:journalCoverage,entries:await journalViews(actor.shopId,result.entries,session),pagination:{currentPage:page,limit,recordCount:count,totalPages:Math.ceil(count/limit)}};

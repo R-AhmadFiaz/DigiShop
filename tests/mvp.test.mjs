@@ -48,7 +48,7 @@ function query(value) {
     if (result && !Array.isArray(result) && result.type === "QUOTATION") result.save=async()=>{db.orders.find(order=>order._id===result._id).status=result.status;};
     const q={sort(){return q},skip(n){result=result.slice(n);return q},limit(n){result=result.slice(0,n);return q},populate(){return q},session(){return q},
         select(fields){if(fields==='-costPrice')result=result.map(({costPrice,...rest})=>rest);return q},
-        then(resolve,reject){return Promise.resolve(result).then(resolve,reject)}};
+        lean(){return q},then(resolve,reject){return Promise.resolve(result).then(resolve,reject)}};
     return q;
 }
 for(const [Model,key] of [[Product,'products'],[Customer,'customers'],[Order,'orders'],[CustomerLedger,'ledgers']]) {
@@ -85,11 +85,14 @@ StockLog.create=async docs=>{for(const doc of docs)await new StockLog(doc).valid
 const ledgerCreate=CustomerLedger.create;
 CustomerLedger.create=async docs=>{for(const doc of docs)await new CustomerLedger(doc).validate();return ledgerCreate(docs);};
 Shop.find=()=>query([{_id:shopId,subscriptionActive:true}]);
-Shop.findById=async()=>({subscriptionActive:true,subscriptionExpiry:new Date(Date.now()+86400000)});
+Shop.findById=()=>query({subscriptionActive:true,subscriptionExpiry:new Date(Date.now()+86400000),invoiceCounter:db.invoiceCounter??1,referenceCounters:db.referenceCounters});
+Shop.updateOne=async(filter,update)=>{for(const [field,value]of Object.entries(update.$set??{})){db.referenceCounters??=new Map();db.referenceCounters.set(field.split('.')[1],value);}if(update.$max?.invoiceCounter)db.invoiceCounter=Math.max(db.invoiceCounter??1,update.$max.invoiceCounter);};
+Shop.findOneAndUpdate=async(filter,update)=>{db.referenceCounters??=new Map();for(const [field,value]of Object.entries(update.$inc??{})){const key=field.split('.')[1];db.referenceCounters.set(key,(db.referenceCounters.get(key)??0)+value);}return {referenceCounters:db.referenceCounters};};
+Order.exists=filter=>query(db.orders.find(doc=>matches(doc,filter))??null);
 Shop.findByIdAndUpdate=async()=>({invoiceCounter:2,subscriptionActive:true});
 mongoose.startSession=async()=>{
     let snapshot;
-    return {startTransaction(){snapshot=clone(db)},async commitTransaction(){commits++},async abortTransaction(){aborts++;db=snapshot},async endSession(){}};
+    return {inTransaction(){return true},startTransaction(){snapshot=clone(db)},async commitTransaction(){commits++},async abortTransaction(){aborts++;db=snapshot},async endSession(){}};
 };
 let role, authenticatedName;
 let creators = [];

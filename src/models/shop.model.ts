@@ -9,6 +9,7 @@ interface IShop {
     invoiceCounter: number,
     purchaseCounter: number,
     receiptCounter: number,
+    referenceCounters?: Map<string, number>,
     subscriptionActive: boolean,
     isActive: boolean,
     subscriptionExpiry: Date | null,
@@ -47,6 +48,7 @@ const shopSchema = new Schema<IShop>(
         },
         purchaseCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
         receiptCounter: {type:Number,default:0,min:0,validate:Number.isSafeInteger},
+        referenceCounters: {type:Map,of:Number},
         accountingWriteRevision: {type:Number,default:0},
         accounting: {type: new Schema({
             state: {type:String,enum:['PREPARING','ACTIVE','PAUSED'],required:true},

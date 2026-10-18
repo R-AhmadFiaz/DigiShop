@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 import {apiError} from '../utils/apiError.js';
 
@@ -34,4 +35,5 @@ for (const op of ['updateOne','updateMany','findOneAndUpdate','replaceOne','find
     schema.pre(op, function () { throw new apiError(409, 'Expense history is immutable; use a reversal'); });
 }
 schema.pre('deleteOne', {document: true, query: false}, function () { throw new apiError(409, 'Expense history is immutable'); });
+automaticReference(schema,d=>d.kind==='EXPENSE_REVERSAL'?'ER':'EX');
 export const Expense = model('Expense', schema);

@@ -80,7 +80,7 @@ await test('isolated real MongoDB replica-set invoice adjustment tests', {skip: 
         async function fixture({stock = 0, paid = 100, legacy = false, status = 'DELIVERED', customerId} = {}) {
             const product = await Product.create({name: 'Cable ' + ++sequence, brand: 'Wire', slug: 'cable-' + sequence,
                 category, unit: 'm', shopId: shop._id, costPrice: 20, retailPrice: 50, wholesalePrice: 40, stockQuantity: stock});
-            const order = await Order.create({shopId: shop._id, invoiceNo: 'INV-' + sequence, type: 'INVOICE', status,
+            const order = await Order.create({shopId: shop._id, invoiceNo: 'LEGACY-INV-' + sequence, type: 'INVOICE', status,
                 createdBy: ownerId, createdByName: 'Historical seller', saleType: 'RETAIL',
                 items: [{productId: product._id, quantity: 2, unitPrice: 50, name: 'Original cable', brand: 'Wire', unit: 'm'}],
                 subtotal: 100, discountType: 'NONE', discountValue: 0, discountAmount: 0, totalPrice: 100, paidAmount: paid, amountDue: 100 - paid,

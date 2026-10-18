@@ -146,13 +146,13 @@ await test('supplier purchasing: actual HTTP and disposable loopback replica set
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;
             await create({reference:'PO-AUTO-1'});
             const body=draft({reference:undefined,notes:'Owner purchase note',supplierDocumentNo:'INV / 123'}),result=await http('POST','/purchases/',body);assert.equal(result.status,200,JSON.stringify(result.body));let po=result.body.data.purchaseOrder;
-            assert.equal(po.reference,'PO-AUTO-2');assert.equal(po.notes,'Owner purchase note');assert.equal(po.supplierDocumentNo,'INV / 123');
-            const counter=(await Shop.findById(a.shop._id)).purchaseCounter;assert.equal((await http('POST','/purchases/',body)).body.data.purchaseOrder.reference,po.reference);assert.equal((await Shop.findById(a.shop._id)).purchaseCounter,counter);
+            assert.match(po.reference,/^PO-[1-9][0-9]*$/);assert.equal(po.notes,'Owner purchase note');assert.equal(po.supplierDocumentNo,'INV / 123');
+            const counter=(await Shop.findById(a.shop._id)).referenceCounters.get('PO');assert.equal((await http('POST','/purchases/',body)).body.data.purchaseOrder.reference,po.reference);assert.equal((await Shop.findById(a.shop._id)).referenceCounters.get('PO'),counter);
             po=await confirm(po);const legacy=await http('POST',`/purchases/${po._id}/receipts`,receiveBody(po,1,{reference:'GR-AUTO-1'}));assert.equal(legacy.status,200);po=legacy.body.data.purchaseOrder;
             const delivery=receiveBody(po,1,{reference:undefined,notes:'Delivery verified',supplierDocumentNo:'CHALLAN-7'}),received=await http('POST',`/purchases/${po._id}/receipts`,delivery);assert.equal(received.status,200,JSON.stringify(received.body));
-            assert.equal(received.body.data.receipt.reference,'GR-AUTO-2');assert.equal(received.body.data.receipt.notes,'Delivery verified');
+            assert.match(received.body.data.receipt.reference,/^GR-[1-9][0-9]*$/);assert.equal(received.body.data.receipt.notes,'Delivery verified');
             assert.equal((await http('POST',`/purchases/${po._id}/receipts`,delivery)).body.data.receipt._id,received.body.data.receipt._id);
-            assert.equal((await StockLog.findOne({purchaseReceiptId:received.body.data.receipt._id})).receivingReference,'GR-AUTO-2');
+            assert.equal((await StockLog.findOne({purchaseReceiptId:received.body.data.receipt._id})).receivingReference,received.body.data.receipt.reference);
             assert.equal((await http('POST','/purchases/',{...body,notes:'Changed'})).status,409);
             for(const extra of [{notes:123},{notes:'x'.repeat(501)},{supplierDocumentNo:'x'.repeat(101)}])assert.equal((await http('POST','/purchases/',draft(extra))).status,400);
         });
@@ -160,9 +160,9 @@ await test('supplier purchasing: actual HTTP and disposable loopback replica set
             const bodies=[draft({reference:undefined}),draft({reference:undefined})],results=await Promise.all(bodies.map(body=>http('POST','/purchases/',body)));
             assert.ok(results.some(r=>r.status===200));assert.ok(results.every(r=>[200,409].includes(r.status)));
             const ids=[];for(const body of bodies){const r=await http('POST','/purchases/',body);assert.equal(r.status,200);ids.push(r.body.data.purchaseOrder.reference);}assert.equal(new Set(ids).size,2);
-            let po=(await create({reference:undefined})).po;po=await confirm(po);const before=(await Shop.findById(a.shop._id)).receiptCounter,beforeStock=await stock(p),original=StockLog.create;
+            let po=(await create({reference:undefined})).po;po=await confirm(po);const before=(await Shop.findById(a.shop._id)).referenceCounters?.get('GR'),beforeStock=await stock(p),original=StockLog.create;
             StockLog.create=async()=>{throw Error('Injected reference rollback');};try{assert.equal((await http('POST',`/purchases/${po._id}/receipts`,receiveBody(po,1,{reference:undefined}))).status,500);}finally{StockLog.create=original;}
-            assert.equal((await Shop.findById(a.shop._id)).receiptCounter,before);assert.equal(await stock(p),beforeStock);
+            assert.equal((await Shop.findById(a.shop._id)).referenceCounters?.get('GR'),before);assert.equal(await stock(p),beforeStock);
         });
         await t.test('corrections: role editing preserves identity and explicit company-brand products are scoped and live',async()=>{
             const path='/accounts/entities/'+company._id,body={expectedRevision:company.revision,roles:['COMPANY','SUPPLIER']};

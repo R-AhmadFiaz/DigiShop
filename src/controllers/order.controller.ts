@@ -1,3 +1,4 @@
+import {nextReference} from '../utils/references.js';
 import {accountingMode, claimAccountingShop} from '../utils/accountingActivation.js';
 import { listQuery } from "../utils/listQuery.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -235,19 +236,7 @@ try {
     }
 
 
-    const invCounter = await Shop.findByIdAndUpdate(
-        shopId,
-        {
-            $inc: {invoiceCounter: 1}
-        },
-        {new: true, session}
-    )
-
-    if (!invCounter) {
-        throw new apiError(500, 'Something is wrong in invoice counter')
-    }
-
-    let invoiceNo = `INV-${invCounter.invoiceCounter}`
+    const invoiceNo = await nextReference(shopId,'INV',Order,session,'invoiceNo')
 
 
 
@@ -870,22 +859,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
     }
 
 
-    const invCounter = await Shop.findByIdAndUpdate(
-        shopId,
-        {
-            $inc: {invoiceCounter: 1}
-        },
-        {
-            new: true,
-            session
-        }
-    )
-
-    if (!invCounter) {
-        throw new apiError(500, 'Something is wrong in Quotation to invoice counter')
-    }
-
-    const invoiceNo = `INV-${invCounter.invoiceCounter}`
+    const invoiceNo = await nextReference(shopId,'INV',Order,session,'invoiceNo')
     
     
         const [createOrder] = await Order.create([{

@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 import {apiError} from '../utils/apiError.js';
 
@@ -29,4 +30,5 @@ for(const op of ['updateOne','updateMany','findOneAndUpdate','replaceOne','findO
     schema.pre(op,function(){throw new apiError(409,'Capital history is immutable; use a reversal');});
 }
 schema.pre('deleteOne',{document:true,query:false},function(){throw new apiError(409,'Capital history is immutable');});
+automaticReference(schema,d=>d.kind==='CAPITAL_REVERSAL'?'CX':d.direction==='CONTRIBUTION'?'CA':'CW');
 export const CapitalEvent=model('CapitalEvent',schema);

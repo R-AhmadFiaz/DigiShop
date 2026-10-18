@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 import {apiError} from '../utils/apiError.js';
 
@@ -18,6 +19,7 @@ const snapshotSchema = new Schema({
     discountValue: {type: Number, required: true}
 }, {_id: false});
 const adjustmentSchema = new Schema({
+    reference: String,
     kind: {type: String, enum: ['SALE', 'ADJUSTMENT', 'PAYMENT', 'CANCELLATION'], default: 'ADJUSTMENT'},
     debtCustomerId: {type: Schema.Types.ObjectId},
     creditCustomerId: {type: Schema.Types.ObjectId},
@@ -73,4 +75,5 @@ adjustmentSchema.pre('save', function () {
 for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace'] as const) {
     adjustmentSchema.pre(operation, function () { throw new apiError(409, 'Adjustment history is immutable'); });
 }
+automaticReference(adjustmentSchema,d=>d.kind==='PAYMENT'?'CP':d.kind==='ADJUSTMENT'?(d.movements.some((m:any)=>m.kind==='RETURN')?'CR':'IA'):d.kind==='CANCELLATION'?'IC':undefined);
 export const InvoiceAdjustment = model('InvoiceAdjustment', adjustmentSchema);

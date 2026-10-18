@@ -1,3 +1,5 @@
+import {automaticReference} from '../utils/references.js';
+import {apiError} from '../utils/apiError.js';
 import {Schema, model, Document, Types} from 'mongoose'
 
 // sub order interface
@@ -205,4 +207,11 @@ const orderSchema = new Schema<IOrder>(
         }
     });
 
+automaticReference(orderSchema,d=>d.type==='QUOTATION'?'QT':undefined,'invoiceNo');
+orderSchema.pre('save',async function(){
+    if(this.isNew&&this.type==='INVOICE'&&this.invoiceNo){
+        if(await Order.exists({shopId:this.shopId,invoiceNo:this.invoiceNo}).session(this.$session()))throw new apiError(409,'Invoice reference already exists in this shop');
+        this.set('referenceIssued',true);
+    }
+});
 export const Order = model<IOrder>('Order', orderSchema)

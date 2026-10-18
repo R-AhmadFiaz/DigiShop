@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 import {apiError} from '../utils/apiError.js';
 
@@ -24,4 +25,5 @@ schema.pre('bulkWrite',function(){throw new apiError(409,'Goods receipt is immut
 for(const operation of ['updateOne','updateMany','findOneAndUpdate','replaceOne','findOneAndReplace','deleteOne','deleteMany','findOneAndDelete'] as const)
     schema.pre(operation,function(){throw new apiError(409,'Goods receipt is immutable');});
 schema.pre('deleteOne',{document:true,query:false},function(){throw new apiError(409,'Goods receipt is immutable');});
+automaticReference(schema,d=>'GR');
 export const GoodsReceipt=model('GoodsReceipt',schema);

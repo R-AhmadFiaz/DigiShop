@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import { Schema, Types, model, Document } from "mongoose";
 import { timeStamp } from "node:console";
 
@@ -76,4 +77,5 @@ const stockLogSchema = new Schema<IStockLog>(
     stockLogSchema.index({productId: 1, createdAt: -1})
     stockLogSchema.index({shopId:1,purchaseReceiptId:1,productId:1},{unique:true,partialFilterExpression:{purchaseReceiptId:{$type:'objectId'}}})
 
+automaticReference(stockLogSchema,d=>!d.referenceId&&!d.purchaseReceiptId&&!d.supplierSettlementId?'SA':undefined);
 export const StockLog = model<IStockLog>('StockLog', stockLogSchema)

@@ -1,3 +1,4 @@
+import {automaticReference} from '../utils/references.js';
 import {Schema, model} from 'mongoose';
 
 export const purchaseStates=['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED'];
@@ -20,4 +21,5 @@ schema.index({shopId:1,requestKey:1},{unique:true});
 schema.index({shopId:1,createdAt:-1,_id:-1});
 schema.index({shopId:1,supplierId:1,createdAt:-1,_id:-1});
 schema.index({shopId:1,status:1,createdAt:-1,_id:-1});
+automaticReference(schema,d=>'PO');
 export const PurchaseOrder=model('PurchaseOrder',schema);
