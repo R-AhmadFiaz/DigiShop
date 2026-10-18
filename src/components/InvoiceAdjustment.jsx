@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { api, query } from "../api/client";
-import { useDebounce, useLoad } from "../api/hooks";
-import { literalSearch } from "../api/sale";
+import { useLoad } from "../api/hooks";
+import {useProductSearch} from '../api/productSearch';
+import ProductFilters from './ProductFilters';
 import { adjustmentBody, clearPending, journalKey, readPending, requestKey, savePending, uncertain } from "../api/invoice";
 import { useAuth } from "../auth/AuthContext";
 import { Field, money, Notice } from "./Common";
@@ -9,17 +10,15 @@ import CustomerPicker from "./CustomerPicker";
 import { FinancialMovements } from "./InvoiceHistory";
 
 function AddProducts({ saleType, onAdd, disabled }) {
-  const [search, setSearch] = useState("");
-  const term = useDebounce(search);
-  const products = useLoad("/products/search-product" + query({ search: literalSearch(term) }));
+  const [search, setSearch] = useState(''),[category,setCategory]=useState(''),[brand,setBrand]=useState('');
+  const products = useProductSearch({search,category,brand}),categories=useLoad('/categories/');
   return <>
-    <Field label="Add or exchange products" hint="New units use current prices, including another unit of a product already on this invoice.">
-      <input className="form-control" placeholder="Search name or brand" value={search} maxLength={100} onChange={e => setSearch(e.target.value)} />
-    </Field>
-    <Notice error={products.error} loading={products.loading} />
+    <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={products.brands} visibleSearchLabel="Add or exchange products" disabled={disabled}/>
+    <p className="small text-body-secondary">New units use current prices, including another unit of a product already on this invoice.</p>
+    <Notice error={products.error||categories.error} loading={products.loading} />
     <div className="product-results">
-      {products.data?.product.map(product => <button key={product._id} type="button" className="product-result" disabled={disabled || search !== term || (saleType === "WHOLESALE" && !product.wholesalePrice)} onClick={() => onAdd(product)}>
-        <span>{product.name}<small>{product.brand} · Stock {product.stockQuantity}</small></span>
+      {products.data?.product.map(product => <button key={product._id} type="button" className="product-result" disabled={disabled || products.loading || (saleType === "WHOLESALE" && !product.wholesalePrice)} onClick={() => onAdd(product)}>
+        <span>{product.name}<small>{product.category?.name||'Category unavailable'} · {product.brand} · Stock {product.stockQuantity}</small></span>
         <span>{money(saleType === "WHOLESALE" ? product.wholesalePrice : product.retailPrice)}<small>Add</small></span>
       </button>)}
     </div>

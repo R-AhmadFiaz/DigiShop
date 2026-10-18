@@ -80,7 +80,7 @@ export default function ShopLayout() {
             <details className="accounts-nav" open={pathname.includes('/accounts/') || pathname === '/owner/customers' ? true : undefined}>
               <summary>Accounts</summary>
               <NavLink to="customers">Customers</NavLink>
-              <NavLink to="accounts/companies">Companies &amp; Suppliers</NavLink>
+              <NavLink to="accounts/companies">Suppliers</NavLink>
               <NavLink to="accounts/cash-bank">Cash &amp; Bank</NavLink>
               <NavLink to="accounts/transactions">Transactions</NavLink>
             </details>

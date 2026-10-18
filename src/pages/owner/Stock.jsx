@@ -3,6 +3,8 @@ import { activity } from '../../api/purchases';
 import { useState } from "react";
 import { api, query } from "../../api/client";
 import { useLoad } from "../../api/hooks";
+import {matchingProducts,productBrands,useProductSearch} from '../../api/productSearch';
+import ProductFilters from '../../components/ProductFilters';
 import {
   dateText,
   Empty,
@@ -13,21 +15,17 @@ import {
   Pagination,
 } from "../../components/Common";
 export default function Stock() {
-  const products = useLoad("/products/search-product"),
+  const products = useProductSearch(),
     categories = useLoad("/categories/"),
     [tab, setTab] = useState("overview"),
     [search, setSearch] = useState(""),
     [category, setCategory] = useState(""),
+    [brand, setBrand] = useState(""),
     [lowOnly, setLowOnly] = useState(false),
     [adjusting, setAdjusting] = useState(null),
     [success, setSuccess] = useState("");
   const all = products.data?.product || [],
-    filtered = all.filter(
-      (p) =>
-        (!category || (p.category?._id ?? p.category) === category) &&
-        (!lowOnly || p.stockQuantity <= p.minStockThreshold) &&
-        (p.name + " " + p.brand).toLowerCase().includes(search.toLowerCase()),
-    );
+    filtered = matchingProducts(all,{search,category,brand}).filter(p=>!lowOnly||p.stockQuantity<=p.minStockThreshold);
   return (
     <>
       <PageTitle title="Stock" />
@@ -48,18 +46,7 @@ export default function Stock() {
       <Notice success={success} />
       {tab === "overview" ? (
         <>
-          <div className="d-flex flex-wrap gap-3 align-items-center mb-3">
-            <input
-              className="form-control search-input"
-              aria-label="Search stock"
-              placeholder="Product or brand"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select className="form-select w-auto" aria-label="Stock category filter" value={category} onChange={(e) => setCategory(e.target.value)}>
-              <option value="">All categories</option>
-              {categories.data?.categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
-            </select>
+          <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={productBrands(all,category)} searchLabel="Search stock" categoryLabel="Stock category filter" brandLabel="Stock brand filter">
             <label className="form-check-label">
               <input
                 className="form-check-input me-2"
@@ -76,7 +63,7 @@ export default function Stock() {
             >
               Refresh
             </button>
-          </div>
+          </ProductFilters>
           <section className="panel">
             <Notice error={categories.error} />
             <Notice error={products.error} loading={products.loading} />

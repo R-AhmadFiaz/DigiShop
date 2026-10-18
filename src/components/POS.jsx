@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { api, query } from "../api/client";
-import { useDebounce, useLoad } from "../api/hooks";
-import { literalSearch, salePayment, saleTotals, validateSale } from "../api/sale";
+import { api } from "../api/client";
+import { useLoad } from "../api/hooks";
+import { salePayment, saleTotals, validateSale } from "../api/sale";
+import {useProductSearch} from '../api/productSearch';
+import ProductFilters from './ProductFilters';
 import { clearPending, journalKey, readPending, requestKey, savePending, uncertain } from "../api/invoice";
 import { useAuth } from "../auth/AuthContext";
 import { Empty, Field, money, Notice } from "./Common";
@@ -17,6 +19,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
   const savedDraft = drafts.current[draftKey] || {};
   const [search, setSearch] = useState(savedDraft.search ?? ""),
     [category, setCategory] = useState(savedDraft.category ?? ""),
+    [brand, setBrand] = useState(savedDraft.brand ?? ""),
     [cart, setCart] = useState(savedDraft.cart ?? []),
     [saleType, setSaleType] = useState(savedDraft.saleType ?? "RETAIL"),
     [discountType, setDiscountType] = useState(
@@ -33,11 +36,8 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     [customerBusy, setCustomerBusy] = useState(false),
     [error, setError] = useState(""),
     [receipt, setReceipt] = useState(savedDraft.receipt ?? null);
-  const lock = useRef(false),
-    term = useDebounce(search);
-  const products = useLoad(
-    "/products/search-product" + query({ search: literalSearch(term), category }),
-  );
+  const lock = useRef(false);
+  const products = useProductSearch({search,category,brand});
   const categories = useLoad("/categories/");
   const paymentAccounts = useLoad("/orders/payment-accounts");
   const receiptAccountId = chosenReceiptAccountId || (paymentAccounts.data?.accounts?.length === 1 ? paymentAccounts.data.accounts[0]._id : '');
@@ -61,6 +61,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     drafts.current[draftKey] = {
       search,
       category,
+      brand,
       cart,
       saleType,
       discountType,
@@ -76,6 +77,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     draftKey,
     search,
     category,
+    brand,
     cart,
     saleType,
     discountType,
@@ -246,18 +248,10 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     <div className="pos-grid">
       <section className="panel">
         <h2 className="h6">Find a product</h2>
-        <div className="d-flex flex-wrap gap-2 mb-3">
-        <input
-          className="form-control w-auto flex-grow-1"
-          aria-label="Search products by name or brand"
-          placeholder="Search name or brand"
-          autoFocus
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
+        <div onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
-              search === term &&
+              e.target.tagName === 'INPUT' &&
               !products.loading &&
               products.data?.product[0] &&
               (!category || (products.data.product[0].category?._id ?? products.data.product[0].category) === category) &&
@@ -271,12 +265,8 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               )
                 add(p);
             }
-          }}
-        />
-        <select className="form-select w-auto" aria-label="POS category filter" value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">All categories</option>
-          {categories.data?.categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
-        </select>
+          }}>
+        <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={products.brands} searchLabel="Search products by name or brand" categoryLabel="POS category filter" brandLabel="POS brand filter" autoFocus/>
         </div>
         <Notice error={categories.error} />
         <Notice error={products.error} loading={products.loading} />
@@ -293,7 +283,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                 key={product._id}
                 disabled={
                   busy ||
-                  search !== term ||
+                  products.loading ||
                   (!quotation && product.stockQuantity < 1) ||
                   (saleType === "WHOLESALE" && !product.wholesalePrice)
                 }
@@ -302,7 +292,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                 <span>
                   <strong>{product.name}</strong>
                   <small>
-                    {product.brand} | {product.unit} | Stock{" "}
+                    {product.category?.name || 'Category unavailable'} | {product.brand} | {product.unit} | Stock{" "}
                     {product.stockQuantity}
                   </small>
                 </span>

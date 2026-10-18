@@ -44,6 +44,7 @@ export function Pagination({ pagination, onPage }) {
     <div className="d-flex flex-wrap align-items-center gap-3 mt-3">
       <button
         className="btn btn-outline-secondary btn-sm"
+        type="button"
         disabled={pagination.currentPage <= 1}
         onClick={() => onPage(pagination.currentPage - 1)}
       >
@@ -54,6 +55,7 @@ export function Pagination({ pagination, onPage }) {
       </span>
       <button
         className="btn btn-outline-secondary btn-sm"
+        type="button"
         disabled={pagination.currentPage >= pagination.totalPages}
         onClick={() => onPage(pagination.currentPage + 1)}
       >

@@ -285,6 +285,9 @@ fieldset {
 .product-results {
   overflow: visible;
 }
+.product-filter-search { flex: 1 1 220px; min-width: 0; }
+.product-filter-choice { flex: 1 1 150px; width: auto; min-width: 0; }
+.pos-grid .product-filter-search { flex-basis: 100%; }
 .product-result,
 .customer-result {
   display: flex;
@@ -306,6 +309,7 @@ fieldset {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.product-result > span:last-child { flex-shrink: 0; white-space: nowrap; }
 .product-result small,
 .customer-result small {
   display: block;

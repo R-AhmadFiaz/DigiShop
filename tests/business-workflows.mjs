@@ -8,11 +8,14 @@ import {replaceLabels} from './readability-copy.js';
 import {screenshotChecks} from './layout-screenshots.js';
 import {purchaseChecks} from './purchase-browser-checks.js';
 import {reportChecks} from './report-browser-checks.js';
+import {supplierSearchChecks} from './supplier-search-browser.js';
 
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
 let source=await fs.readFile(path.join(backend,'tests',invoiceSuite?'invoice-browser.integration.mjs':'supplier-browser.integration.mjs'),'utf8');
 source=replaceLabels(source)
+  .replaceAll("click('Add business')","click('Add supplier')")
+  .replaceAll("click('Save business')","click('Save supplier')")
   .replaceAll('Already returned (net)','Already returned')
   .replaceAll('Period closing:','Balance at end:')
   .replaceAll('Available credit / refund due:','Supplier owes us:')
@@ -45,6 +48,9 @@ source=source.replaceAll("document.body.innerText.includes('Reference estimate')
  .replace("assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')", "await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')")
  .replace("await wait(`document.body.innerText.includes('financial balances are unavailable')`);", "await wait(`document.body.innerText.includes('Unavailable')`);await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);await wait(`document.body.innerText.includes('financial balances are unavailable')`);");
 source=source.replaceAll("innerText.includes('Unavailable:')", "innerText.includes('Unavailable')");
+source=source.replaceAll('input[placeholder="Search name or brand"]','input[placeholder="Name, brand, category or size/model"]');
+source=source.replace("await navigation('/owner/accounts/companies');await fill('[aria-label=\"Search businesses\"]','Correction Company');", "await navigation('/owner/accounts/companies');await fill('[aria-label=\"Business list filter\"]','');await fill('[aria-label=\"Search businesses\"]','Correction Company');")
+  .replace("await click('Business details');await wait(\"document.body.innerText.includes('This business is a')\");", "await click('Business details');await click('Business setup & brand links');await wait(\"document.body.innerText.includes('This business is a')\");");
 // Presentation-only report labels and the single report viewer replace old panels.
 source=source.replaceAll("includes('Sales after discounts and returns')","includes('Net Sales')")
   .replaceAll("includes('Inventory estimate')","includes('Estimated Stock Value')")
@@ -131,6 +137,7 @@ source=source.replace("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp.
 source=source.replace('  const evidence={passed:',checks+'  const evidence={passed:');
 if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  const evidence={passed:',purchaseChecks+'  const evidence={passed:');
 if(process.argv.includes('--reports')&&!invoiceSuite)source=source.replace('  const evidence={passed:',reportChecks+'  const evidence={passed:');
+if(process.argv.includes('--supplier-search')&&!invoiceSuite)source=source.replace('  const evidence={passed:',supplierSearchChecks+'  const evidence={passed:');
 if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))

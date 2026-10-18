@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { query } from '../../api/client';
 import { useDebounce, useLoad } from '../../api/hooks';
-import { literalSearch } from '../../api/sale';
+import {useProductSearch} from '../../api/productSearch';
+import ProductFilters from '../../components/ProductFilters';
 import { minorAmount, pkr, purchaseItems } from '../../api/purchases';
 import { Empty, Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import PurchaseTable from '../../components/PurchaseTable';
@@ -10,9 +11,10 @@ import SupplierAction from '../../components/SupplierAction';
 
 function CreatePurchase({prepare,locked,onClose}) {
   const [supplierSearch,setSupplierSearch]=useState(''),[supplierPage,setSupplierPage]=useState(1),[supplier,setSupplier]=useState(null);
-  const [search,setSearch]=useState(''),[rows,setRows]=useState([]),[error,setError]=useState('');
+  const [search,setSearch]=useState(''),[category,setCategory]=useState(''),[brand,setBrand]=useState(''),[productPage,setProductPage]=useState(1),[rows,setRows]=useState([]),[error,setError]=useState('');
   const suppliers=useLoad('/accounts/entities'+query({role:'SUPPLIER',q:useDebounce(supplierSearch),page:supplierPage,limit:10}));
-  const products=useLoad('/products/search-product'+query({search:literalSearch(useDebounce(search))}));
+  const products=useProductSearch({search,category,brand}),categories=useLoad('/categories/');
+  const productPages=Math.ceil((products.data?.product.length??0)/20),currentProductPage=Math.min(productPage,Math.max(1,productPages));
   function submit(e){
     e.preventDefault();if(locked)return;setError('');
     try{if(!supplier)throw new Error('Choose a supplier.');const form=new FormData(e.currentTarget),items=purchaseItems(rows);
@@ -24,8 +26,10 @@ function CreatePurchase({prepare,locked,onClose}) {
     <Field label="Supplier invoice / challan (Optional)"><input name="supplierDocumentNo" className="form-control" maxLength={100}/></Field><Field label="Purchase notes (Optional)"><input name="notes" className="form-control" maxLength={500}/></Field>
     <Field label="Find supplier"><input className="form-control" value={supplierSearch} maxLength={100} onChange={e=>{setSupplierSearch(e.target.value);setSupplierPage(1);}}/></Field><Notice loading={suppliers.loading} error={suppliers.error}/>
     <div className="d-flex flex-wrap gap-2 mb-2">{suppliers.data?.entries.map(s=><button type="button" className={'btn btn-sm '+(supplier?._id===s._id?'btn-primary':'btn-outline-secondary')} key={s._id} onClick={()=>setSupplier(s)}>{s.name}</button>)}</div><Pagination pagination={suppliers.data?.pagination} onPage={setSupplierPage}/>{suppliers.data?.entries.length===0&&<p>No suppliers found. <Link to="/owner/accounts/companies">Add a supplier</Link> first.</p>}{supplier&&<p>Supplier: <strong>{supplier.name}</strong></p>}
-    <Field label="Find purchase products"><input className="form-control" placeholder="Product or brand" value={search} onChange={e=>setSearch(e.target.value)} maxLength={100}/></Field><Notice loading={products.loading} error={products.error}/>
-    <div className="d-flex flex-wrap gap-2 mb-3">{products.data?.product?.slice(0,20).map(p=><button className="btn btn-sm btn-outline-secondary" type="button" key={p._id} disabled={rows.some(r=>r._id===p._id)} onClick={()=>setRows([...rows,{...p,quantity:'1',cost:''}])}>Add {p.name}</button>)}</div>
+    <ProductFilters search={search} onSearch={value=>{setSearch(value);setProductPage(1);}} category={category} onCategory={value=>{setCategory(value);setProductPage(1);}} brand={brand} onBrand={value=>{setBrand(value);setProductPage(1);}} categories={categories.data?.categories} brands={products.brands} visibleSearchLabel="Find purchase products" categoryLabel="Purchase category filter" brandLabel="Purchase brand filter"/>
+    <Notice loading={products.loading} error={products.error||categories.error}/>
+    <div className="d-flex flex-wrap gap-2 mb-3">{products.data?.product?.slice((currentProductPage-1)*20,currentProductPage*20).map(p=><button className="btn btn-sm btn-outline-secondary" type="button" key={p._id} disabled={rows.some(r=>r._id===p._id)} onClick={()=>setRows([...rows,{...p,quantity:'1',cost:''}])}>Add {p.name}</button>)}</div>
+    {products.data&&!products.data.product.length&&<Empty>No matching products.</Empty>}<Pagination pagination={{currentPage:currentProductPage,totalPages:productPages}} onPage={setProductPage}/>
     {rows.length>0&&<div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Quantity</th><th>Agreed unit cost (PKR)</th><th/></tr></thead><tbody>{rows.map(r=><tr key={r._id}><td>{r.name}</td><td><input aria-label={'Quantity for '+r.name} className="form-control" type="number" min="1" step="1" required value={r.quantity} onChange={e=>setRows(rows.map(x=>x._id===r._id?{...x,quantity:e.target.value}:x))}/></td><td><input aria-label={'Unit cost for '+r.name} className="form-control" type="number" min="0" step="0.01" required value={r.cost} onChange={e=>setRows(rows.map(x=>x._id===r._id?{...x,cost:e.target.value}:x))}/></td><td><button type="button" className="btn btn-sm btn-outline-danger" onClick={()=>setRows(rows.filter(x=>x._id!==r._id))}>Remove</button></td></tr>)}</tbody></table></div>}
     <button className="btn btn-primary me-2" disabled={!rows.length} type="submit">Review purchase order</button><button className="btn btn-outline-secondary" type="button" onClick={onClose}>Close form</button>
   </fieldset></form></section>;

@@ -1,6 +1,7 @@
 // Intentional visible-copy changes, also used by the unchanged backend browser
 // driver when testing this frontend. API fields, enum values and money stay intact.
 export const labels = {
+  'Companies & Suppliers':'Suppliers',
   'Prepare supplier account / review opening':'Set supplier starting balance',
   'Review zero opening for new supplier':'Review Rs 0 starting balance',
   'Create supplier payable account':'Create supplier balance account',

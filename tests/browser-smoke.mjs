@@ -762,15 +762,16 @@ try {
       (c) => c.role === "CASHIER" && c.endpoint === "/users/refresh-token",
     ),
   );
-  await fill('[aria-label="Search products by name or brand"]', "Cable");
+  await fill('[aria-label="Search products by name or brand"]', "Missing product");
   await evaluate(
     `document.querySelector('[aria-label="Search products by name or brand"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
   );
   assert.equal(
     await evaluate('document.querySelectorAll(".cart-table .quantity").length'),
     0,
-    "Stale results must not be added with Enter",
+    "Enter must not add a product that does not match the current text",
   );
+  await fill('[aria-label="Search products by name or brand"]', "Cable");
   await sleep(350);
   await send("Page.navigate", { url: "http://localhost:5173/owner/products" });
   await wait(
@@ -860,7 +861,7 @@ try {
   slowCategorySearch = false;
   await fill('[aria-label="POS category filter"]', "category-one");
   await wait('!!document.querySelector(".product-result")');
-  assert.ok(calls.some(c => c.role === "CASHIER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one") && c.query.includes("search=Cable")));
+  assert.ok(calls.some(c => c.role === "CASHIER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one")));
   await fill('[aria-label="POS category filter"]', "");
   await wait('!!document.querySelector(".product-result")');
   assert.equal(
@@ -1339,19 +1340,19 @@ try {
   await send('Page.navigate',{url:'http://localhost:5173/owner/dashboard'});
   await wait('!!document.querySelector(".accounts-nav summary")');
   await evaluate('document.querySelector(".accounts-nav summary").click()');
-  await click('Companies & Suppliers');
-  await wait('document.body.innerText.includes("No businesses found.")');
-  await click('Add business');
+  await click('Suppliers');
+  await wait('document.body.innerText.includes("No suppliers found.")');
+  await click('Add supplier');
   await fill('[name=name]','Eagle Cables');await fill('[name=phoneNo]','03009876543');await fill('[name=address]','Main market');
-  await click('Save business');await wait('!document.querySelector("dialog[open]")');await wait('document.body.innerText.includes("Eagle Cables")');
-  assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['COMPANY','SUPPLIER']);
+  await click('Save supplier');await wait('!document.querySelector("dialog[open]")');await wait('document.body.innerText.includes("Eagle Cables")');
+  assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['SUPPLIER']);
   await fill('[aria-label="Search businesses"]','Eagle');await sleep(300);
-  await click('Business details');await wait('document.body.innerText.includes("Brand associations")');
+  await fill('[aria-label="Business list filter"]','');await click('Business details');await click('Business setup & brand links');await wait('document.body.innerText.includes("Brand associations")');
   await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
   await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances checked")');
   assert.ok(await evaluate('document.querySelector("dialog").innerText.includes("40.00")'));await click('Close');
-  await click('Companies & Suppliers');await fill('[aria-label="Search businesses"]','');await click('Add business');
+  await click('Suppliers');await fill('[aria-label="Search businesses"]','');await click('Other business records (Advanced)');await click('Add other business');
   const customerCreatesBefore=calls.filter(c=>c.endpoint==='/customers/create-customer').length;
   await evaluate('[...document.querySelectorAll("dialog label")].find(label=>label.textContent.trim()==="Customer").querySelector("input").click()');
   await wait('[...document.querySelectorAll("dialog button")].some(b=>b.textContent.includes("Ali ·"))');
@@ -1394,13 +1395,13 @@ try {
   await click('View balance');await wait('document.body.innerText.includes("Balance unavailable")');
   await evaluate('[...document.querySelectorAll("main a")].find(a=>a.textContent==="Transactions").click()');await wait('document.body.innerText.includes("History unavailable")');await click('Cash & Bank');
   await click('Add account');await fill('[name=name]','Bank account');await fill('[name=code]','BANK_1');await click('Create account');await wait('document.querySelector("dialog").innerText.includes("Accounting is disabled")');await click('Close');
-  allowAccountBalance=true;await click('Companies & Suppliers');await click('Cash & Bank');await click('View balance');await wait('document.body.innerText.includes("1,250.00")');
+  allowAccountBalance=true;await click('Suppliers');await click('Cash & Bank');await click('View balance');await wait('document.body.innerText.includes("1,250.00")');
   await evaluate('[...document.querySelectorAll("main a")].find(a=>a.textContent==="Transactions").click()');
   await wait('document.body.innerText.includes("Original Seller")');await click('Next');await wait('document.body.innerText.includes("Page 2 of 2")');
   await fillLabel('Search transactions','INV-1');await wait('document.body.innerText.includes("Unavailable for this search")');
   await fillLabel('From (UTC)','2026-01-01');await fillLabel('Before (UTC)','2026-01-02');await sleep(300);
   assert.ok(calls.some(c=>c.endpoint.endsWith('/history')&&c.query.includes('from=2026-01-01T00')&&c.query.includes('to=2026-01-02T00')&&c.query.includes('q=INV-1')));
-  denyAccounts=true;await click('Companies & Suppliers');await wait('document.body.innerText.includes("Owner shop access required")');denyAccounts=false;allowAccountBalance=false;
+  denyAccounts=true;await click('Suppliers');await wait('document.body.innerText.includes("Owner shop access required")');denyAccounts=false;allowAccountBalance=false;
   await click("Products");
   await wait('document.body.innerText.includes("Copper Cable")');
   assert.ok(await evaluate('document.body.innerText.includes("Cost")'));
@@ -1501,7 +1502,7 @@ try {
   await wait('document.body.innerText.includes("No matching products.")');
   await fill('[aria-label="POS category filter"]', "category-one");
   await wait('!!document.querySelector(".product-result")');
-  assert.ok(calls.some(c => c.role === "OWNER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one") && c.query.includes("search=Cable")));
+  assert.ok(calls.some(c => c.role === "OWNER" && c.endpoint === "/products/search-product" && c.query.includes("category=category-one")));
   await click("Invoice history");
   await wait('document.body.innerText.includes("INV-2")');
   await fill('[aria-label="Search invoice number"]', "INV-2");

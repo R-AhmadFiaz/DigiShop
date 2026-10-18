@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { api, query } from "../../api/client";
-import { useDebounce, useLoad } from "../../api/hooks";
-import { literalSearch } from "../../api/sale";
+import { api } from "../../api/client";
+import { useLoad } from "../../api/hooks";
+import {useProductSearch} from '../../api/productSearch';
+import ProductFilters from '../../components/ProductFilters';
 import {
   Empty,
   Field,
@@ -13,14 +14,11 @@ import {
 export default function Products() {
   const [search, setSearch] = useState(""),
     [category, setCategory] = useState(""),
+    [brand, setBrand] = useState(""),
     [editing, setEditing] = useState(null),
     [showCategories, setShowCategories] = useState(false),
     [success, setSuccess] = useState("");
-  const term = useDebounce(search),
-    products = useLoad(
-      "/products/search-product" +
-        query({ search: literalSearch(term), category }),
-    ),
+  const products = useProductSearch({search,category,brand}),
     categories = useLoad("/categories/");
   return (
     <>
@@ -33,27 +31,7 @@ export default function Products() {
         </button>
       </PageTitle>
       <Notice success={success} />
-      <div className="d-flex flex-wrap gap-2 mb-3">
-        <input
-          className="form-control search-input"
-          aria-label="Search products"
-          placeholder="Product or brand"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          className="form-select w-auto"
-          aria-label="Category filter"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          <option value="">All categories</option>
-          {categories.data?.categories.map((c) => (
-            <option key={c._id} value={c._id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+      <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={products.brands}>
         <button
           className="btn btn-outline-secondary btn-sm"
           onClick={() => setShowCategories(!showCategories)}
@@ -67,7 +45,7 @@ export default function Products() {
         >
           Refresh
         </button>
-      </div>
+      </ProductFilters>
       <Notice error={categories.error} />
       {showCategories && (
         <CategoryManager
