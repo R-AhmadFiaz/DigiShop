@@ -6,21 +6,13 @@ import { activity, pkr, pakistanTime } from '../../api/purchases';
 import { Field, Modal, Notice, PageTitle } from '../../components/Common';
 import RecordTable from '../../components/RecordTable';
 import { CustomerBalances, CustomerInvoices } from '../Customers';
+import {cashBankTotal} from '../../api/financialReports';
+export {cashBankTotal} from '../../api/financialReports';
 
 export const reportCategories=['Sales','Expenses','Cash & Bank','Customers','Suppliers','Capital','Inventory'];
 
-// Display total only: the complete report must confirm every account balance.
-export function cashBankTotal(value){
-  if(!value||!['POSTED','POSTED_TEST'].includes(value.status)||!Array.isArray(value.entries))return null;
-  let sum=0n;
-  for(const account of value.entries){
-    if(!['POSTED','POSTED_TEST'].includes(account.status)||!Number.isSafeInteger(account.currentBalanceMinor))return null;
-    sum+=BigInt(account.currentBalanceMinor);
-  }
-  return sum>BigInt(Number.MAX_SAFE_INTEGER)||sum<BigInt(Number.MIN_SAFE_INTEGER)?null:Number(sum);
-}
 function Table({label,headings,rows}){
-  return <RecordTable label={label} rows={rows} rowKey={(_,i)=>i} columns={headings.map((h,i)=>({key:h==='Product'?'product':h,label:h,width:headings.length===2?(i===0?'65%':'35%'):h==='Product'?'45%':h==='Estimated current-cost value'?'25%':undefined,kind:h.startsWith('Date')?'date':h==='Reference'?'reference':undefined,numeric:/amount|total|quantity|value|balance|expense|opening|closing|movement|current|outstanding|credit|money|investment|withdrawal|capital/i.test(h),render:row=>row[i]}))} empty="No records."/>;
+  return <RecordTable label={label} rows={rows} rowKey={(_,i)=>i} columns={headings.map((h,i)=>({key:h==='Product'?'product':h,label:h,width:headings.length===2?(i===0?'65%':'35%'):h==='Product'?'45%':h==='Estimated current-cost value'?'25%':undefined,kind:h.startsWith('Date')?'date':h==='Reference'?'reference':undefined,numeric:/amount|total|quantity|value|balance|expense|opening|closing|movement|current|outstanding|credit|money|investment|contribution|withdrawal|capital/i.test(h),render:row=>row[i]}))} empty="No records."/>;
 }
 function Status({value}){
   return ['INCOMPLETE','PROVISIONAL'].includes(value?.status)?<small className="text-warning-emphasis">{value.status==='INCOMPLETE'?'Incomplete — needs review':'Provisional'}</small>:null;
@@ -35,7 +27,7 @@ function Report({title,value,children}){
 }
 export function ReportOverview({d,range}){
   const cashTotal=cashBankTotal(d.cashBank);
-  return <section aria-label="Business overview" className="report-overview">
+  return <section aria-label="Business overview" className="report-overview panel mb-3">
     <h2 className="h6">Selected dates · {range.from.slice(0,10)} to {new Date(Date.parse(range.to)-86400000).toISOString().slice(0,10)}</h2>
     <dl className="report-overview-grid report-period">
       <Metric label="Net Sales" value={d.sales} amount={d.sales.revenueMinor}>{d.sales.coverageMessage&&<small className="text-warning-emphasis">Only sales after {pakistanTime(d.sales.financialStartAt)}. See Report Notes.</small>}{!!d.sales.excludedUntimedCancellations&&<small className="text-warning-emphasis">Older cancellations missing dates are excluded.</small>}</Metric>
@@ -45,14 +37,13 @@ export function ReportOverview({d,range}){
     <dl className="report-overview-grid">
       <Metric label="Cash & Bank" value={d.cashBank} amount={cashTotal}>
         {cashTotal===null&&d.cashBank.status!=='UNAVAILABLE'&&<small className="text-warning-emphasis">Some account balances need setup.</small>}
-        {!!d.cashBank.entries?.length&&<ul className="report-account-list">{d.cashBank.entries.map(a=><li key={a.id}><Link to={'/owner/accounts/transactions?account='+encodeURIComponent(a.id)}>{a.name}{a.active===false?' (inactive)':''}</Link><span>{a.status==='UNAVAILABLE'?'Unavailable':pkr(a.currentBalanceMinor)}</span></li>)}</ul>}
       </Metric>
       <Metric label="Customers Owe Us" value={d.customers} amount={d.customers.debtMinor}/>
       <Metric label="We Owe Suppliers" value={d.suppliers} amount={d.suppliers.totalMinor}/>
       <Metric label="Partner Capital" value={d.capital} amount={d.capital.balanceMinor}/>
       <Metric label="Estimated Stock Value" value={d.inventory} amount={d.inventory.referenceValueMinor}>{d.inventory.status!=='PROVISIONAL'&&<small className="text-warning-emphasis">Provisional — when available</small>}</Metric>
     </dl>
-    <p className="small text-body-secondary mb-3">{d.profit.status==='UNAVAILABLE'?'Profit & Loss unavailable.':'Profit & Loss: see Report Notes.'} <a href="#report-notes" onClick={()=>{const notes=document.getElementById('report-notes');if(notes)notes.open=true;}}>View limitations</a></p>
+    <p className="small text-body-secondary mt-2 mb-0">{d.profit.status==='UNAVAILABLE'?'Profit & Loss unavailable.':'Profit & Loss: see Report Notes.'} <a href="#report-notes" onClick={()=>{const notes=document.getElementById('report-notes');if(notes)notes.open=true;}}>View limitations</a></p>
   </section>;
 }
 export function ReportContent({d,selected,onCustomer}){
@@ -89,8 +80,9 @@ export function ReportContent({d,selected,onCustomer}){
       <p className="small text-body-secondary mt-2 mb-0">Deferred receipts are not added to debt. Credit / refund due is one combined balance.</p>
     </Report>;
     case 'Capital':return <Report title="Partner Capital" value={d.capital}>
-      <p className="report-subtotal">Investment: {pkr(d.capital.contributionsMinor)} · Withdrawal: {pkr(d.capital.withdrawalsMinor)} · Remaining: {pkr(d.capital.balanceMinor)}</p>
-      <Table label="Capital report" headings={['Partner','Investment','Withdrawal','Remaining capital']} rows={(d.capital.entries??[]).map(p=>[p.name,pkr(p.contributionsMinor),pkr(p.withdrawalsMinor),pkr(p.balanceMinor)])}/>
+      <div className="d-flex flex-wrap justify-content-between gap-2 mb-2"><p className="report-subtotal mb-0">Contributions: {pkr(d.capital.contributionsMinor)} · Withdrawal: {pkr(d.capital.withdrawalsMinor)} · Net capital: {pkr(d.capital.balanceMinor)}</p><Link to="/owner/partners">Manage investors</Link></div>
+      <Table label="Capital report" headings={['Registered investor','Contributions','Withdrawal','Net capital']} rows={(d.capital.entries??[]).map(p=>[p.name,pkr(p.contributionsMinor),pkr(p.withdrawalsMinor),pkr(p.balanceMinor)])}/>
+      <p className="small text-body-secondary mt-2 mb-0">Only registered partners are listed. Figures include recorded corrections.</p>
     </Report>;
     case 'Inventory':return <Report title="Inventory" value={d.inventory}>
       <p className="report-subtotal">Estimated Stock Value: <strong>{pkr(d.inventory.referenceValueMinor)}</strong></p>
@@ -102,7 +94,7 @@ export function ReportContent({d,selected,onCustomer}){
 }
 export function ReportNotes({d}){
   return <details className="context-help report-notes" id="report-notes"><summary>Report Notes</summary>
-    <p>{d.coverage}</p><p>Selected dates use UTC day boundaries, not Pakistan midnight. Record timestamps are shown in Pakistan time.</p>
+    <p>{d.coverage}</p><p>Selected dates use UTC day boundaries: each report day runs from 5 am to 5 am Pakistan time, not local midnight. Record timestamps are shown in Pakistan time.</p>
     <p>Customer debt and store credit are separate balances, not sales or physical cash. Partner money is not sales or profit. Supplier payments, purchases, customer refunds and capital withdrawals are not operating expenses.</p>
     {d.sales.coverageMessage&&<p>Sales cutoff: {pakistanTime(d.sales.financialStartAt)}. {d.sales.coverageMessage}</p>}
     {!!d.sales.excludedUntimedCancellations&&<p>{d.sales.excludedUntimedCancellations} old cancelled invoices excluded: cancellation dates were not recorded.</p>}
@@ -125,7 +117,7 @@ export default function FinancialReports(){
       <Field label="From"><input className="form-control" type="date" value={from} onChange={e=>setFrom(e.target.value)} required/></Field>
       <Field label="To"><input className="form-control" type="date" min={from} value={to} onChange={e=>setTo(e.target.value)} required/></Field>
       <button className="btn btn-primary" disabled={result.loading}>Show Reports</button>
-      <small className="text-body-secondary">Dates follow the shop’s reporting clock (UTC). Times below use Pakistan time.</small>
+      <small className="text-body-secondary">Each report day runs from 5 am to 5 am Pakistan time (UTC dates). Record times use Pakistan time.</small>
     </form><Notice loading={result.loading} error={result.error}/>
     {d&&<><ReportOverview d={d} range={range}/>
       <section className="panel mb-3" aria-label="Explore Reports"><h2 className="h6">Explore Reports</h2>

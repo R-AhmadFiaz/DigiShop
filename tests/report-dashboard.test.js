@@ -9,6 +9,7 @@ const server=await createServer({server:{middlewareMode:true,hmr:false},appType:
 try{
   const {cashBankTotal,ReportOverview,ReportContent,ReportNotes,reportCategories}=await server.ssrLoadModule('/src/pages/owner/FinancialReports.jsx');
   const {default:PurchaseStatus}=await server.ssrLoadModule('/src/components/PurchaseStatus.jsx');
+  const {DashboardSummary}=await server.ssrLoadModule('/src/pages/owner/Dashboard.jsx');
   const render=(component,props)=>renderToStaticMarkup(createElement(MemoryRouter,null,createElement(component,props)));
   const d={asOf:'2026-10-18T10:00:00Z',coverage:'Posted events only. Unposted history excluded.',
     sales:{status:'RECORDED',originalGrossMinor:100000,originalDiscountsMinor:10000,additionsMinor:20000,returnsMinor:30000,discountChangesMinor:5000,revenueMinor:75000,coverageMessage:'Old demo sales excluded.',financialStartAt:'2026-10-01T00:00:00Z',excludedUntimedCancellations:2},
@@ -28,7 +29,8 @@ try{
   });
   await test('overview separates selected flows from current balances and keeps coverage warnings visible',()=>{
     const html=render(ReportOverview,{d,range:{from:'2026-10-01T00:00:00Z',to:'2026-10-19T00:00:00Z'}});
-    for(const text of ['Net Sales','Operating Expenses','Current balances','PKR 358.01','Main Cash','Bank','Customers Owe Us','We Owe Suppliers','Partner Capital','Estimated Stock Value','Provisional','Only sales after','Older cancellations','Profit &amp; Loss unavailable'])assert.ok(html.includes(text),text);
+    for(const text of ['Net Sales','Operating Expenses','Current balances','PKR 358.01','Customers Owe Us','We Owe Suppliers','Partner Capital','Estimated Stock Value','Provisional','Only sales after','Older cancellations','Profit &amp; Loss unavailable'])assert.ok(html.includes(text),text);
+    assert.ok(!html.includes('Main Cash'),'Individual account details belong in the Cash & Bank report');
     assert.ok(html.indexOf('Selected dates')<html.indexOf('Current balances'));
   });
   await test('each selection renders exactly one report and only its records',()=>{
@@ -51,6 +53,29 @@ try{
   await test('unavailable report never shows a fabricated empty or zero table',()=>{
     const html=render(ReportContent,{d:{...d,expenses:{status:'UNAVAILABLE',message:'Prepare accounting.'}},selected:'Expenses'});
     assert.ok(html.includes('Prepare accounting.'));assert.ok(!html.includes('<table'));assert.ok(!html.includes('PKR 0.00'));
+  });
+  await test('dashboard has exactly four linked live summaries and no account or investor histories',()=>{
+    const range={from:'2026-10-01T00:00:00Z',to:'2026-10-19T00:00:00Z'};
+    const html=render(DashboardSummary,{result:{data:d,loading:false,error:''},range});
+    assert.equal((html.match(/class="dashboard-summary-card"/g)||[]).length,4);
+    for(const value of ['PKR 358.01','PKR 300.00','PKR 750.00','PKR 80.00','/owner/accounts/cash-bank','/owner/partners','/owner/reports','/owner/expenses','Current balance','This month','2026-10-01 to 2026-10-18','Only sales after','Older cancellations'])assert.ok(html.includes(value),value);
+    for(const value of ['<table','Main Cash','Electricity','Contributions','Profit'])assert.ok(!html.includes(value),value);
+  });
+  await test('dashboard distinguishes loading, failed or unprepared balances from a real zero',()=>{
+    const range={from:'2026-10-01T00:00:00Z',to:'2026-10-19T00:00:00Z'};
+    assert.equal((render(DashboardSummary,{result:{loading:true,data:null},range}).match(/Loading…/g)||[]).length,4);
+    const failed=render(DashboardSummary,{result:{loading:false,data:null,error:'Report unavailable'},range});
+    assert.ok(failed.includes('Report unavailable'));assert.equal((failed.match(/>Unavailable</g)||[]).length,4);assert.ok(!failed.includes('PKR 0.00'));
+    const unavailable=render(DashboardSummary,{result:{loading:false,data:{...d,capital:{status:'UNAVAILABLE',balanceMinor:30000}}},range});
+    assert.ok(!unavailable.includes('PKR 300.00'));
+    const zero=render(DashboardSummary,{result:{loading:false,data:{...d,capital:{status:'POSTED',balanceMinor:0}}},range});assert.ok(zero.includes('PKR 0.00'));
+  });
+  await test('capital shows only registered investors with supplied corrected totals; never adds the viewer',()=>{
+    const capital={status:'POSTED',contributionsMinor:50000,withdrawalsMinor:10000,balanceMinor:40000,entries:[{id:'one',name:'Ahmed Investor',contributionsMinor:30000,withdrawalsMinor:10000,balanceMinor:20000},{id:'two',name:'Ali Investor',contributionsMinor:20000,withdrawalsMinor:0,balanceMinor:20000}]};
+    const html=render(ReportContent,{d:{...d,capital},selected:'Capital'});
+    for(const text of ['Registered investor','Contributions','Withdrawal','Net capital','Ahmed Investor','Ali Investor','PKR 300.00','PKR 100.00','PKR 200.00','Manage investors','/owner/partners','recorded corrections'])assert.ok(html.includes(text),text);
+    assert.ok(!html.includes('>Owner<'));
+    const empty=render(ReportContent,{d:{...d,capital:{...capital,entries:[]}},selected:'Capital'});assert.ok(empty.includes('No records.'));assert.ok(!empty.includes('Ahmed Investor'));assert.ok(!empty.includes('>Owner<'));
   });
   await test('one Report Notes section retains cutoffs, exclusions, statement limits and profit evidence',()=>{
     const html=render(ReportNotes,{d});

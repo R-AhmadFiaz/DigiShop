@@ -68,4 +68,41 @@ export const reportChecks=String.raw`
   }
   await fs.writeFile(path.join(reportDir,'metrics.json'),JSON.stringify(reportLayouts,null,2));
   pass('Financial dashboard and purchase status screenshots at 390, 768, 1366 and 1920; centered tables, mobile scrolling, real status values and accessible cancelled purchases');
+  // Dashboard summary uses the same authoritative report, without any detailed history.
+  const dashboardLowProduct=ok(await browserHttp('POST','/products/create-product',{name:'Dashboard Low Stock Bulb',brand:'Dashboard Test',category:category._id,unit:'piece',costPrice:10,retailPrice:15,wholesalePrice:12,stockQuantity:0,minStockThreshold:2})).product;
+  await navigation('/owner');await wait('document.querySelectorAll(".dashboard-summary-card").length===4 && !document.querySelector(".dashboard-finances").innerText.includes("Loading")');
+  const dashDay=new Date().toISOString().slice(0,10),dashFrom=dashDay.slice(0,8)+'01';
+  const dashEvidence=ok(await get('/accounts/reports?from='+dashFrom+'T00:00:00.000Z&to='+new Date(Date.parse(dashDay+'T00:00:00.000Z')+86400000).toISOString()));
+  const dashMetric=label=>'[...document.querySelectorAll(".dashboard-summary-card")].find(a=>a.innerText.startsWith('+JSON.stringify(label)+')).querySelector("strong").textContent';
+  assert.equal(await evaluate(dashMetric('Net Sales')),reportFormats(dashEvidence.sales.revenueMinor));
+  assert.equal(await evaluate(dashMetric('Expenses')),reportFormats(dashEvidence.expenses.netMinor));
+  assert.equal(await evaluate(dashMetric('Partner Capital')),reportFormats(dashEvidence.capital.balanceMinor));
+  assert.equal(await evaluate(dashMetric('Cash & Bank')),reportFormats(dashEvidence.cashBank.entries.reduce((sum,a)=>sum+a.currentBalanceMinor,0)));
+  assert.equal(await evaluate('document.querySelectorAll(".dashboard-finances table").length'),0);
+  assert.ok(await evaluate('document.querySelector(".owner-welcome").innerText.includes("Welcome,")'));
+  assert.ok(await evaluate('[...document.querySelectorAll("a")].some(a=>a.textContent.trim()==="New sale"&&a.pathname==="/owner/sales")'));
+  const lowStockEvidence=ok(await get('/products/low-stock'));
+  assert.ok(lowStockEvidence.Products.some(p=>String(p._id)===String(dashboardLowProduct._id)),'A real low-stock product is displayed, not only an empty fixture');
+  await wait('!document.querySelector("main").innerText.includes("Loading")');
+  const stockCells=await evaluate('[...document.querySelectorAll("main .panel tbody tr")].map(r=>[...r.cells].map(c=>c.textContent.trim()))');
+  assert.deepEqual(stockCells.map(c=>[c[0],c[2]]).sort(),lowStockEvidence.Products.map(p=>[p.name,p.stockQuantity+' '+p.unit]).sort());
+  const stockCalls=()=>requests.filter(r=>r.method==='GET'&&r.path==='/api/v2/products/low-stock').length;
+  const beforeStockRefresh=stockCalls(),beforeReportRefresh=reportCalls();await click('Refresh');await wait('!document.querySelector("main").innerText.includes("Loading")');
+  assert.equal(stockCalls(),beforeStockRefresh+1);assert.equal(reportCalls(),beforeReportRefresh,'Stock refresh does not refetch or modify financial records');
+  for(const width of [1366,1920,768,390]){
+    await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:false});await evaluate(width<1000?'document.querySelector(".owner-welcome").scrollIntoView({block:"start"})':'window.scrollTo(0,0)');await sleep(100);
+    assert.equal(await evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+    const shot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await fs.writeFile(path.join(reportDir,'owner-dashboard-'+width+'.png'),Buffer.from(shot.data,'base64'));
+  }
+  await navigation('/owner/reports');await wait('!!document.querySelector(".report-overview")');if(await evaluate('innerWidth<650'))await fill('.report-select','Capital');else await click('Capital');
+  const capitalCells=await evaluate('[...document.querySelectorAll("#selected-report tbody tr")].filter(r=>r.cells.length===4).map(r=>[...r.cells].map(c=>c.textContent))');
+  assert.deepEqual(capitalCells,dashEvidence.capital.entries.map(p=>[p.name,reportFormats(p.contributionsMinor),reportFormats(p.withdrawalsMinor),reportFormats(p.balanceMinor)]),'Only registered investors are rendered, never an inferred login identity');
+  assert.ok(await evaluate('document.querySelector("#selected-report").innerText.includes("Registered investor")'));
+  const cardCount=await evaluate('document.querySelectorAll(".report-overview .dashboard-summary-card").length');assert.equal(cardCount,0);
+  delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+  await navigation('/owner');await wait('document.querySelectorAll(".dashboard-summary-card").length===4 && !document.querySelector(".dashboard-finances").innerText.includes("Loading")');
+  assert.equal(await evaluate(dashMetric('Cash & Bank')),'Unavailable');assert.equal(await evaluate(dashMetric('Partner Capital')),'Unavailable');assert.equal(await evaluate(dashMetric('Expenses')),'Unavailable');
+  assert.deepEqual(await evaluate('[...document.querySelectorAll("main .panel tbody tr")].map(r=>[...r.cells].map(c=>c.textContent.trim()))'),stockCells);
+  process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+  pass('Owner dashboard: four actual monthly/current totals, registered-only investor capital, no histories, correct New Sale/welcome, exact low-stock quantities and independent refresh; unavailable accounting preserves stock');
 `;
