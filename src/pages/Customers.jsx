@@ -13,11 +13,11 @@ import {
 } from "../components/Common";
 import { CustomerForm } from "../components/CustomerPicker";
 import { useAuth } from '../auth/AuthContext';
-function CustomerBalances({ customer }) {
+export function CustomerBalances({ customer }) {
   const result = useLoad('/accounts/customers/' + customer._id + '/reconciliation');
   return <><Notice loading={result.loading} error={result.error}/>{result.data && <><dl className="balance-strip"><div><dt>Customer owes us</dt><dd>PKR {money(result.data.debtMinor / 100)}</dd></div><div><dt>Store credit</dt><dd>PKR {money(result.data.storeCreditMinor / 100)}</dd></div></dl><p className={result.data.reconciled?'text-success':'text-warning'}>{result.data.reconciled?'Balances checked.':'Balances need review. No financial records have been changed.'}</p>{!result.data.reconciled&&<><p>Review the original invoices, payments and credit records before confirming any opening. Do not enter these balances again as a new sale or investment.</p><ul>{result.data.issues?.map((issue,i)=><li key={i}>{issue.code.replaceAll('_',' ').toLowerCase()}</li>)}</ul><p>Unverified historical balances remain blocked. No automatic repair or duplicate opening is permitted.</p></>}</>}</>;
 }
-function CustomerInvoices({customer}) {
+export function CustomerInvoices({customer}) {
   const [page,setPage]=useState(1);
   const invoices=useLoad('/orders/'+query({customerId:customer._id,page,limit:10}));
   return <section className="mt-3"><h3 className="h6">Invoices and payments</h3><details className="context-help"><summary>Receiving a payment</summary>Choose an unpaid invoice to receive money. Each payment reduces that invoice and this customer debt; it is not a new sale.</details><Notice loading={invoices.loading} error={invoices.error}/>

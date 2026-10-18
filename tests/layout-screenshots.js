@@ -37,7 +37,7 @@ export const screenshotChecks=String.raw`
     await navigation('/owner/purchases/'+postedPo._id);await waitForTable('Purchase activity register');
     await click('Return goods');await wait('!!document.querySelector(".panel[aria-label] tbody")');
   });
-  await captureLayout('financial-reports',async()=>{await navigation('/owner/reports');await wait('!!document.querySelector(".report-totals")');});
+  await captureLayout('financial-reports',async()=>{await navigation('/owner/reports');await wait('!!document.querySelector(".report-overview")');});
   await captureLayout('capital',async()=>{await navigation('/owner/partners');await waitForTable('Partner capital register');});
   await captureLayout('cash-bank',async()=>{
     await navigation('/owner/accounts/cash-bank');await fill('[aria-label="Search accounts"]',cash.name);

@@ -7,6 +7,7 @@ import {spawn} from 'node:child_process';
 import {replaceLabels} from './readability-copy.js';
 import {screenshotChecks} from './layout-screenshots.js';
 import {purchaseChecks} from './purchase-browser-checks.js';
+import {reportChecks} from './report-browser-checks.js';
 
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
@@ -44,6 +45,14 @@ source=source.replaceAll("document.body.innerText.includes('Reference estimate')
  .replace("assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')", "await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);assert.ok(await evaluate(`document.body.innerText.includes('Profit & Loss')")
  .replace("await wait(`document.body.innerText.includes('financial balances are unavailable')`);", "await wait(`document.body.innerText.includes('Unavailable')`);await evaluate(`[...document.querySelectorAll('details')].forEach(d=>d.open=true)`);await wait(`document.body.innerText.includes('financial balances are unavailable')`);");
 source=source.replaceAll("innerText.includes('Unavailable:')", "innerText.includes('Unavailable')");
+// Presentation-only report labels and the single report viewer replace old panels.
+source=source.replaceAll("includes('Sales after discounts and returns')","includes('Net Sales')")
+  .replaceAll("includes('Inventory estimate')","includes('Estimated Stock Value')")
+  .replaceAll("includes('Why profit is not available')","includes('Report Notes')")
+  .replaceAll("label('From (UTC)'","label('From'")
+  .replaceAll("label('Through (UTC)'","label('To'")
+  .replaceAll("click('Show reports')","click('Show Reports')")
+  .replaceAll("'Partially received'","'Partially Received'");
 source=source.replaceAll(/(['"])\.\.\/dist\/([^'"]+)\1/g,(_,quote,file)=>quote+pathToFileURL(path.join(backend,'dist',file)).href+quote)
   .replaceAll("'mongoose'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/mongoose/index.js')).href))
   .replaceAll("'jsonwebtoken'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/jsonwebtoken/index.js')).href));
@@ -121,6 +130,7 @@ source=source.replace("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp.
 
 source=source.replace('  const evidence={passed:',checks+'  const evidence={passed:');
 if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  const evidence={passed:',purchaseChecks+'  const evidence={passed:');
+if(process.argv.includes('--reports')&&!invoiceSuite)source=source.replace('  const evidence={passed:',reportChecks+'  const evidence={passed:');
 if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))

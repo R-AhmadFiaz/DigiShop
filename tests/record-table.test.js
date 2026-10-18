@@ -71,6 +71,6 @@ try{
     const source=fs.readFileSync(new URL('../src/pages/owner/FinancialReports.jsx',import.meta.url),'utf8');
     for(const field of ['sales.revenueMinor','expenses.netMinor','customers.debtMinor','suppliers.totalMinor','capital.balanceMinor','inventory.referenceValueMinor'])assert.ok(source.includes('amount={d.'+field+'}'));
     assert.match(source,/pkr\(a.currentBalanceMinor\)/);assert.doesNotMatch(source,/\.reduce\(/);
-    assert.match(source,/Selected dates/);assert.match(source,/Current balances/);assert.match(source,/Inventory estimate — provisional/);
+    assert.match(source,/Selected dates/);assert.match(source,/Current balances/);assert.match(source,/Estimated Stock Value/);assert.match(source,/Provisional/);
   });
 }finally{await server.close();}

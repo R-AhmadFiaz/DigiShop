@@ -641,6 +641,35 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .report-totals dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .report-totals small { display: block; font-size: 13px; font-weight: 400; }
 .report-totals dd small { font-size: 16px; }
+.report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 14px; }
+.report-filters > .form-label { margin-bottom: 0; }
+.report-filters > small { flex-basis: 100%; font-size: 13px; }
+.report-overview-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 10px; margin-bottom: 14px; }
+.report-period { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.report-metric { padding: 12px 14px; border: 1px solid var(--bs-border-color); border-top: 3px solid #ccfbf1; border-radius: 6px; background: white; min-width: 0; }
+.report-metric dt { font-size: 14px; font-weight: 500; color: #4b5563; }
+.report-metric dd { margin: 4px 0 0; font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.report-metric small { display: block; font-size: 13px; }
+.report-account-list { list-style: none; margin: 7px 0 0; padding: 0; font-size: 13px; }
+.report-account-list li { display: flex; justify-content: space-between; gap: 8px; padding-top: 3px; }
+.report-account-list span { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.report-tabs { display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px; }
+.report-tabs .btn { flex-shrink: 0; white-space: nowrap; }
+.report-select { display: none; }
+.report-subtotal { font-size: 14px; margin-bottom: 10px; }
+.report-notes p:last-child { margin-bottom: 0; }
+.purchase-status { font-size: 13px; font-weight: 600; padding: 6px 9px; white-space: nowrap; }
+.purchase-status.text-bg-primary { background-color: #dbeafe !important; color: #1e40af !important; }
+@media (max-width: 650px) {
+  .report-tabs { display: none; }
+  .report-select { display: block; margin-bottom: 12px; }
+  .report-overview-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .report-metric { padding: 10px; }
+  .report-metric dd { font-size: 18px; }
+  .report-metric:has(.report-account-list) { grid-column: 1 / -1; }
+  .report-filters .form-control { min-width: 0; width: 100%; }
+  .report-filters > .form-label { flex: 1 1 125px; min-width: 0; }
+}
 .table input[type=number] { min-width: 80px; }
 .sale-total, .receipt-totals, .fw-semibold { font-variant-numeric: tabular-nums; }
 .screen-tabs { flex-wrap: wrap; }

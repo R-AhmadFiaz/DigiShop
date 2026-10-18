@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const source=fs.readFileSync(new URL('../src/pages/owner/FinancialReports.jsx',import.meta.url),'utf8');
 test('financial reports use the shop-scoped read API and never post or calculate profit',()=>{
   assert.match(source,/useLoad\('\/accounts\/reports'/);assert.doesNotMatch(source,/method:|costPrice|\/create-order|BUSINESS_ACCOUNTING_ENABLED/);
-  assert.match(source,/Profit & Loss/);assert.match(source,/value=\{d.profit\}/);
+  assert.match(source,/Profit & Loss/);assert.match(source,/d.profit.status==='UNAVAILABLE'/);
 });
 test('report route and navigation are OWNER-only',()=>{
   const app=fs.readFileSync(new URL('../src/App.jsx',import.meta.url),'utf8');
@@ -16,5 +16,5 @@ test('report route and navigation are OWNER-only',()=>{
 test('unavailable amounts are not zeros and current snapshots are separated from dated flows',()=>{
   for(const word of ['UNAVAILABLE','INCOMPLETE','PROVISIONAL','current','not the cash collected','not sales or physical cash','not sales or profit'])assert.ok(source.includes(word));
   assert.match(source,/UTC/);assert.match(source,/86400000/);assert.match(source,/Pakistan time/);
-  assert.match(source,/amount=\{d.suppliers.totalMinor\}/);assert.match(source,/pkr\(a.openingMinor\)/);
+  assert.match(source,/amount=\{d.suppliers.totalMinor\}/);assert.match(source,/'openingMinor','closingMinor','netMovementMinor'/);
 });

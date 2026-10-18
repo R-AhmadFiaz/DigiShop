@@ -7,6 +7,7 @@ import { activity, pakistanTime, pkr, quantityItems } from '../../api/purchases'
 import { Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import SupplierAction from '../../components/SupplierAction';
 import SupplierReturn from '../../components/SupplierReturn';
+import PurchaseStatus from '../../components/PurchaseStatus';
 
 function Receiving({po,prepare,locked}){
   const [values,setValues]=useState({}),[error,setError]=useState('');
@@ -32,7 +33,7 @@ export default function PurchaseDetails(){
     <button className="btn btn-sm btn-outline-secondary" onClick={refresh}>Refresh</button>
   </PageTitle><Notice loading={detail.loading} error={detail.error}/>
     {po&&<>
-      <p className="small text-body-secondary mb-2">{pakistanTime(po.createdAt)} · {activity(po.status)}</p>
+      <div className="d-flex flex-wrap align-items-center gap-2 mb-2"><span className="small text-body-secondary">{pakistanTime(po.createdAt)}</span><PurchaseStatus status={po.status}/></div>
       <dl className="balance-strip">
         <div><dt>Order value</dt><dd>{pkr(po.totalMinor)}</dd></div>
         <div><dt>Total received</dt><dd>{receivedQuantity(po)??'Unavailable'}</dd></div>
