@@ -32,10 +32,10 @@ export const screenshotChecks=String.raw`
     assert.equal(await evaluate('document.querySelector("#supplier-credit")'),null,'Zero credit creates no empty credit form');
   });
   await captureLayout('companies-suppliers',async()=>{await navigation('/owner/accounts/companies');await wait('!!document.querySelector("tr[data-record-id]")');});
-  await captureLayout('supplier-purchases',async()=>{await navigation('/owner/purchases/'+postedPo._id);await waitForTable('Goods delivery register');});
+  await captureLayout('supplier-purchases',async()=>{await navigation('/owner/purchases/'+postedPo._id);await waitForTable('Purchase activity register');});
   await captureLayout('supplier-returns',async()=>{
-    await navigation('/owner/purchases/'+postedPo._id);await waitForTable('Goods delivery register');
-    await click('Return details');await wait('!!document.querySelector(".panel[aria-label] tbody")');
+    await navigation('/owner/purchases/'+postedPo._id);await waitForTable('Purchase activity register');
+    await click('Return goods');await wait('!!document.querySelector(".panel[aria-label] tbody")');
   });
   await captureLayout('financial-reports',async()=>{await navigation('/owner/reports');await wait('!!document.querySelector(".report-totals")');});
   await captureLayout('capital',async()=>{await navigation('/owner/partners');await waitForTable('Partner capital register');});

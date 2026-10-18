@@ -113,7 +113,7 @@ export function PageTitle({ title, children }) {
 }
 export function AvatarInput() {
   return (
-    <Field label="Profile picture (optional)" hint="Choose an image, up to 5 MB.">
+    <Field label="Profile picture (Optional)" hint="Choose an image, up to 5 MB.">
       <input
         className="form-control"
         type="file"

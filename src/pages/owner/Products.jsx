@@ -187,7 +187,7 @@ function CategoryManager({ categories, onSaved }) {
           name="description"
           className="form-control search-input"
           aria-label="Category description"
-          placeholder="Description (optional)"
+          placeholder="Description (Optional)"
           maxLength={200}
           disabled={busy}
         />
@@ -315,7 +315,7 @@ function ProductForm({ product, categories, onClose, onSaved }) {
                   </Field>
                 </div>
               </div>
-              <Field label="Description">
+              <Field label="Description (Optional)">
                 <input
                   className="form-control"
                   name="description"

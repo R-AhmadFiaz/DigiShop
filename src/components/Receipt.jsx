@@ -41,7 +41,7 @@ export default function Receipt({ receipt, documentTitle, children }) {
         {documentTitle && <p><strong>{documentTitle}</strong></p>}
         <h2 className="h5">
           {receipt.type === "QUOTATION"
-            ? "Quotation"
+            ? receipt.invoiceNo || "Quotation"
             : receipt.invoiceNo || "Invoice"}
         </h2>
         <p>

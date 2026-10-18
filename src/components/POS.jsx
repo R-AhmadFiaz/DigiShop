@@ -473,7 +473,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                   </select>
                 </Field>}
                 <Notice error={paymentAccounts.error} />
-                {customer && <Field label="Store credit to use" hint={`Available: ${money((customer.storeCreditBalanceMinor ?? 0) / 100)}. The server verifies the balance at checkout.`}>
+                {customer && <Field label="Store credit to use (Optional)" hint={`Available: ${money((customer.storeCreditBalanceMinor ?? 0) / 100)}. The server verifies the balance at checkout.`}>
                   <input className="form-control" type="number" min="0" step="0.01" max={Math.min(totals.total, (customer.storeCreditBalanceMinor ?? 0) / 100)} value={credit} onChange={e => setCredit(e.target.value)} />
                 </Field>}
                 <div className="d-flex justify-content-between mb-3">
@@ -492,7 +492,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               <p className="small mb-2">
                 {due > 0
                   ? "Customer required for credit sale"
-                  : "Customer (optional)"}
+                  : "Customer (Optional)"}
               </p>
               <CustomerPicker
                 value={customer}

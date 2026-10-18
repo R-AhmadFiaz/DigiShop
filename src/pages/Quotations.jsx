@@ -73,6 +73,7 @@ export default function Quotations() {
                 <Empty>No quotations created in this session.</Empty>
               ) : (
                 <RecordTable label="Quotation register" rows={quotations} rowKey={d=>d.order._id} columns={[
+ {key:'reference',label:'Reference',render:d=>d.order.invoiceNo||'Not recorded'},
  {key:'date',label:'Created',render:d=>dateText(d.order.createdAt)},
  {key:'products',label:'Products',render:d=>d.receipt.lines.length+' product lines'},
  {key:'total',label:'Quoted total',numeric:true,render:d=>money(d.order.totalPrice)},
@@ -189,7 +190,7 @@ function Convert({ draft, onClose, onSaved, storageKey }) {
       <fieldset disabled={busy}>
         <div className="mb-3">
           <p className="small">
-            {due > 0 ? "Customer required" : "Customer (optional)"}
+            {due > 0 ? "Customer required" : "Customer (Optional)"}
           </p>
           <CustomerPicker
             value={customer}

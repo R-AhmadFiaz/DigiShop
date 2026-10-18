@@ -282,7 +282,7 @@ function StockHistory({ products }) {
  {key:'added',label:'Stock added (+)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta>0?'+'+l.quantityDelta:'—':'Unavailable'},
  {key:'removed',label:'Stock reduced (−)',numeric:true,render:l=>Number.isFinite(l.quantityDelta)?l.quantityDelta<0?l.quantityDelta:'—':'Unavailable'},
  {key:'action',label:'Action',render:l=>activity(l.reason)},
- {key:'invoice',label:'Invoice',render:l=>l.invoiceNo||'—'}
+ {key:'invoice',label:'Reference',render:l=>l.reference||l.invoiceNo||'—'}
  ]} details={l=><RecordFacts items={[["Reason",l.reason],["Stock change",l.quantityDelta],["Purchase",l.purchaseReference||'—'],["Delivery",l.receivingReference||'—'],["Return handling",l.disposition||'—'],["Returned units",l.returnedQuantity??'Unavailable']]}/>} empty="No stock history found."/>}
       <Pagination pagination={logs.data?.pagination} onPage={setPage} />
     </section>

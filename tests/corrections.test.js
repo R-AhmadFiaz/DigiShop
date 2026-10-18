@@ -8,9 +8,9 @@ test('business setup edits existing roles with revision and preserves customer l
 test('company products require an explicit matching brand and owner confirmation',()=>{
   const source=read('pages/owner/Companies.jsx');assert.match(source,/\/accounts\/products\//);assert.match(source,/method:'PUT'/);assert.match(source,/window.confirm\('Link '/);assert.match(source,/\/products'\+query/);assert.match(source,/Historical|historical sales/);assert.match(source,/No explicitly linked products/);
 });
-test('purchase/delivery reference inputs are optional and retain external identifiers and notes',()=>{
+test('purchase/delivery references are automatic and retain optional external identifiers and notes',()=>{
   for(const file of ['pages/owner/Purchases.jsx','pages/owner/PurchaseDetails.jsx']){
-    const source=read(file);assert.match(source,/reference \(optional\)/i);assert.match(source,/name="supplierDocumentNo"/);assert.match(source,/name="notes"/);assert.doesNotMatch(source,/name="reference"[^>]*required/);assert.match(source,/requestKey:crypto.randomUUID/);
+    const source=read(file);assert.match(source,/\(Optional\)/);assert.match(source,/name="supplierDocumentNo"/);assert.match(source,/name="notes"/);assert.doesNotMatch(source,/name="reference"/);assert.match(source,/requestKey:crypto.randomUUID/);
   }
 });
 test('historical supplier review uses the existing confirmed cutover without fabricated payments',()=>{

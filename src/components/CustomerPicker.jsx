@@ -48,7 +48,7 @@ export function CustomerForm({ onSaved, onCancel, onBusy }) {
             required
           />
         </Field>
-        <Field label="Address">
+        <Field label="Address (Optional)">
           <input className="form-control" name="address" maxLength={200} />
         </Field>
         <div className="d-flex gap-2">

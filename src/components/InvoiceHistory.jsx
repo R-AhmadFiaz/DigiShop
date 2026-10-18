@@ -18,7 +18,7 @@ export function FinancialMovements({ financial = {} }) {
 export function EventDocument({ event, order }) {
   return <>
     <h3 className="h6">{event.kind.toLowerCase()} · Revision {event.revisionAfter}</h3>
-    <RecordFacts items={[["Date",dateText(event.occurredAt)],["Recorded by",displayName(event.createdByName)||"Unavailable"],["Reason",event.reason]]}/>
+    <RecordFacts items={[["Reference",event.reference||event.invoiceNo],["Date",dateText(event.occurredAt)],["Recorded by",displayName(event.createdByName)||"Unavailable"],["Reason",event.reason]]}/>
     <RecordTable label="Returned and added products" rowKey={(_,index)=>index} rows={(event.movements||[]).map((m,index)=>({...m,_id:index}))} columns={[
       {key:'kind',label:'Action',render:m=>m.kind==='RETURN'?'Returned':'Added'},
       {key:'name',label:'Product',render:movement=>{
@@ -39,6 +39,7 @@ export default function InvoiceHistory({ order, onPrint }) {
     <Notice error={history.error} loading={history.loading} />
     {history.data&&<RecordTable label="Invoice adjustment and payment register" rows={history.data.history} columns={[
       {key:'date',label:'Date',render:e=>dateText(e.occurredAt)},
+      {key:'reference',label:'Reference',render:e=>e.reference||e.invoiceNo},
       {key:'action',label:'Action',render:e=>e.kind.toLowerCase()+' · Revision '+e.revisionAfter},
       {key:'received',label:'Money received (+)',numeric:true,render:e=>Number.isSafeInteger(e.financial?.cashReceivedMinor)?money(e.financial.cashReceivedMinor/100):'Unavailable'},
       {key:'refunded',label:'Money refunded (−)',numeric:true,render:e=>Number.isSafeInteger(e.financial?.cashRefundMinor)?money(e.financial.cashRefundMinor/100):'Unavailable'},

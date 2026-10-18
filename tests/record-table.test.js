@@ -58,7 +58,7 @@ try{
     const invoice=fs.readFileSync(new URL('../src/components/InvoiceHistory.jsx',import.meta.url),'utf8');
     const deliveries=fs.readFileSync(new URL('../src/pages/owner/PurchaseDetails.jsx',import.meta.url),'utf8');
     assert.match(invoice,/Open printable record/);assert.match(invoice,/\/history/);
-    assert.match(deliveries,/Return details/);assert.match(deliveries,/expectedRevision:po.revision/);
+    assert.match(deliveries,/Return goods/);assert.match(deliveries,/expectedRevision:po.revision/);
     assert.match(deliveries,/requestKey:crypto.randomUUID\(\)/);
   });
   await test('supplier forms keep uncertain-request recovery accessible inside disclosures',()=>{

@@ -8,8 +8,13 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import net from "node:net";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const profile = path.resolve("node_modules/.cache/store-browser");
+const profile = path.resolve("node_modules/.cache/store-browser-"+process.pid);
+const portProbe=net.createServer();
+await new Promise(resolve=>portProbe.listen(0,'127.0.0.1',resolve));
+const debugPort=portProbe.address().port;
+await new Promise(resolve=>portProbe.close(resolve));
 fs.mkdirSync(profile, { recursive: true });
 const chrome = spawn(
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -18,7 +23,7 @@ const chrome = spawn(
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
-    "--remote-debugging-port=9223",
+    "--remote-debugging-port="+debugPort,
     "--user-data-dir=" + profile,
     "about:blank",
   ],
@@ -87,7 +92,7 @@ function purchaseContract(endpoint,request,body,url){
   if(endpoint==='/purchases/'&&request.method==='POST'){
     const prior=purchaseOrders.find(p=>p.requestKey===body.requestKey);if(prior)return {data:{purchaseOrder:prior,replayed:true}};
     const items=body.items.map(r=>({...r,name:product.name,brand:product.brand,unit:product.unit,totalMinor:r.quantity*r.unitCostMinor,receivedQuantity:0}));
-    const record={...body,_id:'purchase-'+(purchaseOrders.length+1),supplierName:businessEntities.find(e=>e._id===body.supplierId).name,createdAt:new Date().toISOString(),items,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),revision:0,status:'DRAFT'};purchaseOrders.push(record);return {data:{purchaseOrder:record,replayed:false}};
+    const record={...body,reference:body.reference||'PO-'+(purchaseOrders.length+1),_id:'purchase-'+(purchaseOrders.length+1),supplierName:businessEntities.find(e=>e._id===body.supplierId).name,createdAt:new Date().toISOString(),items,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),revision:0,status:'DRAFT'};purchaseOrders.push(record);return {data:{purchaseOrder:record,replayed:false}};
   }
   if(endpoint==='/purchases/'){const entries=purchaseOrders.filter(p=>(!url.searchParams.get('supplierId')||p.supplierId===url.searchParams.get('supplierId'))&&(!url.searchParams.get('q')||p.reference.includes(url.searchParams.get('q')))&&(!url.searchParams.get('status')||p.status===url.searchParams.get('status')));return {data:{entries,pagination:{currentPage:1,totalPages:1,recordCount:entries.length}}};}
   if(!po)return {status:404,message:'Purchase order not found in shop'};
@@ -95,7 +100,7 @@ function purchaseContract(endpoint,request,body,url){
   if(parts[3]==='receipts'){
     const existing=goodsReceipts.find(r=>r.requestKey===body.requestKey);if(existing)return {data:{receipt:existing,purchaseOrder:po,replayed:true}};
     if(body.expectedRevision!==po.revision)return {status:409,message:'Purchase changed; reload before receiving'};const items=body.items.map(r=>{const line=po.items.find(i=>i.productId===r.productId);assert.ok(r.quantity<=line.quantity-line.receivedQuantity);line.receivedQuantity+=r.quantity;return {...r,name:line.name,unitCostMinor:line.unitCostMinor,totalMinor:r.quantity*line.unitCostMinor};});
-    const receipt={_id:'receipt-'+(goodsReceipts.length+1),...body,items,purchaseOrderId:po._id,purchaseReference:po.reference,supplierId:po.supplierId,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),occurredAt:new Date().toISOString(),createdByName:'Receiving Owner',accountingStatus:supplierReady?'POSTED':'DEFERRED'};
+    const receipt={_id:'receipt-'+(goodsReceipts.length+1),...body,reference:body.reference||'GR-'+(goodsReceipts.length+1),items,purchaseOrderId:po._id,purchaseReference:po.reference,supplierId:po.supplierId,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),occurredAt:new Date().toISOString(),createdByName:'Receiving Owner',accountingStatus:supplierReady?'POSTED':'DEFERRED'};
     goodsReceipts.push(receipt);product.stockQuantity+=items.reduce((n,r)=>n+r.quantity,0);if(supplierReady)supplierPayableMinor+=receipt.totalMinor;po.revision++;po.status=po.items.every(i=>i.quantity===i.receivedQuantity)?'RECEIVED':'PARTIALLY_RECEIVED';return {data:{receipt,purchaseOrder:po,replayed:false}};
   }
   if(request.method==='POST'){if(body.expectedRevision!==po.revision)return {status:409,message:'Purchase changed; reload before continuing'};po.revision++;po.status=parts[3]==='confirm'?'CONFIRMED':'CANCELLED';}
@@ -269,11 +274,11 @@ async function mock(event) {
         else if(endpoint.endsWith('/payments')){
           if(body.amountMinor>supplierPayableMinor){status=409;message='Supplier payment exceeds outstanding payable';}
           else if(body.amountMinor>supplierCashMinor){status=409;message='Insufficient cash or bank funds';}
-          else {supplierCashMinor-=body.amountMinor;supplierPayableMinor-=body.amountMinor;const e={...body,_id:'supplier-payment-'+(supplierSettlements.length+1),supplierId,kind:'PAYMENT',items:[],createdByName:'Paying Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};if(loseSupplierResponse){loseSupplierResponse=false;await send('Fetch.failRequest',{requestId:event.requestId,errorReason:'ConnectionReset'});return;}}
+          else {supplierCashMinor-=body.amountMinor;supplierPayableMinor-=body.amountMinor;const e={...body,reference:body.reference||'SP-1',_id:'supplier-payment-'+(supplierSettlements.length+1),supplierId,kind:'PAYMENT',items:[],createdByName:'Paying Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};if(loseSupplierResponse){loseSupplierResponse=false;await send('Fetch.failRequest',{requestId:event.requestId,errorReason:'ConnectionReset'});return;}}
         } else if(endpoint.endsWith('/returns')){
           const receipt=goodsReceipts.find(r=>r._id===body.receiptId);const items=body.items.map(i=>({...i,name:product.name,unitCostMinor:receipt.items[0].unitCostMinor})),amountMinor=items.reduce((n,i)=>n+i.quantity*i.unitCostMinor,0);
           if(amountMinor>supplierPayableMinor){status=409;message='Return exceeds remaining supplier payable; supplier refund-due/credit workflow is not supported';}
-          else {supplierPayableMinor-=amountMinor;product.stockQuantity-=items.reduce((n,i)=>n+i.quantity,0);const e={...body,_id:'supplier-return-'+(supplierSettlements.length+1),supplierId,kind:'RETURN',items,amountMinor,receiptReference:receipt.reference,createdByName:'Returning Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};}
+          else {supplierPayableMinor-=amountMinor;product.stockQuantity-=items.reduce((n,i)=>n+i.quantity,0);const e={...body,reference:body.reference||'SR-1',_id:'supplier-return-'+(supplierSettlements.length+1),supplierId,kind:'RETURN',items,amountMinor,receiptReference:receipt.reference,createdByName:'Returning Owner'};supplierSettlements.push(e);data={settlement:e,replayed:false};}
         }
       }
     }
@@ -625,7 +630,7 @@ try {
   let pages;
   for (let i = 0; i < 100; i++) {
     try {
-      pages = await (await fetch("http://localhost:9223/json")).json();
+      pages = await (await fetch("http://localhost:"+debugPort+"/json")).json();
       break;
     } catch {
       await sleep(100);
@@ -1356,32 +1361,32 @@ try {
   // Supplier purchasing and accounting are contract fixtures only; never sent to a database.
   const stockBeforePurchases=product.stockQuantity;
   await click('Purchases');await wait('document.body.innerText.includes("No purchase orders found")');
-  await click('Create purchase order');await fillLabel('Purchase reference','PO-SMOKE');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
+  await click('Create purchase order');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
   await click('Add Copper Cable');await fill('[aria-label="Quantity for Copper Cable"]','5');await fill('[aria-label="Unit cost for Copper Cable"]','10.00');
-  await click('Review purchase order');assert.equal(purchaseOrders.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("PO-SMOKE") && !document.querySelector("dialog[open]")');
+  await click('Review purchase order');assert.equal(purchaseOrders.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("PO-1") && !document.querySelector("dialog[open]")');
   assert.equal(purchaseOrders[0].items[0].unitCostMinor,1000);assert.equal(product.stockQuantity,stockBeforePurchases);
-  await click('Open purchase');await wait('document.body.innerText.includes("Confirm order")');purchaseOrders[0].revision++;await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Purchase changed")');await click('Refresh current data');await wait('document.body.innerText.includes("Confirm order")');await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Receive delivery")');
-  await fillLabel('Delivery reference','GR-DEFERRED');await fill('[aria-label="Delivered Copper Cable"]','1');await click('Review delivered quantities');assert.equal(goodsReceipts.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("GR-DEFERRED")');
+  await click('View');await wait('document.body.innerText.includes("Confirm order")');purchaseOrders[0].revision++;await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Purchase changed")');await click('Refresh current data');await wait('document.body.innerText.includes("Confirm order")');await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Receive delivery")');
+  await fill('[aria-label="Delivered Copper Cable"]','1');await click('Review delivered quantities');assert.equal(goodsReceipts.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("GR-1")');
   assert.equal(product.stockQuantity,stockBeforePurchases+1);assert.equal(goodsReceipts[0].accountingStatus,'DEFERRED');
-  await click('Return details');await wait('document.body.innerText.includes("Check this old delivery")');assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Review return").matches(":disabled")'),true);await click('Close return details');
+  await click('Return goods');await wait('document.body.innerText.includes("Check this old delivery")');assert.equal(await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Review return").matches(":disabled")'),true);await click('Close return details');
   supplierReady=true;financialAccounts[0].cashCutoverId='prepared-cutover';
-  await fillLabel('Delivery reference','GR-POSTED');await fill('[aria-label="Delivered Copper Cable"]','2');await click('Review delivered quantities');await click('Confirm and record');await wait('document.body.innerText.includes("GR-POSTED")');assert.equal(goodsReceipts.length,2);
+  await fill('[aria-label="Delivered Copper Cable"]','2');await click('Review delivered quantities');await click('Confirm and record');await wait('document.body.innerText.includes("GR-2")');assert.equal(goodsReceipts.length,2);
   await click('Supplier Khata');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');
-  await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment amount (PKR)','999');await fillLabel('Payment note','Actual supplier payment');
   await click('Review supplier payment');await wait('document.body.innerText.includes("no greater than the outstanding payable")');assert.equal(supplierSettlements.length,0);
   supplierCashMinor=1;await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');await click('Confirm payment sent');await wait('document.body.innerText.includes("Insufficient cash or bank funds")');assert.equal(supplierSettlements.length,0);supplierCashMinor=125000;
-  await click('Refresh current data');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment reference','PAY-SMOKE');await fillLabel('Payment note','Actual supplier payment');
+  await click('Refresh current data');await wait('document.body.innerText.includes("Outstanding: PKR 70.00")');await fill('#supplier-payment select.form-select','cash-account');await wait('document.body.innerText.includes("Available in Counter cash")');await fillLabel('Payment note','Actual supplier payment');
   await fillLabel('Payment amount (PKR)','10');await click('Review supplier payment');loseSupplierResponse=true;await click('Confirm payment sent');await wait('document.body.innerText.includes("result is uncertain")');assert.equal(supplierSettlements.length,1);
   const paymentBeforeRetry=calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body;
   supplierReady=false;await click('Retry same request');await wait('document.querySelector("dialog").innerText.includes("authoritative payable unavailable")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);supplierReady=true;
   await evaluate('[...document.querySelectorAll("dialog button")].find(b=>b.textContent==="Retry same request").click();[...document.querySelectorAll("dialog button")].find(b=>b.textContent.includes("request"))?.click()');
   await wait('document.body.innerText.includes("Outstanding: PKR 60.00")');assert.equal(supplierSettlements.length,1);assert.equal(calls.filter(c=>c.endpoint.endsWith('/payments')).at(-1).body,paymentBeforeRetry);
-  await click('Open purchase');await wait('document.body.innerText.includes("GR-POSTED")');await click('Return details');await wait('document.body.innerText.includes("Already returned")');
-  await fillLabel('Return Copper Cable','1');await fillLabel('Return reference','RET-SMOKE');await fillLabel('Return reason','Supplier accepted returned goods');await click('Review return');assert.equal(supplierSettlements.length,1);
+  await click('Open purchase');await wait(`(()=>{const row=[...document.querySelectorAll('[aria-label="Purchase activity register"] tbody tr')].find(r=>r.innerText.includes('GR-2'));const button=row&&[...row.querySelectorAll('button')].find(b=>b.textContent==='Return goods');if(!button)return false;button.click();return true;})()`);await wait('document.body.innerText.includes("Already returned")');
+  await fillLabel('Return Copper Cable','1');await fillLabel('Return reason','Supplier accepted returned goods');await click('Review return');assert.equal(supplierSettlements.length,1);
   const cashBeforeReturn=supplierCashMinor;await click('Confirm and record');await wait('!document.querySelector("dialog[open]") && !document.querySelector("section[aria-label]")');assert.equal(supplierSettlements.length,2);assert.equal(supplierCashMinor,cashBeforeReturn);assert.equal(supplierPayableMinor,5000);
-  await click('Return details');await wait('document.body.innerText.includes("RET-SMOKE")');assert.equal(await evaluate('document.querySelector("section[aria-label] tbody").innerText.includes("1")'),true);await click('Close return details');
-  const stockBeforeCancel=product.stockQuantity;await fillLabel('Reason for cancelling remaining order','Cancel only undelivered quantities');await click('Cancel remaining order');await click('Confirm and record');await wait('document.body.innerText.includes("Cancelled") && !document.body.innerText.includes("Receive delivery")');assert.equal(purchaseOrders[0].status,'CANCELLED');assert.equal(product.stockQuantity,stockBeforeCancel);assert.equal(goodsReceipts.length,2);
-  await click('Transactions');await wait('document.body.innerText.includes("PAY-SMOKE")');await click('View transaction');await wait('document.querySelector("dialog").innerText.includes("Money out PKR 10.00")');await click('Close');
+  await wait(`(()=>{const row=[...document.querySelectorAll('[aria-label="Purchase activity register"] tbody tr')].find(r=>r.innerText.includes('GR-2'));const button=row&&[...row.querySelectorAll('button')].find(b=>b.textContent==='Return goods');if(!button)return false;button.click();return true;})()`);await wait(`!!document.querySelector('section[aria-label="Purchase return"] tbody tr')`);assert.equal(await evaluate('document.querySelector("section[aria-label] tbody").innerText.includes("1")'),true);await click('Close return details');
+  const stockBeforeCancel=product.stockQuantity;await fillLabel('Reason for cancelling remaining order','Cancel only undelivered quantities');await wait(`(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Cancel remaining order'&&!b.disabled);if(!button)return false;button.click();return true;})()`);await click('Confirm and record');await wait('document.body.innerText.includes("Cancelled") && !document.body.innerText.includes("Receive delivery")');assert.equal(purchaseOrders[0].status,'CANCELLED');assert.equal(product.stockQuantity,stockBeforeCancel);assert.equal(goodsReceipts.length,2);
+  await click('Transactions');await wait('document.body.innerText.includes("SP-1")');await click('View transaction');await wait('document.querySelector("dialog").innerText.includes("Money out PKR 10.00")');await click('Close');
   await evaluate('document.querySelector(".accounts-nav summary").parentElement.open=true');
   product.stockQuantity=stockBeforePurchases;supplierReady=false;delete financialAccounts[0].cashCutoverId;
   await click('Cash & Bank');await wait('document.body.innerText.includes("Counter cash")');
@@ -1679,7 +1684,7 @@ try {
   await fill("[name=username]", "newcounter");
   await fill("[name=email]", "newcounter@example.test");
   await fill("[name=password]", "new-password");
-  assert.ok(await evaluate('document.body.innerText.includes("Profile picture (optional)")'));
+  assert.ok(await evaluate('document.body.innerText.includes("Profile picture (Optional)")'));
   assert.equal(await evaluate('document.querySelector("input[name=avatar]").required'), false);
   await click("Create cashier account");
   await wait('document.body.innerText.includes("Cashier account created")');

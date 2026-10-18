@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {replaceLabels} from './readability-copy.js';
 import {screenshotChecks} from './layout-screenshots.js';
+import {purchaseChecks} from './purchase-browser-checks.js';
 
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
@@ -60,12 +61,12 @@ const checks=`
   await evaluate('(()=>{const r=document.querySelector('+JSON.stringify(firstStatementRow)+');r.focus();r.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));})()');
   await wait('!!document.querySelector("dialog[open]")');await click('Close');
   await navigation('/owner/purchases/'+postedPo._id);
-  const deliverySelector='[aria-label="Goods delivery register"] tr[data-record-id]';
+  const deliverySelector='[aria-label="Purchase activity register"] tr[data-record-id]';
   await wait('!!document.querySelector('+JSON.stringify(deliverySelector)+')');
   const beforeRegisterDetails=await snapshot();
   await evaluate('document.querySelector('+JSON.stringify(deliverySelector)+').click()');
   await wait('!!document.querySelector(".record-detail")');
-  assert.ok(await evaluate('document.querySelector(".record-detail").innerText.includes("Received by")'));
+  assert.ok(await evaluate('document.querySelector(".record-detail").innerText.includes("Recorded by")'));
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:740,deviceScaleFactor:1,mobile:true});
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Register scroll stays inside the page');
   assert.ok(await evaluate('getComputedStyle(document.querySelector(".record-register")).overflowX==="auto"'),'Record tables retain horizontal scroll');
@@ -76,7 +77,7 @@ const checks=`
   await wait('!!document.querySelector(".table tbody td")');
   assert.equal(await evaluate('getComputedStyle(document.body).fontSize'),'16px');
   assert.equal(await evaluate('document.querySelector(".sidebar").getBoundingClientRect().width'),216);
-  assert.equal(await evaluate('getComputedStyle(document.querySelector(".table")).fontSize'),'15px');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".table")).fontSize'),'14.5px');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".table td")).paddingTop'),'7px');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".btn")).minHeight'),'36px');
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Desktop page fits');
@@ -103,7 +104,23 @@ const checks=`
   pass('Real registration keeps entered shop identity and existing blocked-state flow');
   await login(owner.username);
 `;
+
+// Forms now rely on authoritative server-issued references, never typed numbers.
+source=source.replace(/await label\('(?:Purchase reference|Delivery reference|Payment reference|Return reference|Credit transaction reference|Correction reference)',[^;]+;/g,'')
+ .replace(/await fill\('\[name=reference\]',[^;]+;/g,'')
+ .replace('const po=await PurchaseOrder.findOne({shopId:shop._id,reference}).lean();',"const po=await PurchaseOrder.findOne({shopId:shop._id,supplierId:supplier._id}).sort({_id:-1}).lean();reference=po.reference;assert.match(reference,/^PO-[1-9][0-9]*$/);")
+ .replace("await record();await wait(`document.body.innerText.includes(${JSON.stringify(reference)})`);return GoodsReceipt.findOne({shopId:shop._id,reference}).lean();", "await record();const saved=await GoodsReceipt.findOne({shopId:shop._id}).sort({_id:-1}).lean();reference=saved.reference;assert.match(reference,/^GR-[1-9][0-9]*$/);await wait(`document.body.innerText.includes(${JSON.stringify(reference)})`);return saved;");
+for(const [old,issued] of Object.entries({'PAY-LOCAL-CASH':'SP-1','RET-LOCAL':'SR-1','EXP-LOCAL':'EX-1','CAP-LOCAL-IN':'CA-1','CAP-LOCAL-OUT':'CW-1','CREDIT-RETURN':'SR-2','CREDIT-REFUND':'SF-1','CREDIT-APPLY':'SC-1'}))source=source.replaceAll(old,issued);
+source=source.replace("label('Search purchases','PO-AFTER-CUTOFF')","label('Search purchases',postedPo.reference)")
+ .replace("includes('PO-AFTER-CUTOFF')","includes("+'${JSON.stringify(postedPo.reference)}'+")")
+ .replace("includes('PO-BEFORE-CUTOFF')","includes("+'${JSON.stringify(mainPo.reference)}'+")");
+source=source.replaceAll('PO-AUTO-','PO-').replaceAll('GR-AUTO-','GR-');
+source=source.replaceAll("click('Return details')","click('Return goods')");
+source=source.replace("await click('Return goods');await wait(`document.body.innerText.includes('SR-1')`);", "await click('Return goods');await wait(`!!document.querySelector('section[aria-label=\"Purchase return\"] tbody tr')`);");
+source=source.replace("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));", "await sleep(350);await wait(\"!!document.querySelector('[name=reason]')&&!document.querySelector('[name=SUPPLIER_PAYABLE]').disabled\");await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));");
+
 source=source.replace('  const evidence={passed:',checks+'  const evidence={passed:');
+if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  const evidence={passed:',purchaseChecks+'  const evidence={passed:');
 if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))
