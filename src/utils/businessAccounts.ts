@@ -235,7 +235,10 @@ export async function settleSupplier(actor:Actor,supplierId:string,body:any,kind
     supplierAccountingEnabled();const user=await owner(actor,session,true),supplierIdValue=id(supplierId);
     const allowed=['requestKey','reference','occurredAt','reason',...(['PAYMENT','REFUND'].includes(kind)?['amountMinor','accountId',...(kind==='REFUND'?['confirmation']:[])]:kind==='CREDIT_APPLICATION'?['amountMinor','confirmation']:kind==='RETURN'?['receiptId','items']:['confirmation'])];
     if(Object.keys(body).some(k=>!allowed.includes(k)))throw new apiError(400,'Unsupported supplier settlement fields');
-    const requestKey=text(body.requestKey,100,'request key'),reference=body.reference===undefined||body.reference===null||body.reference===''?'':text(body.reference,50,'settlement reference').toUpperCase(),reason=text(body.reason,300,'settlement reason'),occurredAt=utcDate(body.occurredAt);
+    // A payment note is optional; retain a nonblank system audit description.
+    // Returns, refunds, credit applications and reversals still require a reason.
+    const paymentWithoutNote=kind==='PAYMENT'&&(body.reason===undefined||body.reason===null||(typeof body.reason==='string'&&body.reason.length<=300&&!body.reason.trim()));
+    const requestKey=text(body.requestKey,100,'request key'),reference=body.reference===undefined||body.reference===null||body.reference===''?'':text(body.reference,50,'settlement reference').toUpperCase(),reason=paymentWithoutNote?'Supplier payment':text(body.reason,300,'settlement reason'),occurredAt=utcDate(body.occurredAt);
     if(!/^[\w-]{8,100}$/.test(requestKey)||(reference!==''&&!/^[A-Z0-9][A-Z0-9/_-]*$/.test(reference)))throw new apiError(400,'Valid request key and settlement reference required');
     let input:any={supplierId:supplierIdValue,kind,reference,reason,occurredAt:occurredAt.toISOString()};
     if(['PAYMENT','REFUND','CREDIT_APPLICATION'].includes(kind)){

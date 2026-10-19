@@ -79,10 +79,10 @@ await test('supplier settlements: actual HTTP and disposable loopback replica se
             assert.equal(await balance(),1000);assert.equal(await stock(p),20);assert.equal(await SupplierSettlement.countDocuments(),0);
         });
         await t.test('partial supplier cash payment decreases payable and cash through one balanced source journal',async()=>{
-            partial={body:payment(200)};partial.event=ok(await http('POST',base+'/payments',partial.body)).settlement;
+            partial={body:payment(200,cash,{reason:''})};partial.event=ok(await http('POST',base+'/payments',partial.body)).settlement;
             assert.equal(await balance(),800);assert.equal((await funds(cash)).balanceMinor,9800);assert.equal(partial.event.createdByName,'owner');assert.equal(partial.event.createdByRole,'OWNER');assert.equal(partial.event.amountMinor,200);
             const journal=await BusinessTransaction.findOne({'source.kind':'SUPPLIER_PAYMENT','source.referenceId':partial.event._id});assert.equal(journal.postings.find(p=>String(p.accountId)===String(ap._id)).debitMinor,200);assert.equal(journal.postings.find(p=>String(p.accountId)===String(cash._id)).creditMinor,200);
-            assert.equal(journal.postings.reduce((n,p)=>n+p.debitMinor-p.creditMinor,0),0);
+            assert.equal(journal.postings.reduce((n,p)=>n+p.debitMinor-p.creditMinor,0),0);assert.equal(partial.event.reason,'Supplier payment');assert.equal(journal.reason,'Supplier payment');
         });
         await t.test('duplicate keys and payment references cannot pay twice; exact retry is stable',async()=>{
             const count=await SupplierSettlement.countDocuments();assert.equal(ok(await http('POST',base+'/payments',partial.body)).replayed,true);assert.equal(await SupplierSettlement.countDocuments(),count);assert.equal(await balance(),800);
@@ -264,6 +264,23 @@ await test('supplier settlements: actual HTTP and disposable loopback replica se
             const foreignCash=await accounts.businessTransaction(b.actor,s=>accounts.createFinancialAccount(b.actor,{kind:'CASH',code:'FOREIGN-TILL',name:'Other shop till'},s));
             assert.equal((await http('POST',creditBase+'/refunds',creditBody(1,{accountId:String(foreignCash._id)}))).status,404);
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;try{assert.equal((await http('POST',creditBase+'/refunds',creditBody(1))).status,409);}finally{process.env.BUSINESS_ACCOUNTING_ENABLED='true';}
+        });
+        await t.test('cash and bank payments accept optional notes, preserve supplied notes and replay once',async()=>{
+            const supplier=await tx(s=>accounts.createBusinessEntity(a.actor,{key:'optional-payment-notes',name:'Optional notes supplier',roles:['SUPPLIER']},s));
+            const route='/accounts/suppliers/'+supplier._id,preview=ok(await http('GET',route+'/cutover-preview'));
+            ok(await http('POST',route+'/cutover',{requestKey:'optional-notes-opening',confirmation:'CONFIRM SUPPLIER OPENING',cutoffAt:new Date().toISOString(),openingBalanceMinor:1000,otherOpeningMinor:1000,reviews:[],evidenceDigest:preview.evidenceDigest,reason:'Verified previous supplier debt'}));
+            let remaining=1000;
+            for(const [,account,note] of [[0,cash,''],[1,bank,''],[2,cash,'Cash sent with driver'],[3,bank,'Bank transfer confirmed'],[4,bank,undefined],[5,cash,'  ']]){
+                const body=payment(1,account,{reason:note}),before=(await funds(account)).balanceMinor;
+                const event=ok(await http('POST',route+'/payments',body)).settlement;remaining--;
+                assert.equal(event.reason,note?.trim()||'Supplier payment');
+                assert.equal(ok(await http('GET',route+'/balance')).balanceMinor,remaining);
+                assert.equal((await funds(account)).balanceMinor,before-1);
+                const journal=await BusinessTransaction.findOne({'source.kind':'SUPPLIER_PAYMENT','source.referenceId':event._id});assert.equal(journal.reason,event.reason);
+                assert.equal(ok(await http('POST',route+'/payments',body)).replayed,true);assert.equal((await funds(account)).balanceMinor,before-1);
+                assert.equal(await BusinessTransaction.countDocuments({'source.referenceId':event._id}),1);
+            }
+            for(const reason of [false,{},'x'.repeat(301)])assert.equal((await http('POST',route+'/payments',payment(1,cash,{reason}))).status,400);
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;
