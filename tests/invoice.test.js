@@ -100,3 +100,9 @@ test("unavailable storage preserves ordinary screens but financial submission fa
   assert.doesNotThrow(() => clearPending("pending"));
   delete globalThis.sessionStorage;
 });
+
+test('ordinary invoice payments accept blank notes without weakening adjustment explanations',()=>{
+  const body=adjustmentBody({...input,mode:'payments',reason:'',funds:{...input.funds,cashReceivedAmount:'1'}});
+  assert.equal(body.reason,'Customer invoice payment');
+  assert.throws(()=>adjustmentBody({...input,reason:''}),/reason/);
+});

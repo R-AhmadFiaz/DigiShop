@@ -32,9 +32,9 @@ export function amount(value, label) {
   return number;
 }
 export function adjustmentBody({ order, mode, key, reason, returns, additions, discountType, discountValue, funds, recipient }) {
-  if (!reason.trim()) throw new Error("Enter a reason.");
+  if (mode !== "payments" && !reason.trim()) throw new Error("Enter a reason.");
   const body = {
-    requestKey: key, expectedRevision: order.revision ?? 0, reason: reason.trim(),
+    requestKey: key, expectedRevision: order.revision ?? 0, reason: reason.trim() || "Customer invoice payment",
     returns: mode === "adjustments" ? order.items.flatMap((line) => {
       const entry = returns[line.lineId];
       if (!entry || entry.quantity === "" || Number(entry.quantity) === 0) return [];

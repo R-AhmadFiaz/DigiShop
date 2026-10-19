@@ -714,3 +714,30 @@ p, td, th { overflow-wrap: break-word; }
   html { overflow: visible; scrollbar-gutter: auto; }
   .receipt .small, .receipt small, .receipt .receipt-heading p { font-size: 12px; }
 }
+
+/* One shared navigation: sidebar on desktop, modal drawer on phones/tablets. */
+.mobile-brand-bar,.drawer-close { display:none; }
+.navigation-drawer { display:block; position:sticky; top:0; margin:0; padding:0; border:0; width:100%; max-width:none; height:100dvh; max-height:none; color:inherit; background:#fff; }
+@media (max-width:768px) {
+  .app-shell { display:block; }
+  .mobile-brand-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid #e5e7eb; background:#fff; }
+  .mobile-brand-bar .sidebar-brand { margin:0; }
+  .mobile-brand-bar button { min-width:44px; min-height:44px; font-size:22px; }
+  .navigation-drawer:not([open]) { display:none; }
+  .navigation-drawer[open] { position:fixed; inset:0 auto 0 0; width:min(320px,calc(100vw - 40px)); height:100dvh; margin:0; overflow:hidden; animation:drawer-in .16s ease-out; }
+  .navigation-drawer::backdrop { background:rgb(0 0 0 / .4); }
+  .navigation-drawer .sidebar { position:relative; height:100%; overflow-y:auto; overscroll-behavior:contain; padding:14px; border:0; }
+  .navigation-drawer .sidebar nav { flex-direction:column; flex-wrap:nowrap; gap:2px; }
+  .navigation-drawer .sidebar a,.navigation-drawer summary { min-height:44px; }
+  .drawer-close { display:block; align-self:flex-end; min-width:44px; min-height:44px; font-size:24px; margin-bottom:8px; }
+  .workspace { min-width:0; padding:12px; }
+  .page-title,.app-header,.balance-strip { flex-wrap:wrap; }
+  .page-title > *, .balance-strip > *, fieldset { min-width:0; }
+  .workspace .d-flex { max-width:100%; }
+  .table-responsive,.record-register { max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .action-disclosure button { max-width:100%; white-space:normal; }
+  .form-control,.form-select { min-width:0; max-width:100%; }
+}
+@keyframes drawer-in { from { transform:translateX(-100%); } to { transform:translateX(0); } }
+@media (prefers-reduced-motion:reduce) { .navigation-drawer[open] { animation:none; } }
+@media print { .navigation-drawer { display:none !important; } }

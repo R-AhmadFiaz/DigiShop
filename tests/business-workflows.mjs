@@ -8,6 +8,7 @@ import {replaceLabels} from './readability-copy.js';
 import {screenshotChecks} from './layout-screenshots.js';
 import {purchaseChecks} from './purchase-browser-checks.js';
 import {reportChecks} from './report-browser-checks.js';
+import {mobileChecks} from './mobile-browser-checks.js';
 import {supplierSearchChecks} from './supplier-search-browser.js';
 
 const backend=path.resolve('../store-backend');
@@ -143,6 +144,10 @@ source=source.replaceAll("click('Return details')","click('Return goods')");
 source=source.replace("await click('Return goods');await wait(`document.body.innerText.includes('SR-1')`);", "await click('Return goods');await wait(`!!document.querySelector('section[aria-label=\"Purchase return\"] tbody tr')`);");
 source=source.replace("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));", "await sleep(350);await wait(\"!!document.querySelector('[name=reason]')&&!document.querySelector('[name=SUPPLIER_PAYABLE]').disabled\");await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id));");
 
+source=source.replace('async function label(name, value) {',`async function label(name, value) { if(name==='Reason'&&!await evaluate('[...document.querySelectorAll("label")].some(l=>l.textContent.trim()==="Reason")')&&await evaluate('[...document.querySelectorAll("label")].some(l=>l.textContent.includes("Payment note (Optional)"))'))name='Payment note (Optional)';`);
+// The layout now also owns a navigation dialog; financial checks target financial dialogs only.
+source=source.replace(/(['"])dialog(?!:not)/g,'$1dialog:not(.navigation-drawer)');
+source=source.replace('  const evidence={passed:',mobileChecks+'  const evidence={passed:');
 source=source.replace('  const evidence={passed:',checks+'  const evidence={passed:');
 if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  const evidence={passed:',purchaseChecks+'  const evidence={passed:');
 if(process.argv.includes('--reports')&&!invoiceSuite)source=source.replace('  const evidence={passed:',reportChecks+'  const evidence={passed:');
@@ -151,6 +156,7 @@ if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))
   .replaceAll("'tests/artifacts/supplier-phase5a-evidence.json'",JSON.stringify(path.resolve('tests/artifacts/readability-workflows.json')));
+source=source.replace(/(['"])dialog(?!:not)/g,'$1dialog:not(.navigation-drawer)');
 const target=path.resolve('node_modules/.cache/readability-'+(invoiceSuite?'invoice':'business')+'-workflows.mjs');
 await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,source);
 const child=spawn(process.execPath,[target],{cwd:backend,stdio:'inherit',windowsHide:true});
