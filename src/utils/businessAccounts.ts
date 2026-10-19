@@ -64,10 +64,24 @@ export async function initializeSupplierCutover(actor:Actor,supplierId:string,bo
     // deliveries must still go through the full reviewed opening workflow.
     if(body.enrollNewSupplier===true){
         if(body.openingBalanceMinor!==0||body.otherOpeningMinor!==0||reviews.length||body.payableAccountId||body.offsetAccountId||body.equityAccountId)throw new apiError(400,'New supplier enrollment requires confirmed zero historical debt and no account overrides');
-        const payable=await FinancialAccount.findOne({shopId:actor.shopId,entityId:supplierIdValue,kind:'SUPPLIER_PAYABLE'}).session(session)??await createFinancialAccount(actor,{kind:'SUPPLIER_PAYABLE',code:'AP_'+supplierIdValue,name:'supplier payable',entityId:supplierIdValue},session);
-        const offset=await FinancialAccount.findOne({shopId:actor.shopId,code:('RECEIVED_'+supplierIdValue).toUpperCase()}).session(session)??await createFinancialAccount(actor,{kind:'PURCHASES_CLEARING',code:'RECEIVED_'+supplierIdValue,name:'purchases clearing'},session);
-        const equity=await FinancialAccount.findOne({shopId:actor.shopId,code:('EQUITY_'+supplierIdValue).toUpperCase()}).session(session)??await createFinancialAccount(actor,{kind:'OPENING_EQUITY',code:'EQUITY_'+supplierIdValue,name:'opening equity'},session);
-        body={...body,payableAccountId:String(payable._id),offsetAccountId:String(offset._id),equityAccountId:String(equity._id)};
+    }
+    // Existing callers may still explicitly select all three accounts. Normal
+    // openings resolve supplier-specific codes, never an arbitrary shop account.
+    const overrides=[body.payableAccountId,body.offsetAccountId,body.equityAccountId];
+    if(overrides.some(v=>v!==undefined)&&!overrides.every(v=>typeof v==='string'&&v.length>0))throw new apiError(400,'Provide all three manual accounts or omit them for automatic setup');
+    if(overrides.every(v=>v===undefined)){
+        await getBusinessEntity(actor,supplierIdValue,session);
+        const resolved:string[]=[];
+        for(const [kind,prefix] of [['SUPPLIER_PAYABLE','AP_'],['PURCHASES_CLEARING','RECEIVED_'],['OPENING_EQUITY','EQUITY_']] as const){
+            const code=(prefix+supplierIdValue).toUpperCase();
+            const coded=await FinancialAccount.findOne({shopId:actor.shopId,code}).session(session);
+            const party=kind==='SUPPLIER_PAYABLE'?await FinancialAccount.findOne({shopId:actor.shopId,entityId:supplierIdValue,kind}).session(session):null;
+            if(coded&&(coded.kind!==kind||(kind==='SUPPLIER_PAYABLE'&&String(coded.entityId)!==supplierIdValue)||party&&String(party._id)!==String(coded._id)))throw new apiError(409,'Supplier setup account code conflicts; owner account review required');
+            const account=party??coded??await createFinancialAccount(actor,{kind,code,name:kind.replaceAll('_',' ').toLowerCase(),...(kind==='SUPPLIER_PAYABLE'?{entityId:supplierIdValue}:{})},session);
+            if(!account.isActive||account.authority!=='JOURNAL'||account.normalSide!==accountKinds[kind]||account.currency!=='PKR'||(kind!=='SUPPLIER_PAYABLE'&&account.entityId))throw new apiError(409,'Supplier setup account is inactive or invalid; owner account review required');
+            resolved.push(String(account._id));
+        }
+        body={...body,payableAccountId:resolved[0],offsetAccountId:resolved[1],equityAccountId:resolved[2]};
     }
     const input={supplierId:supplierIdValue,cutoffAt:cutoffAt.toISOString(),payableAccountId:id(body.payableAccountId),offsetAccountId:id(body.offsetAccountId),equityAccountId:id(body.equityAccountId),openingBalanceMinor:body.openingBalanceMinor,otherOpeningMinor:body.otherOpeningMinor,reviews,evidenceDigest:body.evidenceDigest,reason};
     const requestHash=createHash('sha256').update(JSON.stringify({actorId:String(user._id),...input})).digest('hex');

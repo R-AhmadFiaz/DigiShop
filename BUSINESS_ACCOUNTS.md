@@ -1916,3 +1916,25 @@ branches, commits, pushes, deployment or full-project survey occurred.
 ## Production activation policy update
 
 See [ACCOUNTING_ACTIVATION.md](ACCOUNTING_ACTIVATION.md) for the current explicit production permission, per-shop activation, clean-start/reconciliation, account enrollment, pause/resume and deployment contracts. This supersedes historical test-only restrictions above. Defaults remain disabled; no automatic demo cleanup or production migration is provided.
+
+### Simplified supplier starting balances
+
+The supplier opening UI now asks whether the supplier is new or existing. New
+suppliers still explicitly confirm zero debt and no historical deliveries.
+Existing suppliers review every deferred delivery and separately declare other
+previous debt; the displayed total is reviewed unpaid deliveries plus other debt.
+The server verifies this total, evidence digest and cutoff before recording it.
+
+`POST /api/v2/accounts/suppliers/:id/cutover` now accepts historical openings
+without account IDs. It reuses the supplier payable account and the supplier's
+`RECEIVED_<supplierId>` / `EQUITY_<supplierId>` account codes, creating missing
+accounts transactionally. It never guesses another shop-level clearing/equity
+account. Conflicting codes, inactive accounts and existing payable activity fail
+closed. Existing API callers can still supply all three manual account IDs;
+partial overrides are rejected. Exceptional account selection remains available
+through that existing API, not the normal shopkeeper form.
+
+The journal remains Dr OPENING_EQUITY / Cr SUPPLIER_PAYABLE for positive openings.
+Zero openings have confirmation evidence but no journal. No stock, purchase,
+payment or partner investment is created. Deferred receipts are not reposted.
+No schema/index migration or historical financial rewrite is required.

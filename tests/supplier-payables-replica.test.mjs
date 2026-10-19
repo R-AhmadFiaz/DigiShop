@@ -186,6 +186,56 @@ await test('supplier payables: actual HTTP and disposable loopback replica set',
             delete process.env.BUSINESS_ACCOUNTING_ENABLED;const x=await create();x.po=await confirm(x.po);const receipt=ok(await http('POST',`/purchases/${x.po._id}/receipts`,receiveBody(x.po))).receipt;process.env.BUSINESS_ACCOUNTING_ENABLED='true';
             const report=ok(await http('GET',base+'/reconciliation'));assert.equal(report.authoritative,false);assert.equal(report.balanceMinor,null);assert.ok(report.issues.some(i=>/Unreviewed deferred/.test(i.problem)));assert.equal((await http('GET',base+'/balance')).status,409);assert.equal((await http('GET',`/accounts/financial/${ap._id}/history`)).status,409);const before=await stock(p);assert.equal((await http('POST',`/purchases/${po._id}/receipts`,receiveBody(po))).status,409);assert.equal(await stock(p),before);assert.equal((await GoodsReceipt.findById(receipt._id)).accountingStatus,'DEFERRED');
         });
+        await t.test('automatic historical opening records Rs 30000 once and reuses supplier accounts',async()=>{
+            const entity=await accounts.businessTransaction(a.actor,s=>accounts.createBusinessEntity(a.actor,{key:'automatic-history',name:'Historical supplier',roles:['SUPPLIER']},s));
+            const path='/accounts/suppliers/'+entity._id;
+            const payable=await account('SUPPLIER_PAYABLE','CUSTOM-AP',entity._id);
+            const evidence=ok(await http('GET',path+'/cutover-preview'));
+            const body={requestKey:'auto-historical-opening',confirmation:'CONFIRM SUPPLIER OPENING',cutoffAt:new Date().toISOString(),openingBalanceMinor:3000000,otherOpeningMinor:3000000,reviews:[],evidenceDigest:evidence.evidenceDigest,reason:'Owner confirmed historical external debt'};
+            assert.equal((await http('POST',path+'/cutover',{...body,payableAccountId:String(payable._id)})).status,400);
+            const count=await FinancialAccount.countDocuments();
+            assert.equal((await http('POST',path+'/cutover',{...body,evidenceDigest:'stale'})).status,409);
+            assert.equal(await FinancialAccount.countDocuments(),count);
+            const result=ok(await http('POST',path+'/cutover',body));
+            assert.equal(result.cutover.payableAccountId,String(payable._id));
+            const journal=await BusinessTransaction.findOne({'source.referenceId':result.cutover._id});
+            assert.equal(journal.postings.length,2);
+            assert.equal(journal.postings.find(p=>String(p.accountId)===String(payable._id)).creditMinor,3000000);
+            assert.equal(journal.postings.find(p=>String(p.accountId)===result.cutover.equityAccountId).debitMinor,3000000);
+            assert.equal(ok(await http('POST',path+'/cutover',body)).replayed,true);
+            assert.equal(await BusinessTransaction.countDocuments({'source.referenceId':result.cutover._id}),1);
+            assert.equal(ok(await http('GET',path+'/balance')).balanceMinor,3000000);
+            assert.equal((await http('POST',path+'/cutover',{...body,requestKey:'second-opening-attempt'})).status,409);
+        });
+        await t.test('automatic openings review unpaid, paid and mixed historical deliveries without reposting',async()=>{
+            for(const [index,unpaid,other] of [[1,1234,0],[2,0,0],[3,700,300]]){
+                const entity=await accounts.businessTransaction(a.actor,s=>accounts.createBusinessEntity(a.actor,{key:'history-'+index,name:'History '+index,roles:['SUPPLIER']},s));
+                delete process.env.BUSINESS_ACCOUNTING_ENABLED;
+                let purchase=(await create({supplierId:String(entity._id)})).po;purchase=await confirm(purchase);
+                const receipt=ok(await http('POST','/purchases/'+purchase._id+'/receipts',receiveBody(purchase))).receipt;
+                process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+                const path='/accounts/suppliers/'+entity._id,evidence=ok(await http('GET',path+'/cutover-preview'));
+                const body={requestKey:'auto-history-'+index,confirmation:'CONFIRM SUPPLIER OPENING',cutoffAt:new Date().toISOString(),openingBalanceMinor:unpaid+other,otherOpeningMinor:other,reviews:[{receiptId:receipt._id,unpaidMinor:unpaid,reason:'Owner checked external payments'}],evidenceDigest:evidence.evidenceDigest,reason:'Owner verified no overlap with additional debt'};
+                assert.equal((await http('POST',path+'/cutover',{...body,enrollNewSupplier:true,openingBalanceMinor:0,otherOpeningMinor:0,reviews:[]})).status,409);
+                assert.equal((await http('POST',path+'/cutover',{...body,reviews:[]})).status,409);
+                const result=ok(await http('POST',path+'/cutover',body));
+                assert.equal(ok(await http('GET',path+'/balance')).balanceMinor,unpaid+other);
+                assert.equal(await BusinessTransaction.countDocuments({'source.referenceId':result.cutover._id}),unpaid+other?1:0);
+                assert.equal((await GoodsReceipt.findById(receipt._id)).accountingStatus,'DEFERRED');
+                assert.equal(ok(await http('POST',path+'/cutover',body)).replayed,true);
+            }
+        });
+        await t.test('conflicting and inactive automatic accounts fail closed with rollback',async()=>{
+            for(const inactive of [false,true]){
+                const entity=await accounts.businessTransaction(a.actor,s=>accounts.createBusinessEntity(a.actor,{key:'invalid-'+inactive,name:'Invalid '+inactive,roles:['SUPPLIER']},s));
+                const coded=await account(inactive?'PURCHASES_CLEARING':'OPENING_EQUITY','RECEIVED_'+entity._id);
+                if(inactive)await FinancialAccount.updateOne({_id:coded._id},{$set:{isActive:false}});
+                const path='/accounts/suppliers/'+entity._id,evidence=ok(await http('GET',path+'/cutover-preview'));
+                const count=await FinancialAccount.countDocuments();
+                assert.equal((await http('POST',path+'/cutover',{requestKey:'bad-auto-'+inactive,confirmation:'CONFIRM SUPPLIER OPENING',cutoffAt:new Date().toISOString(),openingBalanceMinor:3000000,otherOpeningMinor:3000000,reviews:[],evidenceDigest:evidence.evidenceDigest,reason:'Check account conflict'})).status,409);
+                assert.equal(await FinancialAccount.countDocuments(),count);assert.equal(await SupplierCutover.countDocuments({supplierId:entity._id}),0);
+            }
+        });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;
         if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));
