@@ -13,6 +13,8 @@ import {supplierSearchChecks} from './supplier-search-browser.js';
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
 let source=await fs.readFile(path.join(backend,'tests',invoiceSuite?'invoice-browser.integration.mjs':'supplier-browser.integration.mjs'),'utf8');
+// The supplier account picker now searches inside a single dropdown.
+source=source.replace(/^async function selectPaymentAccount\(id\).*$/m,`async function selectPaymentAccount(id){const account=await FinancialAccount.findById(id).lean();await evaluate("document.querySelector('#supplier-payment details > summary').click()");await fill('[aria-label="Search payment accounts"]',account.name);await wait('[...document.querySelectorAll("#supplier-payment details button")].some(b=>b.textContent==='+JSON.stringify(account.name+' ('+account.kind+')')+')');await evaluate('[...document.querySelectorAll("#supplier-payment details button")].find(b=>b.textContent==='+JSON.stringify(account.name+' ('+account.kind+')')+').click()');await wait('document.body.innerText.includes("Available in")');}`);
 // Supplier accounts are now resolved by the server; exercise the actual simplified forms.
 source=source.split('\n').filter(line=>!line.includes("await click('Create supplier payable account')")&&!line.includes("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id))")).join('\n');
 const manualStart=source.indexOf('  const selectedAccounts={};'),manualEnd=source.indexOf("  await wait(\"document.body.innerText.includes('Outstanding:')\");",manualStart);

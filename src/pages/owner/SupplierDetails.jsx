@@ -14,16 +14,22 @@ function PaymentEntry({account,balance,prepare,locked}){
   const result=useLoad('/accounts/financial/'+account._id),[error,setError]=useState('');
   function submit(e){e.preventDefault();if(locked)return;try{const fields=new FormData(e.currentTarget),amountMinor=minorAmount(fields.get('amount'));if(amountMinor<=0||amountMinor>balance)throw new Error('Enter a positive payment no greater than the outstanding payable.');setError('');prepare({path:'/accounts/suppliers/'+account.supplierId+'/payments',title:'Confirm supplier payment',confirmLabel:'Confirm payment sent',summary:'Pay '+account.supplierName+' ? '+pkr(amountMinor)+' from '+account.name+'\nConfirm this payment has actually been sent to the supplier. Payments are applied at supplier level.',body:{requestKey:crypto.randomUUID(),accountId:account._id,amountMinor,reason:fields.get('reason'),occurredAt:new Date().toISOString()}});}catch(e){setError(e.message);}}
   return <form onSubmit={submit}><Notice loading={result.loading} error={error||result.error}/>{result.data&&<p>Available in {account.name}: {pkr(result.data.balanceMinor)}</p>}<fieldset disabled={locked||!Number.isSafeInteger(result.data?.balanceMinor)}>
-    <Field label="Payment amount (PKR)"><input name="amount" className="form-control" type="number" min="0.01" step="0.01" required/></Field><Field label="Payment note"><input name="reason" className="form-control" required maxLength={300}/></Field><button className="btn btn-primary" type="submit">Review supplier payment</button>
+    <Field label="Payment amount (PKR)"><input name="amount" className="form-control" type="number" min="0.01" step="0.01" required/></Field><Field label="Payment note (Optional)"><input name="reason" className="form-control" maxLength={300}/></Field><button className="btn btn-primary" type="submit">Review supplier payment</button>
   </fieldset></form>;
 }
 function SupplierPayment({supplierId,supplierName,balance,onChanged}){
   const [search,setSearch]=useState(''),[page,setPage]=useState(1),[selected,setSelected]=useState(null);
   const accounts=useLoad('/accounts/financial'+query({q:useDebounce(search),page,limit:20}));
   return <SupplierAction onChanged={()=>{setSelected(null);onChanged();}}>{({prepare,locked})=>balance===null?null:balance===0?null:<details id="supplier-payment" className="action-disclosure" open={locked||undefined}><summary>Pay supplier</summary>
-    <Field label="Find payment account"><input className="form-control" maxLength={100} disabled={locked} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);setSelected(null);}}/></Field><Notice loading={accounts.loading} error={accounts.error}/>
-    <Field label="Payment account"><select aria-label="Supplier payment account" className="form-select" disabled={locked} value={selected?._id||''} onChange={e=>setSelected(accounts.data.entries.find(a=>a._id===e.target.value)||null)}><option value="">Choose cash or bank</option>{accounts.data?.entries.filter(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId).map(a=><option key={a._id} value={a._id}>{a.name}</option>)}</select></Field>
-    {accounts.data&&!accounts.data.entries.some(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId)&&<p>No prepared cash or bank accounts on this page. Accounting setup is required before payment.</p>}<Pagination pagination={accounts.data?.pagination} onPage={p=>{setPage(p);setSelected(null);}}/>
+    <div className="mb-3"><label className="form-label" id="supplier-pay-from">Pay from (Cash / Bank)</label>
+      <details className="border rounded p-2"><summary aria-labelledby="supplier-pay-from" aria-disabled={locked} onClick={e=>{if(locked)e.preventDefault();}}>{selected?selected.name+' ('+selected.kind+')':'Choose cash or bank'}</summary>
+        <div className="pt-2"><input aria-label="Search payment accounts" placeholder="Search account name" className="form-control mb-2" maxLength={100} disabled={locked} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/><Notice loading={accounts.loading} error={accounts.error}/>
+          {!accounts.loading&&!accounts.error&&accounts.data?.entries.filter(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId).map(a=><button type="button" key={a._id} className="btn btn-outline-secondary w-100 text-start mb-1" aria-pressed={selected?._id===a._id} disabled={locked} onClick={e=>{setSelected(a);e.currentTarget.closest('details').open=false;}}>{a.name} ({a.kind})</button>)}
+          {!accounts.loading&&accounts.data&&!accounts.data.entries.some(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId)&&<p className="mb-2">No eligible cash or bank accounts found on this page. Try another search or page; accounts must be prepared before payment.</p>}
+          <Pagination pagination={accounts.data?.pagination} onPage={setPage}/>
+        </div>
+      </details>
+    </div>
     {selected&&<PaymentEntry key={selected._id} account={{...selected,supplierId,supplierName}} balance={balance} prepare={prepare} locked={locked}/>}
   </details>}</SupplierAction>;
 }

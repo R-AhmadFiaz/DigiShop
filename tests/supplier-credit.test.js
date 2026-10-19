@@ -17,3 +17,14 @@ test('supplier corrections retain original history and return copy no longer cla
   const returns=fs.readFileSync(new URL('../src/components/SupplierReturn.jsx',import.meta.url),'utf8');assert.match(returns,/extra becomes money the supplier owes us/);assert.doesNotMatch(returns,/Returns exceeding that balance are blocked/);
   const history=fs.readFileSync(new URL('../src/components/TransactionHistory.jsx',import.meta.url),'utf8');assert.match(history,/SUPPLIER_REFUND/);assert.match(history,/SUPPLIER_CREDIT_APPLICATION/);
 });
+
+test('supplier payment has one searchable account dropdown and optional note',()=>{
+  assert.match(page,/Pay from \(Cash \/ Bank\)/);
+  assert.match(page,/Search payment accounts/);
+  assert.doesNotMatch(page,/Find payment account|label="Payment account"/);
+  assert.match(page,/Payment note \(Optional\)/);
+  assert.match(page,/label="Payment note \(Optional\)"><input name="reason" className="form-control" maxLength=\{300\}/);
+  assert.match(page,/accountId:account\._id/);
+  assert.match(page,/Available in/);
+  assert.match(page,/Confirm this payment has actually been sent/);
+});
