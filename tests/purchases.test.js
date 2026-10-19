@@ -45,11 +45,10 @@ test('new supplier setup requires explicit zero-opening confirmation and purchas
   assert.match(purchase,/Prepare or review supplier opening/);
 });
 
-test('supplier opening retains controlled selections and created accounts across reloads and pages',()=>{
+test('supplier openings use simple choices and server-resolved accounts',()=>{
   const source=fs.readFileSync(new URL('../src/components/SupplierOpening.jsx',import.meta.url),'utf8');
-  assert.match(source,/value=\{selected\[kind\]\?\?''\}/);
-  assert.match(source,/setSelected\(rows=>\(\{\.\.\.rows,\[kind\]:account\._id\}\)\)/);
-  assert.match(source,/Object\.values\(savedAccounts\)/);
-  assert.match(source,/setSavedAccounts\(rows=>\(\{\.\.\.rows,\[id\]:account\}\)\)/);
-  assert.match(source,/Account selected/);
+  for(const label of ['Does this supplier have previous records?','New supplier','Existing supplier','Previous amount owed (PKR)','Additional previous debt (PKR)','Total starting debt:'])assert.ok(source.includes(label));
+  assert.doesNotMatch(source,/Create account|SUPPLIER_PAYABLE|PURCHASES_CLEARING|OPENING_EQUITY|payableAccountId|offsetAccountId|equityAccountId/);
+  for(const safeguard of ['evidenceDigest:preview.evidenceDigest','crypto.randomUUID()','CONFIRM SUPPLIER OPENING','An unpaid amount cannot exceed its delivery value','I verified every old delivery'])assert.ok(source.includes(safeguard));
+  assert.match(source,/Additional previous debt must not include these deliveries/);
 });

@@ -13,6 +13,12 @@ import {supplierSearchChecks} from './supplier-search-browser.js';
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
 let source=await fs.readFile(path.join(backend,'tests',invoiceSuite?'invoice-browser.integration.mjs':'supplier-browser.integration.mjs'),'utf8');
+// Supplier accounts are now resolved by the server; exercise the actual simplified forms.
+source=source.split('\n').filter(line=>!line.includes("await click('Create supplier payable account')")&&!line.includes("await fill('[name=SUPPLIER_PAYABLE]',String(correctionAp._id))")).join('\n');
+const manualStart=source.indexOf('  const selectedAccounts={};'),manualEnd=source.indexOf("  await wait(\"document.body.innerText.includes('Outstanding:')\");",manualStart);
+if(manualStart>=0&&manualEnd>=0)source=source.slice(0,manualStart)+`  await evaluate("[...document.querySelectorAll('label')].find(e=>e.textContent.includes('This is a new supplier')).querySelector('input').click()");await click('Review zero opening for new supplier');await record();\n`+source.slice(manualEnd);
+source=source.replace('  await wait("document.body.innerText.includes(\'This is a new supplier\')");','  await label(\'Does this supplier have previous records?\',\'new\');\n  await wait("document.body.innerText.includes(\'This is a new supplier\')");');
+source=source.replace('manual supplier account creation auto-selects and retains all dropdowns; confirmed zero opening unblocks existing PO, 5+5 receipt and duplicate replay','automatic supplier zero opening unblocks existing PO, 5+5 receipt and duplicate replay');
 source=replaceLabels(source)
   .replaceAll("click('Add business')","click('Add supplier')")
   .replaceAll("click('Save business')","click('Save supplier')")
@@ -129,6 +135,7 @@ for(const [old,issued] of Object.entries({'PAY-LOCAL-CASH':'SP-1','RET-LOCAL':'S
 source=source.replace("label('Search purchases','PO-AFTER-CUTOFF')","label('Search purchases',postedPo.reference)")
  .replace("includes('PO-AFTER-CUTOFF')","includes("+'${JSON.stringify(postedPo.reference)}'+")")
  .replace("includes('PO-BEFORE-CUTOFF')","includes("+'${JSON.stringify(mainPo.reference)}'+")");
+source=source.replaceAll('Starting balance note','Reason / note').replace("await label('Does this supplier have previous records?','new');", "await fill('[aria-label=\"Supplier starting situation\"]','new');");
 source=source.replaceAll('PO-AUTO-','PO-').replaceAll('GR-AUTO-','GR-');
 source=source.replaceAll("click('Return details')","click('Return goods')");
 source=source.replace("await click('Return goods');await wait(`document.body.innerText.includes('SR-1')`);", "await click('Return goods');await wait(`!!document.querySelector('section[aria-label=\"Purchase return\"] tbody tr')`);");
