@@ -119,7 +119,7 @@ await test('partner capital: real HTTP and disposable loopback replica set',{ski
         });
         await t.test('validation and chronological guards reject invalid or backdated events',async()=>{
             for(const amountMinor of [0,-1,1.5,'100',Number.MAX_SAFE_INTEGER+1])assert.equal((await http('POST','/capital',data({amountMinor}))).status,400);
-            assert.equal((await http('POST','/capital',data({description:' '}))).status,400);
+            assert.equal((await http('POST','/capital',data({description:{}}))).status,400);
             assert.equal((await http('POST','/capital',data({occurredAt:new Date(Date.now()+86400000).toISOString()}))).status,400);
             assert.equal((await http('POST','/capital',data({occurredAt:new Date(Date.now()-86400000).toISOString()}))).status,409);
         });
@@ -179,6 +179,14 @@ await test('partner capital: real HTTP and disposable loopback replica set',{ski
             await assert.rejects(tx(s=>accounts.postBusinessJournal(a.actor,{requestKey:'unsafe-manual-capital',reason:'Not a verified capital event',occurredAt:new Date().toISOString(),postings:[{accountId:String(unprepared._id),debitMinor:1,creditMinor:0},{accountId:String(account._id),debitMinor:0,creditMinor:1}]},s)),/verified capital/);
             const partnerRow=await BusinessEntity.findById(partner._id);
             await assert.rejects(tx(s=>accounts.setBusinessRoles(a.actor,String(partner._id),['OTHER'],partnerRow.revision,s)),/Capital history/);
+        });
+        await t.test('optional partner notes preserve balanced journals and reversal reasons remain required',async()=>{
+            for(const description of ['',undefined,'  ','Owner note supplied']){
+                const request=data({description,amountMinor:1,reference:''});const saved=ok(await http('POST','/capital',request)).event;
+                assert.equal(saved.description,description?.trim()||'Partner capital contribution');assert.match(saved.reference,/^CA-|^CAP-/);
+                assert.equal(ok(await http('POST','/capital',request)).replayed,true);
+                assert.equal((await http('POST','/capital/'+saved._id+'/reverse',reverse({description:''}))).status,400);
+            }
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));

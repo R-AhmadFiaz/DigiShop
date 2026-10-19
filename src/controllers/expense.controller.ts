@@ -51,7 +51,7 @@ export const expenses = (operation: string) => asyncHandler(async (req, res) => 
         if (operation === 'create' || operation === 'reverse') {
             const requestKey = text(body.requestKey, 100);
             if (!/^[\w-]{8,100}$/.test(requestKey)) throw new apiError(400, 'Valid idempotency key required');
-            const occurredAt = date(body.occurredAt), description = text(body.description, 300), reference = text(body.reference, 100, true);
+            const occurredAt = date(body.occurredAt), description=operation==='create'&&(body.description===undefined||body.description===null||(typeof body.description==='string'&&body.description.length<=300&&!body.description.trim()))?('Shop expense'):text(body.description,300), reference = text(body.reference, 100, true);
             const kind = operation === 'reverse' ? 'EXPENSE_REVERSAL' : 'EXPENSE';
             let values: any = {kind, occurredAt, description, reference};
             if (operation === 'reverse') {

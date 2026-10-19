@@ -91,7 +91,7 @@ export const capital=(operation:string)=>asyncHandler(async(req,res)=>{
         await accounts.selectInvoicePaymentAccounts(actor,session);
         if(operation==='post'||operation==='reverse'){
             const requestKey=text(body.requestKey,100);if(!/^[\w-]{8,100}$/.test(requestKey))throw new apiError(400,'Valid idempotency key required');
-            const occurredAt=timestamp(body.occurredAt),description=text(body.description,300),reference=text(body.reference,100,true);
+            const occurredAt=timestamp(body.occurredAt),description=operation==='post'&&(body.description===undefined||body.description===null||(typeof body.description==='string'&&body.description.length<=300&&!body.description.trim()))?(body.direction==='WITHDRAWAL'?'Partner capital withdrawal':'Partner capital contribution'):text(body.description,300),reference=text(body.reference,100,true);
             let values:any={occurredAt,description,reference};
             if(operation==='reverse'){
                 if(body.confirmation!=='CONFIRM CAPITAL REVERSAL')throw new apiError(400,'Confirm the actual money movement has been reversed');

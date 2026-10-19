@@ -84,7 +84,7 @@ await test('expenses: real HTTP and disposable loopback replica set',{skip:!exis
         });
         await t.test('invalid precision, blank fields, future dates and insufficient funds write nothing',async()=>{
             for(const amountMinor of [0,-1,1.5,'100',Number.MAX_SAFE_INTEGER+1])assert.equal((await http('POST','',body({amountMinor}))).status,400);
-            assert.equal((await http('POST','',body({description:' '}))).status,400);
+            assert.equal((await http('POST','',body({description:{}}))).status,400);
             assert.equal((await http('POST','',body({occurredAt:new Date(Date.now()+86400000).toISOString()}))).status,400);
             assert.equal((await http('POST','',body({amountMinor:10001}))).status,409);
             assert.equal(await Expense.countDocuments(),1);assert.equal((await balance()).balanceMinor,8750);
@@ -156,6 +156,15 @@ await test('expenses: real HTTP and disposable loopback replica set',{skip:!exis
             assert.equal(ok(await http('GET','?month='+thisMonth,null,b.user)).totalMinor,100);
             assert.equal((await http('POST','',body({categoryId:cat._id}))).status,404);
             assert.equal((await http('POST','',body({accountId:String(till._id)}))).status,404);
+        });
+        await t.test('optional expense descriptions keep generated audit labels and references',async()=>{
+            for(const description of ['',undefined,'  ','Actual shop note']){
+                const request=body({description,amountMinor:1,reference:''}),before=(await balance()).balanceMinor;
+                const saved=ok(await http('POST','',request)).expense;
+                assert.equal(saved.description,description?.trim()||'Shop expense');assert.match(saved.reference,/^EX-/);
+                assert.equal(ok(await http('POST','',request)).replayed,true);assert.equal((await balance()).balanceMinor,before-1);
+                assert.equal((await http('POST','/'+saved._id+'/reverse',reverse({description:''}))).status,400);
+            }
         });
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;

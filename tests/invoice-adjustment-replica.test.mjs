@@ -578,11 +578,11 @@ await test('isolated real MongoDB replica-set invoice adjustment tests', {skip: 
         });
         await t.test('mounted payment and cancellation record settlement; legacy cancel cannot bypass history', async () => {
             const customer = await buyer(); const {order, product} = await sale(customer, {paid: 40});
-            const input = payment(order, {cashReceivedAmount: 20});
+            const input = payment(order, {cashReceivedAmount: 20, reason:''});
             const preview = await http('POST', `/orders/${order._id}/payments/preview`, input);
             assert.equal(preview.status, 200);
             const result = await http('POST', `/orders/${order._id}/payments`, {...input, confirmationToken: preview.body.data.confirmationToken});
-            assert.equal(result.status, 200); assert.equal(result.body.data.event.kind, 'PAYMENT');
+            assert.equal(result.status, 200); assert.equal(result.body.data.event.kind, 'PAYMENT'); assert.equal(result.body.data.event.reason,'Customer invoice payment');
             assert.equal((await Customer.findById(customer._id)).remainingMoney, 40);
             assert.equal((await http('PATCH', `/orders/${order._id}/cancel`, {})).status, 409);
             const current = await Order.findById(order._id);

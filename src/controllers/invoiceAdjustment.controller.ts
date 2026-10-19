@@ -107,6 +107,7 @@ export async function invoiceEligibility(order: any, session: mongoose.ClientSes
 function httpInput(body: any, kind: Operation): AdjustmentInput {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new apiError(400, 'Invoice operation body required');
     const input = {...body, returns: body.returns ?? [], additions: body.additions ?? []};
+    if(kind==='PAYMENT'&&(input.reason===undefined||input.reason===null||(typeof input.reason==='string'&&input.reason.length<=300&&!input.reason.trim())))input.reason='Customer invoice payment';
     validateInput(input);
     return input;
 }
