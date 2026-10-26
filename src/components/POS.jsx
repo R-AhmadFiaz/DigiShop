@@ -36,12 +36,22 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     [customerBusy, setCustomerBusy] = useState(false),
     [error, setError] = useState(""),
     [receipt, setReceipt] = useState(savedDraft.receipt ?? null);
-  const workspace=useRef(null);
+  const workspace=useRef(null),invoiceGrid=useRef(null),paymentInput=useRef(null),editingRow=useRef(null);
+  const [selectedRow,setSelectedRow]=useState(null),[removeRow,setRemoveRow]=useState(null),[confirmSale,setConfirmSale]=useState(false);
   const [customerOpen,setCustomerOpen]=useState(false);
   const lock = useRef(false),searchInput=useRef(null),itemInputs=useRef({});
   const [highlight,setHighlight]=useState(0),[suggestions,setSuggestions]=useState(true),[focusItem,setFocusItem]=useState(null);
   useEffect(()=>{if(focusItem){const field=itemInputs.current[focusItem.id]?.quantity;field?.focus();field?.select();}},[focusItem]);
-  useEffect(()=>{const shortcut=e=>{if(e.key==='F2'&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&!e.isComposing&&!document.querySelector('dialog[open]')&&searchInput.current?.getClientRects().length){e.preventDefault();searchInput.current.focus();searchInput.current.select();setSuggestions(true);}};window.addEventListener('keydown',shortcut);return()=>window.removeEventListener('keydown',shortcut);},[]);
+  useEffect(()=>{
+    const shortcut=e=>{
+      if(e.ctrlKey||e.altKey||e.metaKey||e.shiftKey||e.isComposing||e.repeat||busy||customerBusy||document.querySelector('dialog[open]')||!searchInput.current?.getClientRects().length)return;
+      if(e.key==='F2'){e.preventDefault();searchInput.current.focus({preventScroll:true});searchInput.current.select();setSuggestions(true);}
+      else if(e.key==='F4'&&!quotation){e.preventDefault();paymentInput.current?.focus({preventScroll:true});paymentInput.current?.select();}
+      else if(e.key==='F6'){e.preventDefault();editingRow.current=null;focusGrid(selectedRow);setSuggestions(false);}
+      else if(e.key==='F10'&&!quotation){e.preventDefault();const message=checkoutError();if(message)setError(message);else {setError('');setConfirmSale(true);}}
+    };
+    window.addEventListener('keydown',shortcut);return()=>window.removeEventListener('keydown',shortcut);
+  });
   useEffect(()=>{
     const root=workspace.current;if(!root||quotation)return;
     let frame;
@@ -122,7 +132,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       wholesalePrice,
     };
     setError("");
-    setFocusItem({id:product._id});
+    editingRow.current=null;setSelectedRow(product._id);setFocusItem({id:product._id});
     setSearch("");setSuggestions(false);
     setCart((current) => {
       const existing = current.find((p) => p._id === product._id);
@@ -135,11 +145,21 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         : [...current, { ...counterProduct, quantity: 1 }];
     });
   }
-  async function submit(event, retry = false) {
-    event.preventDefault();
-    if (lock.current || customerBusy) return;
-    setError("");
-    const validation = retry ? "" : validateSale(
+  function focusGrid(id) {
+    const row=cart.find(p=>p._id===id)||cart[0];
+    setSelectedRow(row?._id??null);invoiceGrid.current?.focus({preventScroll:true});
+    if(row)document.getElementById('pos-row-'+row._id)?.scrollIntoView({block:'nearest'});
+  }
+  function beginEdit(line) {
+    if(editingRow.current?.id!==line._id)editingRow.current={id:line._id,quantity:line.quantity,unitPrice:line.unitPrice,itemDiscount:line.itemDiscount};
+    setSelectedRow(line._id);
+  }
+  function closeRemoval() {
+    setRemoveRow(null);
+    requestAnimationFrame(()=>focusGrid(selectedRow));
+  }
+  function checkoutError() {
+    const validation = validateSale(
       cart,
       saleType,
       discountType,
@@ -149,20 +169,23 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       quotation,
       creditAmount,
     );
-    if (validation) {
-      setError(validation);
-      return;
-    }
-    if (!retry && !quotation) {
+    if(validation)return validation;
+    if (!quotation) {
       if (paymentAccounts.loading || paymentAccounts.error || typeof paymentAccounts.data?.accountingEnabled !== 'boolean') {
-        setError(paymentAccounts.error || 'Wait for payment accounts to load before completing the sale.');
-        return;
+        return paymentAccounts.error || 'Wait for payment accounts to load before completing the sale.';
       }
       if (paymentAccounts.data.accountingEnabled && paidAmount > 0 && !paymentAccounts.data.accounts.some(a => a._id === receiptAccountId)) {
-        setError('Select the cash or bank account receiving this payment.');
-        return;
+        return 'Select the cash or bank account receiving this payment.';
       }
     }
+    return '';
+  }
+  async function submit(event, retry = false) {
+    event.preventDefault();
+    if (lock.current || customerBusy) return;
+    setError('');
+    const validation=retry?'':checkoutError();
+    if(validation){setError(validation);return;}
     lock.current = true;
     setBusy(true);
     try {
@@ -280,7 +303,15 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               </select>
             </div>
             <div className="pos-error" role="status"><Notice error={error} /></div>
-            <div className="table-responsive pos-lines" tabIndex={0} aria-label="Invoice items">
+            <div ref={invoiceGrid} className="table-responsive pos-lines" tabIndex={0} role="group" aria-label="Invoice items" aria-keyshortcuts="F6" aria-activedescendant={selectedRow&&cart.some(p=>p._id===selectedRow)?'pos-row-'+selectedRow:undefined} onKeyDown={e=>{
+              if(e.target!==e.currentTarget||e.ctrlKey||e.altKey||e.metaKey||e.isComposing)return;
+              if(!['ArrowDown','ArrowUp','Enter','Delete'].includes(e.key))return;
+              e.preventDefault();if(!cart.length||busy||e.repeat&&['Enter','Delete'].includes(e.key))return;
+              const index=Math.max(0,cart.findIndex(p=>p._id===selectedRow)),line=cart[index];
+              if(e.key==='ArrowDown'||e.key==='ArrowUp')focusGrid(cart[(index+(e.key==='ArrowDown'?1:-1)+cart.length)%cart.length]._id);
+              else if(e.key==='Enter'){beginEdit(line);setFocusItem({id:line._id});}
+              else setRemoveRow(line);
+            }}>
               <table className="table table-sm cart-table">
                 <thead>
                   <tr>
@@ -297,7 +328,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                     const rate=lineRate(line,saleType),price=rate.price;
                     const rowError=validateSale([line],saleType,'NONE',0,Math.round(rate.net*Number(line.quantity)*100)/100,null,quotation);
                     return (
-                      <tr key={line._id} onKeyDown={e=>{if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}if(e.key!=='Enter'||e.isComposing||e.ctrlKey||e.altKey||e.metaKey||e.target.tagName!=='INPUT')return;e.preventDefault();const fields=itemInputs.current[line._id],name=e.target.dataset.itemField;if(name==='quantity'){fields.price?.focus();fields.price?.select();}else if(name==='price'){fields.discount?.focus();fields.discount?.select();}else {const message=validateSale([line],saleType,'NONE',0,Math.round(rate.net*Number(line.quantity)*100)/100,null,quotation);if(message){setError(message);return;}searchInput.current?.focus();searchInput.current?.select();setSuggestions(true);}}}>
+                      <tr key={line._id} id={'pos-row-'+line._id} className={selectedRow===line._id?'pos-row-selected':''} onFocus={()=>beginEdit(line)} onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))editingRow.current=null;}} onKeyDown={e=>{
+                        if(e.key==='Escape'&&e.target.tagName==='INPUT'&&!e.isComposing){e.preventDefault();const saved=editingRow.current;if(saved?.id===line._id)setCart(rows=>rows.map(p=>p._id===line._id?{...p,quantity:saved.quantity,unitPrice:saved.unitPrice,itemDiscount:saved.itemDiscount}:p));editingRow.current=null;setError('');focusGrid(line._id);return;}
+                        if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}if(e.key!=='Enter'||e.isComposing||e.ctrlKey||e.altKey||e.metaKey||e.target.tagName!=='INPUT')return;e.preventDefault();const fields=itemInputs.current[line._id],name=e.target.dataset.itemField;if(name==='quantity'){fields.price?.focus();fields.price?.select();}else if(name==='price'){fields.discount?.focus();fields.discount?.select();}else {const message=validateSale([line],saleType,'NONE',0,Math.round(rate.net*Number(line.quantity)*100)/100,null,quotation);if(message){setError(message);return;}editingRow.current=null;searchInput.current?.focus({preventScroll:true});searchInput.current?.select();setSuggestions(true);}}}>
                         <td>
                           {line.name}
                           {rowError&&<small role="status" className="d-block text-danger">{rowError}</small>}
@@ -344,8 +377,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                     );
                   })}
                   <tr className="pos-entry-row"><td colSpan={6}><div className="pos-product-entry"><span className="small text-body-secondary">Next product (F2)</span>
-        <ProductFilters search={search} searchRef={searchInput} searchProps={{role:'combobox','aria-expanded':suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':suggestions&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
+        <ProductFilters search={search} searchRef={searchInput} searchProps={{role:'combobox','aria-autocomplete':'list','aria-keyshortcuts':'F2','aria-expanded':suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':suggestions&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
           if(e.isComposing||e.ctrlKey||e.altKey||e.metaKey)return;if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}
+          if(e.key==='Tab'){setSuggestions(false);return;}
           if(e.key==='Escape'){e.preventDefault();setSuggestions(false);return;}
           if(['ArrowDown','ArrowUp','Enter'].includes(e.key)){e.preventDefault();if(busy||products.loading||!availableProducts.length)return;if(e.key==='Enter'){if(suggestions)add(availableProducts[Math.min(highlight,availableProducts.length-1)]);return;}setSuggestions(true);const next=(highlight+(e.key==='ArrowDown'?1:-1)+availableProducts.length)%availableProducts.length;setHighlight(next);document.getElementById('pos-option-'+availableProducts[next]._id)?.scrollIntoView({block:'nearest'});}
         }}} onSearch={value=>{setSearch(value);setHighlight(0);setSuggestions(true);}} category={category} onCategory={value=>{setCategory(value);setHighlight(0);setSuggestions(true);}} brand={brand} onBrand={value=>{setBrand(value);setHighlight(0);setSuggestions(true);}} categories={categories.data?.categories} brands={products.brands} searchLabel="Search products by name or brand" categoryLabel="POS category filter" brandLabel="POS brand filter" autoFocus/>
@@ -361,7 +395,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
               <button
                 type="button"
                 className={'product-result'+(availableProducts[highlight]?._id===product._id?' selected':'')}
-                role="option" aria-selected={availableProducts[highlight]?._id===product._id} id={'pos-option-'+product._id}
+                tabIndex={-1} role="option" aria-selected={availableProducts[highlight]?._id===product._id} id={'pos-option-'+product._id}
                 key={product._id}
                 disabled={
                   busy ||
@@ -451,7 +485,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                     step="any"
                     min="0"
                     max={Math.max(0, totals.total - creditAmount)}
-                    value={payment.value}
+                    ref={paymentInput} aria-keyshortcuts="F4" value={payment.value}
                     onChange={(e) => setPaid(e.target.value)}
                   />
                 </Field>
@@ -476,6 +510,16 @@ export default function POS({ quotation = false, onConvertQuotation }) {
             </div>
           </fieldset>
         </form>
+        {removeRow&&<Modal title="Remove invoice item?" onClose={closeRemoval}>
+          <p>Remove {removeRow.name} from this invoice?</p>
+          <button type="button" className="btn btn-outline-secondary me-2" onClick={closeRemoval}>Keep item</button>
+          <button type="button" className="btn btn-danger" onClick={()=>{const remaining=cart.filter(p=>p._id!==removeRow._id);setCart(remaining);setRemoveRow(null);setError('');setSelectedRow(remaining[0]?._id??null);requestAnimationFrame(()=>{if(remaining.length){invoiceGrid.current?.focus({preventScroll:true});document.getElementById('pos-row-'+remaining[0]._id)?.scrollIntoView({block:'nearest'});}else searchInput.current?.focus({preventScroll:true});});}}>Remove item</button>
+        </Modal>}
+        {confirmSale&&<Modal title="Confirm sale" busy={busy} onClose={()=>setConfirmSale(false)}>
+          <p>Total: {money(totals.total)} | Amount paid: {money(paidAmount)} | Amount due: {money(due)}</p>
+          <button type="button" className="btn btn-outline-secondary me-2" onClick={()=>setConfirmSale(false)}>Back to invoice</button>
+          <button type="button" className="btn btn-primary" disabled={busy} onClick={event=>{setConfirmSale(false);submit(event);}}>Confirm sale</button>
+        </Modal>}
         <fieldset disabled={busy} className="pos-checkout">
           {!quotation && (
             <div className="mb-3">

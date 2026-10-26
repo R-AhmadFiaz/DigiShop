@@ -797,3 +797,8 @@ p, td, th { overflow-wrap: break-word; }
  .sales-toolbar .page-title,.sales-toolbar .screen-tabs { margin:0 !important; border:0; }
  .pos-unified .pos-payments.has-credit { grid-template-columns:repeat(7,minmax(0,1fr)); }
 }
+
+/* Keyboard selection preserves the existing invoice layout. */
+.pos-lines:focus-visible { outline: 3px solid #0f766e; outline-offset: -3px; }
+.pos-lines .pos-row-selected > td { box-shadow: inset 0 0 0 9999px #0f766e0d; }
+.pos-lines:focus .pos-row-selected > td { border-block-color: #0f766e; }

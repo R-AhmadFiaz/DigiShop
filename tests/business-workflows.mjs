@@ -1,3 +1,4 @@
+import {posNavigationChecks} from './pos-navigation-browser.js';
 // Run the existing real-database browser suite with this frontend's new labels.
 // Business assertions, isolated replica-set setup and backend source are unchanged.
 import fs from 'node:fs/promises';
@@ -157,6 +158,7 @@ if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  
 if(process.argv.includes('--reports')&&!invoiceSuite)source=source.replace('  const evidence={passed:',reportChecks+'  const evidence={passed:');
 if(process.argv.includes('--supplier-search')&&!invoiceSuite)source=source.replace('  const evidence={passed:',supplierSearchChecks+'  const evidence={passed:');
 if(process.argv.includes('--keyboard'))source=source.replace('  const evidence={passed:',keyboardSalesChecks+'  const evidence={passed:');
+if(process.argv.includes('--navigation'))source=source.replace('  const evidence={passed:',posNavigationChecks+'  const evidence={passed:');
 if(process.argv.includes('--unified'))source=source.replace('  const evidence={passed:',unifiedPOSChecks+'  const evidence={passed:');
 if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
