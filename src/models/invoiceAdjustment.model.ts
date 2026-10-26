@@ -8,6 +8,7 @@ const snapshotSchema = new Schema({
         productId: {type: Schema.Types.ObjectId, required: true},
         name: String, brand: String, unit: String,
         quantity: {type: Number, required: true, min: 1},
+        sellingPrice: {type: Number, min: 0}, itemDiscount: {type: Number, min: 0},
         unitPrice: {type: Number, required: true, min: 0}
     }, {_id: false})], required: true},
     subtotalMinor: {type: Number, required: true},

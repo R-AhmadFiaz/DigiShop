@@ -25,6 +25,14 @@ import {invoiceAccountingEnabled, invoiceCashRouting, requireAccountingShopUser,
 
 
 
+// Invoice-only prices. Never write these values to Product.
+function invoiceItemRate(item:any, fallback:number){
+    const sellingPrice=item.unitPrice===undefined?fallback:item.unitPrice,itemDiscount=item.itemDiscount===undefined?0:item.itemDiscount;
+    for(const value of [sellingPrice,itemDiscount])if(typeof value!=='number'||!Number.isFinite(value)||value<0||!Number.isSafeInteger(Math.round(value*100))||Math.abs(value*100-Math.round(value*100))>0.000001)throw new apiError(400,'Item prices and discounts must be valid PKR amounts with at most two decimal places');
+    if(itemDiscount>sellingPrice)throw new apiError(400,'Item discount cannot exceed selling price');
+    return {sellingPrice,itemDiscount,unitPrice:moneyMajor(moneyMinor(sellingPrice)-moneyMinor(itemDiscount))};
+}
+
 export const createOrder = asyncHandler(async(req: Request, res: Response) => {
     // take product objects have product ids and quantity
     // check if array is valid
@@ -171,6 +179,8 @@ try {
    
 
 
+    const rate=invoiceItemRate(item,saleType==='WHOLESALE'?updatedproduct.wholesalePrice!:updatedproduct.retailPrice)
+    itemTotal=moneyMajor(safeMinor(moneyMinor(rate.unitPrice)*item.quantity))
     subtotal += itemTotal
 
     processedItems.push({
@@ -180,7 +190,7 @@ try {
         unit: updatedproduct.unit,
         productId: updatedproduct._id,
         quantity: item.quantity,
-        unitPrice: saleType == 'WHOLESALE' ? updatedproduct.wholesalePrice! : updatedproduct.retailPrice
+        ...rate
 
     }) 
 
@@ -203,6 +213,7 @@ try {
         discountAmount = discountValue
     }
 
+    if(items.some((i:any)=>i.unitPrice!==undefined||i.itemDiscount!==undefined)){const t=invoiceTotals(processedItems,discountType,discountValue);subtotal=moneyMajor(t.subtotalMinor);discountAmount=moneyMajor(t.discountMinor);}
     totalPrice = subtotal - discountAmount
     if (!Number.isFinite(totalPrice) || paidAmount > totalPrice) {
         throw new apiError(400, 'Paid amount cannot exceed final total')
@@ -611,9 +622,10 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
         throw new apiError(400, 'SALE TYPE IS REQUIRED')
     }
 
+    if(!['NONE','FIXED','PERCENTAGE'].includes(discountType)||typeof discountValue!=='number'||!Number.isFinite(discountValue)||discountValue<0||(discountType==='NONE'&&discountValue!==0))throw new apiError(400,'Required valid discount value');
     for (const item of items) {
         
-         if (!item || typeof item !== 'object' || typeof item.quantity !== 'number' || !item.productId  || item.quantity < 1) {
+         if (!item || typeof item !== 'object' || !Number.isSafeInteger(item.quantity) || !item.productId || item.quantity < 1) {
             throw new apiError(400, 'ALL fields are required')
         }
     }
@@ -646,13 +658,15 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
             
         }
 
+        const rate=invoiceItemRate(item,saleType==='WHOLESALE'?product.wholesalePrice!:product.retailPrice)
+        itemTotal=moneyMajor(safeMinor(moneyMinor(rate.unitPrice)*item.quantity))
         subtotal += itemTotal
 
         processedItems.push({
 
             productId: product._id,
             quantity: item.quantity,
-            unitPrice: saleType === 'WHOLESALE' ? product.wholesalePrice! : product.retailPrice
+            ...rate, name:product.name, brand:product.brand, unit:product.unit
 
         })
         
@@ -673,6 +687,7 @@ export const createQuotation = asyncHandler(async(req: Request, res: Response) =
     }
 
 
+    if(items.some((i:any)=>i.unitPrice!==undefined||i.itemDiscount!==undefined)){const t=invoiceTotals(processedItems,discountType,discountValue);subtotal=moneyMajor(t.subtotalMinor);discountAmount=moneyMajor(t.discountMinor);}
     totalCost = subtotal - discountAmount
 
     if (!processedItems || processedItems.length == 0) {
@@ -834,6 +849,7 @@ export const updateQuotationToInvoice = asyncHandler(async(req: Request, res: Re
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
+            ...(item.sellingPrice!==undefined?{sellingPrice:item.sellingPrice}:{}), ...(item.itemDiscount!==undefined?{itemDiscount:item.itemDiscount}:{}),
             name: order.name,
             brand: order.brand,
             unit: order.unit

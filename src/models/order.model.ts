@@ -12,6 +12,8 @@ export interface IOrderItems {
     productId: Types.ObjectId,
     quantity: number,
     unitPrice: number,
+    sellingPrice?: number,
+    itemDiscount?: number,
 
     
 } 
@@ -34,6 +36,8 @@ const orderItemSchema = new Schema<IOrderItems>({
         required: true,
         min: 1,
     },
+    sellingPrice: {type: Number, min: 0},
+    itemDiscount: {type: Number, min: 0},
     unitPrice: {
         type: Number,
         required: true,

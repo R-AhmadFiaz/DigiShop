@@ -445,6 +445,32 @@ await test('production activation: actual HTTP and disposable loopback replica s
       assert.equal(converted.amountDue,3000);assert.equal(converted.paidAmount,1000);assert.equal((await Customer.findById(buyer._id)).remainingMoney,3000);
       assert.equal(ok(await http('PATCH','/orders/'+partial._id,request,cashier)).createOrder._id,converted._id);
       assert.equal((await Product.findById(p._id)).stockQuantity,7);assert.equal(ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor,beforeCash+900000);
+      const priced=await Product.create({shopId,name:'Agreed-price cable',slug:'agreed-price-cable',brand:'Test',category:new mongoose.Types.ObjectId(),unit:'coil',costPrice:2500,retailPrice:4000,wholesalePrice:3500,stockQuantity:30});
+      for(const [index,actor,rate,discount]of [[0,user,4500,100],[1,cashier,3900,200]]){
+        const body={items:[{productId:String(priced._id),quantity:2,unitPrice:rate,itemDiscount:discount}],saleType:'RETAIL',discountType:'PERCENTAGE',discountValue:10,paidAmount:1000,customerId:String(buyer._id),receiptAccountId:String(till._id),requestKey:'custom-price-'+index};
+        const before=ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor;
+        const sale=ok(await http('POST','/orders/create-order',body,actor));
+        assert.equal(sale.totalPrice,(rate-discount)*2*.9);assert.equal(sale.amountDue,sale.totalPrice-1000);
+        assert.equal(sale.items[0].sellingPrice,rate);assert.equal(sale.items[0].itemDiscount,discount);assert.equal(sale.items[0].unitPrice,rate-discount);
+        assert.equal(Object.hasOwn(sale.items[0],'costPrice'),false);
+        assert.equal(ok(await http('POST','/orders/create-order',body,actor))._id,sale._id);
+        assert.equal(ok(await http('GET','/accounts/financial/'+till._id,undefined,user)).balanceMinor,before+100000);
+      }
+      for(const actor of [user,cashier]){
+        const sale=ok(await http('POST','/orders/create-order',{items:[{productId:String(priced._id),quantity:1}],saleType:'WHOLESALE',paidAmount:3500,receiptAccountId:String(till._id),requestKey:'wholesale-'+actor._id},actor));assert.equal(sale.items[0].unitPrice,3500);
+      }
+      const badStock=(await Product.findById(priced._id)).stockQuantity;
+      for(const [index,item]of [{unitPrice:-1},{unitPrice:1.001},{unitPrice:100,itemDiscount:101},{unitPrice:100,itemDiscount:-1},{unitPrice:null},{unitPrice:100,itemDiscount:'5'},{quantity:1000}].entries()){
+        const bad=await http('POST','/orders/create-order',{items:[{productId:String(priced._id),quantity:1,...item}],saleType:'RETAIL',paidAmount:0,receiptAccountId:String(till._id),requestKey:'invalid-rate-'+index},cashier);assert.ok([400,404].includes(bad.status),JSON.stringify(bad));assert.equal((await Product.findById(priced._id)).stockQuantity,badStock);
+      }
+      assert.equal((await Product.findById(priced._id)).retailPrice,4000);assert.equal((await Product.findById(priced._id)).costPrice,2500);
+      const quoted=ok(await http('POST','/orders/quotation',{items:[{productId:String(priced._id),quantity:2,unitPrice:3800,itemDiscount:300}],saleType:'RETAIL',discountType:'FIXED',discountValue:100},cashier)).quotation;
+      assert.equal(quoted.totalPrice,6900);await Product.updateOne({_id:priced._id},{$set:{retailPrice:9999,wholesalePrice:8888}});
+      const agreed=ok(await http('PATCH','/orders/'+quoted._id,{paidAmount:6900,receiptAccountId:String(till._id),requestKey:'agreed-quotation-conversion'},cashier)).createOrder;
+      assert.equal(agreed.totalPrice,6900);assert.equal(agreed.items[0].unitPrice,3500);assert.equal(agreed.items[0].sellingPrice,3800);assert.equal(agreed.items[0].itemDiscount,300);
+      assert.equal((await Order.findById(agreed._id)).items[0].unitPrice,3500);
+      assert.equal((await Product.findById(priced._id)).stockQuantity,badStock-2);
+
     });
   }finally{
     if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();
