@@ -82,7 +82,7 @@ export default function Receipt({ receipt, documentTitle, children }) {
               <td className="text-end">
                 {line.quantity} {line.unit}
               </td>
-              <td className="text-end">{money(line.unitPrice)}</td>
+              <td className="text-end">{money(line.unitPrice)}{line.itemDiscount>0&&<small className="d-block">Rate {money(line.sellingPrice)}; discount {money(line.itemDiscount)} / unit</small>}</td>
               <td className="text-end">
                 {money(line.quantity * line.unitPrice)}
               </td>

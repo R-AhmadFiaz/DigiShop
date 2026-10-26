@@ -155,3 +155,11 @@ test("non-finite payments and invalid discounts cannot create sales", () => {
     );
   assert.equal(validateSale(cart, "RETAIL", "FIXED", 100, 0, null), "");
 });
+
+test('invoice-only selling prices and per-unit discounts precede invoice discount',()=>{
+ const lines=[{_id:'a',quantity:2,stockQuantity:10,retailPrice:4000,wholesalePrice:3500,unitPrice:'3900',itemDiscount:'200'}];
+ assert.deepEqual(saleTotals(lines,'RETAIL','PERCENTAGE','10'),{subtotal:7400,discount:740,total:6660});
+ assert.equal(validateSale(lines,'RETAIL','FIXED','60',5000,{_id:'c'}),'');
+ for(const patch of [{unitPrice:''},{unitPrice:-1},{unitPrice:1.001},{itemDiscount:4000},{itemDiscount:-1}])assert.match(validateSale([{...lines[0],...patch}],'RETAIL','NONE',0,0,{_id:'c'}),/prices|discounts/);
+ assert.equal(lines[0].retailPrice,4000);
+});

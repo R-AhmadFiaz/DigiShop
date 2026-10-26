@@ -71,6 +71,7 @@ export default function CustomerPicker({
   value,
   onChange,
   required = false,
+  expanded = false,
   onBusy,
 }) {
   const [search, setSearch] = useState(""),
@@ -99,7 +100,7 @@ export default function CustomerPicker({
             Change
           </button>
         </div>
-      ) : !required ? (
+      ) : !required && !expanded ? (
         <button
           className="btn btn-outline-secondary btn-sm"
           type="button"
@@ -108,7 +109,7 @@ export default function CustomerPicker({
           {open ? "Hide customers" : "Select customer"}
         </button>
       ) : null}
-      {(open || required) && !value && (
+      {(open || required || expanded) && !value && (
         <div className="mt-2">
           {creating ? (
             <CustomerForm

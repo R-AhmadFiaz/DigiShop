@@ -21,6 +21,7 @@ export default function Sales() {
     });
   return (
     <>
+      <div className="sales-toolbar">
       <PageTitle title="Sales" />
       <div className="screen-tabs no-print">
         <button
@@ -35,6 +36,7 @@ export default function Sales() {
         >
           Invoice history
         </button>
+      </div>
       </div>
       <div hidden={tab !== "sale"}>
         <POS />

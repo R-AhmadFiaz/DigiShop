@@ -1,18 +1,15 @@
+export function lineRate(line,saleType){
+ const price=Number(line.unitPrice??(saleType==='WHOLESALE'?line.wholesalePrice:line.retailPrice));
+ const discount=Number(line.itemDiscount??0);
+ return {price,discount,net:Math.round((price-discount)*100)/100};
+}
 // null means untouched automatic payment; an empty string is a manual edit.
 export function salePayment(paid, total) {
   const value = paid ?? total;
   return { value, amount: value === "" ? NaN : Number(value) };
 }
 export function saleTotals(cart, saleType, discountType, discountValue) {
-  const subtotal = cart.reduce(
-    (sum, line) =>
-      sum +
-      Number(
-        saleType === "WHOLESALE" ? line.wholesalePrice : line.retailPrice,
-      ) *
-        Number(line.quantity),
-    0,
-  );
+  const subtotal=cart.reduce((sum,line)=>sum+Math.round(lineRate(line,saleType).net*100)*Number(line.quantity),0)/100;
   const value = Number(discountValue === "" ? 0 : discountValue);
   const discount =
     discountType === "PERCENTAGE"
@@ -20,7 +17,7 @@ export function saleTotals(cart, saleType, discountType, discountValue) {
       : discountType === "FIXED"
         ? value
         : 0;
-  return { subtotal, discount, total: subtotal - discount };
+  return { subtotal, discount:Math.round(discount*100)/100, total:Math.round((subtotal-Math.round(discount*100)/100)*100)/100 };
 }
 export function validateSale(
   cart,
@@ -54,6 +51,7 @@ export function validateSale(
     )
   )
     return "A product has no wholesale price. Use retail or remove that product.";
+  if(cart.some(line=>{const r=lineRate(line,saleType);return line.unitPrice===''||line.itemDiscount===''||[r.price,r.discount].some(v=>!Number.isFinite(v)||v<0||!Number.isSafeInteger(Math.round(v*100))||Math.abs(v*100-Math.round(v*100))>0.000001)||r.discount>r.price;}))return 'Check item prices and per-unit discounts.';
   const { subtotal, total } = saleTotals(
       cart,
       saleType,

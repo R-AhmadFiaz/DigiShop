@@ -741,3 +741,59 @@ p, td, th { overflow-wrap: break-word; }
 @keyframes drawer-in { from { transform:translateX(-100%); } to { transform:translateX(0); } }
 @media (prefers-reduced-motion:reduce) { .navigation-drawer[open] { animation:none; } }
 @media print { .navigation-drawer { display:none !important; } }
+
+/* Shared sale workspace only: compact desktop entry, natural mobile stacking. */
+@media (min-width:1100px) { .pos-grid { grid-template-columns:minmax(260px,.65fr) minmax(0,1.5fr); max-width:1640px; margin-inline:auto; gap:12px; } }
+.pos-grid .panel { min-width:0; padding:12px; }
+.pos-grid .cart-table .quantity { min-width:65px; width:75px; }
+.pos-grid .item-rate { min-width:85px; width:100px; }
+.pos-grid .product-result.selected { border-color:#0f766e; background:#ccfbf1; }
+.pos-grid [role=listbox][hidden] { display:none; }
+@media (min-width:1100px) { .pos-grid .product-results { max-height:55vh; overflow-y:auto; scrollbar-gutter:stable; overscroll-behavior:contain; } }
+
+/* Unified invoice entry; fixed viewport is limited to normal desktop billing. */
+.pos-unified { display:flex; flex-direction:column; gap:0; max-width:none; width:100%; border:1px solid var(--bs-border-color); border-radius:6px; background:#fff; padding:10px; }
+.pos-unified #sale-form,.pos-unified #sale-form > fieldset { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
+.pos-unified .pos-invoice-heading { flex:none; padding-bottom:6px; gap:8px; }
+.pos-unified .pos-lines { min-height:0; flex:1; overflow:auto; }
+.pos-unified .cart-table { margin:0; table-layout:auto; }
+.pos-unified .cart-table th { position:sticky; top:0; z-index:1; background:#f0fdfa; white-space:nowrap; }
+.pos-unified .cart-table td:first-child { width:100%; min-width:180px; }
+.pos-unified .pos-entry-row td { padding:6px; }
+.pos-unified .pos-product-entry { text-align:left; }
+.pos-unified .product-filters { margin:0 !important; flex-wrap:nowrap; }
+.pos-unified .product-filter-search { flex:3 1 200px; }
+.pos-unified .product-filter-choice { flex:1 1 110px; max-width:180px; }
+.pos-unified .product-results { max-height:180px; overflow-y:auto; scrollbar-gutter:stable; }
+.pos-unified .product-result { width:100%; padding:5px 8px; }
+.pos-unified .pos-payments { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; align-items:start; border-top:1px solid var(--bs-border-color); padding-top:8px; margin-top:6px; flex:none; }
+.pos-unified .pos-payments > .row { grid-column:span 2; margin-top:0 !important; }
+.pos-unified .pos-payments .form-label { margin:0; }
+.pos-unified .pos-payments .mb-3 { margin-bottom:0 !important; }
+.pos-unified .pos-payments .sale-total { margin:0; padding:0; display:flex; flex-direction:column; align-items:flex-start; font-size:15px; }
+.pos-unified .pos-payments .sale-total strong { font-size:22px; }
+.pos-unified .pos-payments > .d-flex { flex-direction:column; }
+.pos-unified .pos-payments > .alert { grid-column:1/-1; }
+.pos-unified .pos-checkout { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; flex:none; }
+.pos-unified .pos-checkout > .mb-3 { margin:0 !important; }
+.pos-unified .pos-checkout > button { width:auto !important; min-width:180px; }
+.pos-unified .pos-error .alert { margin:0 0 5px; padding:6px 10px; }
+.pos-unified [aria-invalid=true] { border-color:#b91c1c; }
+@media (min-width:1100px) and (min-height:700px) { .pos-billing { height:var(--pos-height,65dvh); min-height:0; } }
+@media (max-width:1099px), (max-height:699px) {
+ .pos-unified { height:auto; }
+ .pos-unified .pos-lines { flex:auto; max-height:none; }
+ .pos-unified .pos-payments { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .pos-unified .product-filters { flex-wrap:wrap; }
+ .pos-unified .product-filter-search { flex-basis:100%; }
+ .pos-unified .pos-checkout { flex-wrap:wrap; }
+}
+@media (max-width:500px) { .pos-unified .pos-payments { grid-template-columns:repeat(2,minmax(0,1fr)); } .pos-unified .pos-checkout > button { width:100% !important; } }
+.pos-unified { align-items:stretch; }
+.pos-unified .pos-payments .sale-total { border:0; }
+.pos-unified .cart-table td:first-child > small.text-body-secondary { display:inline !important; margin-left:6px; }
+@media (min-width:1100px) and (min-height:700px) {
+ .sales-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+ .sales-toolbar .page-title,.sales-toolbar .screen-tabs { margin:0 !important; border:0; }
+ .pos-unified .pos-payments.has-credit { grid-template-columns:repeat(7,minmax(0,1fr)); }
+}

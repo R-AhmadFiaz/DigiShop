@@ -8,12 +8,16 @@ import {replaceLabels} from './readability-copy.js';
 import {screenshotChecks} from './layout-screenshots.js';
 import {purchaseChecks} from './purchase-browser-checks.js';
 import {reportChecks} from './report-browser-checks.js';
+import {unifiedPOSChecks} from './unified-pos-browser.js';
+import {keyboardSalesChecks} from './keyboard-sales-browser.js';
 import {mobileChecks} from './mobile-browser-checks.js';
 import {supplierSearchChecks} from './supplier-search-browser.js';
 
 const backend=path.resolve('../store-backend');
 const invoiceSuite=process.argv.includes('--invoices');
 let source=await fs.readFile(path.join(backend,'tests',invoiceSuite?'invoice-browser.integration.mjs':'supplier-browser.integration.mjs'),'utf8');
+// Customer choice is now explicitly opened from the fixed billing footer.
+source=source.replace('async function wait(expression) {',`async function wait(expression) { if(expression.includes('.customer-result'))await evaluate("(()=>{if(!document.querySelector('.customer-result'))document.querySelector('.pos-checkout .btn-outline-secondary')?.click();})()");`);
 // The supplier account picker now searches inside a single dropdown.
 source=source.replace(/^async function selectPaymentAccount\(id\).*$/m,`async function selectPaymentAccount(id){const account=await FinancialAccount.findById(id).lean();await evaluate("document.querySelector('#supplier-payment details > summary').click()");await fill('[aria-label="Search payment accounts"]',account.name);await wait('[...document.querySelectorAll("#supplier-payment details button")].some(b=>b.textContent==='+JSON.stringify(account.name+' ('+account.kind+')')+')');await evaluate('[...document.querySelectorAll("#supplier-payment details button")].find(b=>b.textContent==='+JSON.stringify(account.name+' ('+account.kind+')')+').click()');await wait('document.body.innerText.includes("Available in")');}`);
 // Supplier accounts are now resolved by the server; exercise the actual simplified forms.
@@ -152,6 +156,8 @@ source=source.replace('  const evidence={passed:',checks+'  const evidence={pass
 if(process.argv.includes('--purchases')&&!invoiceSuite)source=source.replace('  const evidence={passed:',purchaseChecks+'  const evidence={passed:');
 if(process.argv.includes('--reports')&&!invoiceSuite)source=source.replace('  const evidence={passed:',reportChecks+'  const evidence={passed:');
 if(process.argv.includes('--supplier-search')&&!invoiceSuite)source=source.replace('  const evidence={passed:',supplierSearchChecks+'  const evidence={passed:');
+if(process.argv.includes('--keyboard'))source=source.replace('  const evidence={passed:',keyboardSalesChecks+'  const evidence={passed:');
+if(process.argv.includes('--unified'))source=source.replace('  const evidence={passed:',unifiedPOSChecks+'  const evidence={passed:');
 if(process.argv.includes('--screenshots')&&!invoiceSuite)source=source.replace('  const evidence={passed:',screenshotChecks+'  const evidence={passed:');
 // Keep test evidence in the frontend repository too.
 source=source.replaceAll("'tests/artifacts'",JSON.stringify(path.resolve('tests/artifacts')))

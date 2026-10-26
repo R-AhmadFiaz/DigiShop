@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
-import { salePayment, saleTotals, validateSale } from "../api/sale";
+import { lineRate, salePayment, saleTotals, validateSale } from "../api/sale";
 import {useProductSearch} from '../api/productSearch';
 import ProductFilters from './ProductFilters';
 import { clearPending, journalKey, readPending, requestKey, savePending, uncertain } from "../api/invoice";
 import { useAuth } from "../auth/AuthContext";
-import { Empty, Field, money, Notice } from "./Common";
+import { Empty, Field, Modal, money, Notice } from "./Common";
 import CustomerPicker from "./CustomerPicker";
 import Receipt, { receiptFrom } from "./Receipt";
 export default function POS({ quotation = false, onConvertQuotation }) {
@@ -36,8 +36,21 @@ export default function POS({ quotation = false, onConvertQuotation }) {
     [customerBusy, setCustomerBusy] = useState(false),
     [error, setError] = useState(""),
     [receipt, setReceipt] = useState(savedDraft.receipt ?? null);
-  const lock = useRef(false);
+  const workspace=useRef(null);
+  const [customerOpen,setCustomerOpen]=useState(false);
+  const lock = useRef(false),searchInput=useRef(null),itemInputs=useRef({});
+  const [highlight,setHighlight]=useState(0),[suggestions,setSuggestions]=useState(true),[focusItem,setFocusItem]=useState(null);
+  useEffect(()=>{if(focusItem){const field=itemInputs.current[focusItem.id]?.quantity;field?.focus();field?.select();}},[focusItem]);
+  useEffect(()=>{const shortcut=e=>{if(e.key==='F2'&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&!e.isComposing&&!document.querySelector('dialog[open]')&&searchInput.current?.getClientRects().length){e.preventDefault();searchInput.current.focus();searchInput.current.select();setSuggestions(true);}};window.addEventListener('keydown',shortcut);return()=>window.removeEventListener('keydown',shortcut);},[]);
+  useEffect(()=>{
+    const root=workspace.current;if(!root||quotation)return;
+    let frame;
+    const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{if(!root.getClientRects().length)return;const height=Math.floor(window.innerHeight-(root.getBoundingClientRect().top+window.scrollY)-24);const value=height+'px';if(root.style.getPropertyValue('--pos-height')!==value)root.style.setProperty('--pos-height',value);});};
+    const observer=new ResizeObserver(measure);observer.observe(root);if(root.parentElement)observer.observe(root.parentElement);const header=document.querySelector('.app-header');if(header)observer.observe(header);
+    window.addEventListener('resize',measure);measure();return()=>{cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('resize',measure);};
+  },[quotation,receipt,pending]);
   const products = useProductSearch({search,category,brand});
+  const availableProducts=(products.data?.product??[]).filter(p=>(!category||(p.category?._id??p.category)===category)&&(quotation||p.stockQuantity>0)&&(saleType!=='WHOLESALE'||p.wholesalePrice));
   const categories = useLoad("/categories/");
   const paymentAccounts = useLoad("/orders/payment-accounts");
   const receiptAccountId = chosenReceiptAccountId || (paymentAccounts.data?.accounts?.length === 1 ? paymentAccounts.data.accounts[0]._id : '');
@@ -109,6 +122,8 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       wholesalePrice,
     };
     setError("");
+    setFocusItem({id:product._id});
+    setSearch("");setSuggestions(false);
     setCart((current) => {
       const existing = current.find((p) => p._id === product._id);
       return existing
@@ -155,6 +170,8 @@ export default function POS({ quotation = false, onConvertQuotation }) {
         items: cart.map((line) => ({
           productId: line._id,
           quantity: Number(line.quantity),
+          ...(line.unitPrice!==undefined?{unitPrice:Number(line.unitPrice)}:{}),
+          ...(line.itemDiscount!==undefined?{itemDiscount:Number(line.itemDiscount)}:{}),
         })),
         saleType,
         discountType,
@@ -245,32 +262,96 @@ export default function POS({ quotation = false, onConvertQuotation }) {
       </>
     );
   return (
-    <div className="pos-grid">
-      <section className="panel">
-        <h2 className="h6">Find a product</h2>
-        <div onKeyDown={(e) => {
-            if (
-              e.key === "Enter" &&
-              e.target.tagName === 'INPUT' &&
-              !products.loading &&
-              products.data?.product[0] &&
-              (!category || (products.data.product[0].category?._id ?? products.data.product[0].category) === category) &&
-              !busy
-            ) {
-              e.preventDefault();
-              const p = products.data.product[0];
-              if (
-                (quotation || p.stockQuantity >= 1) &&
-                (saleType !== "WHOLESALE" || p.wholesalePrice)
-              )
-                add(p);
-            }
-          }}>
-        <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={products.brands} searchLabel="Search products by name or brand" categoryLabel="POS category filter" brandLabel="POS brand filter" autoFocus/>
-        </div>
+    <div ref={workspace} className={"pos-grid pos-unified"+(!quotation?" pos-billing":"")} aria-label="Invoice entry workspace">
+        <form id="sale-form" noValidate onSubmit={submit}>
+          <fieldset disabled={busy}>
+            <div className="pos-invoice-heading d-flex align-items-center justify-content-between">
+              <h2 className="h6 mb-0">
+                {quotation ? "Quotation" : "Current sale"}
+              </h2>
+              <select
+                className="form-select w-auto"
+                aria-label="Sale type"
+                value={saleType}
+                onChange={(e) => setSaleType(e.target.value)}
+              >
+                <option value="RETAIL">Retail</option>
+                <option value="WHOLESALE">Wholesale</option>
+              </select>
+            </div>
+            <div className="pos-error" role="status"><Notice error={error} /></div>
+            <div className="table-responsive pos-lines" tabIndex={0} aria-label="Invoice items">
+              <table className="table table-sm cart-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th className="text-end">Unit rate</th>
+                    <th>Discount / unit</th>
+                    <th className="text-end">Line total</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((line) => {
+                    const rate=lineRate(line,saleType),price=rate.price;
+                    const rowError=validateSale([line],saleType,'NONE',0,Math.round(rate.net*Number(line.quantity)*100)/100,null,quotation);
+                    return (
+                      <tr key={line._id} onKeyDown={e=>{if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}if(e.key!=='Enter'||e.isComposing||e.ctrlKey||e.altKey||e.metaKey||e.target.tagName!=='INPUT')return;e.preventDefault();const fields=itemInputs.current[line._id],name=e.target.dataset.itemField;if(name==='quantity'){fields.price?.focus();fields.price?.select();}else if(name==='price'){fields.discount?.focus();fields.discount?.select();}else {const message=validateSale([line],saleType,'NONE',0,Math.round(rate.net*Number(line.quantity)*100)/100,null,quotation);if(message){setError(message);return;}searchInput.current?.focus();searchInput.current?.select();setSuggestions(true);}}}>
+                        <td>
+                          {line.name}
+                          {rowError&&<small role="status" className="d-block text-danger">{rowError}</small>}
+                          <small className="d-block text-body-secondary">
+                            {line.brand}
+                          </small>
+                        </td>
+                        <td>
+                          <input
+                            className="form-control form-control-sm quantity" aria-invalid={!!rowError} data-item-field="quantity" ref={node=>{(itemInputs.current[line._id]??={}).quantity=node;}}
+                            aria-label={"Quantity for " + line.name}
+                            type="number"
+                            min="1"
+                            step="1"
+                            max={quotation ? undefined : line.stockQuantity}
+                            value={line.quantity}
+                            onChange={(e) =>
+                              setCart((current) =>
+                                current.map((p) =>
+                                  p._id === line._id
+                                    ? { ...p, quantity: e.target.value }
+                                    : p,
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                        <td><input className="form-control form-control-sm item-rate" aria-label={'Selling price for '+line.name} aria-invalid={!!rowError} data-item-field="price" ref={node=>{(itemInputs.current[line._id]??={}).price=node;}} type="number" min="0" step="0.01" value={line.unitPrice??price} onChange={e=>setCart(rows=>rows.map(p=>p._id===line._id?{...p,unitPrice:e.target.value}:p))}/></td>
+                        <td><input className="form-control form-control-sm item-rate" aria-label={'Discount per unit for '+line.name} aria-invalid={!!rowError} data-item-field="discount" ref={node=>{(itemInputs.current[line._id]??={}).discount=node;}} type="number" min="0" step="0.01" max={price} value={line.itemDiscount??0} onChange={e=>setCart(rows=>rows.map(p=>p._id===line._id?{...p,itemDiscount:e.target.value}:p))}/></td>
+                        <td className="text-end">
+                          {money(Number(line.quantity) * rate.net)}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            aria-label={"Remove " + line.name}
+                            onClick={()=>{setCart(rows=>rows.filter(p=>p._id!==line._id));setError('');searchInput.current?.focus();searchInput.current?.select();setSuggestions(true);}}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="pos-entry-row"><td colSpan={6}><div className="pos-product-entry"><span className="small text-body-secondary">Next product (F2)</span>
+        <ProductFilters search={search} searchRef={searchInput} searchProps={{role:'combobox','aria-expanded':suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':suggestions&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
+          if(e.isComposing||e.ctrlKey||e.altKey||e.metaKey)return;if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}
+          if(e.key==='Escape'){e.preventDefault();setSuggestions(false);return;}
+          if(['ArrowDown','ArrowUp','Enter'].includes(e.key)){e.preventDefault();if(busy||products.loading||!availableProducts.length)return;if(e.key==='Enter'){if(suggestions)add(availableProducts[Math.min(highlight,availableProducts.length-1)]);return;}setSuggestions(true);const next=(highlight+(e.key==='ArrowDown'?1:-1)+availableProducts.length)%availableProducts.length;setHighlight(next);document.getElementById('pos-option-'+availableProducts[next]._id)?.scrollIntoView({block:'nearest'});}
+        }}} onSearch={value=>{setSearch(value);setHighlight(0);setSuggestions(true);}} category={category} onCategory={value=>{setCategory(value);setHighlight(0);setSuggestions(true);}} brand={brand} onBrand={value=>{setBrand(value);setHighlight(0);setSuggestions(true);}} categories={categories.data?.categories} brands={products.brands} searchLabel="Search products by name or brand" categoryLabel="POS category filter" brandLabel="POS brand filter" autoFocus/>
         <Notice error={categories.error} />
         <Notice error={products.error} loading={products.loading} />
-        <div className="product-results">
+        <div id="pos-suggestions" role="listbox" aria-label="Product suggestions" className="product-results" hidden={!suggestions}>
           {products.data?.product.filter((p) => !category || (p.category?._id ?? p.category) === category).map((product) => {
             const price =
               saleType === "WHOLESALE"
@@ -279,7 +360,8 @@ export default function POS({ quotation = false, onConvertQuotation }) {
             return (
               <button
                 type="button"
-                className="product-result"
+                className={'product-result'+(availableProducts[highlight]?._id===product._id?' selected':'')}
+                role="option" aria-selected={availableProducts[highlight]?._id===product._id} id={'pos-option-'+product._id}
                 key={product._id}
                 disabled={
                   busy ||
@@ -309,95 +391,12 @@ export default function POS({ quotation = false, onConvertQuotation }) {
             <Empty>No matching products.</Empty>
           )}
         </div>
-      </section>
-      <section className="panel">
-        <form id="sale-form" onSubmit={submit}>
-          <fieldset disabled={busy}>
-            <div className="d-flex align-items-center justify-content-between mb-3">
-              <h2 className="h6 mb-0">
-                {quotation ? "Quotation" : "Current sale"}
-              </h2>
-              <select
-                className="form-select w-auto"
-                aria-label="Sale type"
-                value={saleType}
-                onChange={(e) => setSaleType(e.target.value)}
-              >
-                <option value="RETAIL">Retail</option>
-                <option value="WHOLESALE">Wholesale</option>
-              </select>
-            </div>
-            <Notice error={error} />
-            <div className="table-responsive">
-              <table className="table table-sm cart-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th className="text-end">Price</th>
-                    <th className="text-end">Total</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map((line) => {
-                    const price =
-                      saleType === "WHOLESALE"
-                        ? line.wholesalePrice
-                        : line.retailPrice;
-                    return (
-                      <tr key={line._id}>
-                        <td>
-                          {line.name}
-                          <small className="d-block text-body-secondary">
-                            {line.brand}
-                          </small>
-                        </td>
-                        <td>
-                          <input
-                            className="form-control form-control-sm quantity"
-                            aria-label={"Quantity for " + line.name}
-                            type="number"
-                            min="1"
-                            step="1"
-                            max={quotation ? undefined : line.stockQuantity}
-                            value={line.quantity}
-                            onChange={(e) =>
-                              setCart((current) =>
-                                current.map((p) =>
-                                  p._id === line._id
-                                    ? { ...p, quantity: e.target.value }
-                                    : p,
-                                ),
-                              )
-                            }
-                          />
-                        </td>
-                        <td className="text-end">{money(price)}</td>
-                        <td className="text-end">
-                          {money(Number(line.quantity) * Number(price))}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn btn-outline-secondary btn-sm"
-                            aria-label={"Remove " + line.name}
-                            onClick={() =>
-                              setCart((current) =>
-                                current.filter((p) => p._id !== line._id),
-                              )
-                            }
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+
+                  </div></td></tr>
                 </tbody>
               </table>
             </div>
-            {!cart.length && <Empty>Search a product to start.</Empty>}
+            <div className={"pos-payments"+(customer&&!quotation?" has-credit":"")}>
             <div className="row g-2 mt-2">
               <div className={discountType === "NONE" ? "col-12" : "col-7"}>
                 <Field label="Discount">
@@ -458,7 +457,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                 </Field>
                 {paymentAccounts.data?.accountingEnabled && paidAmount > 0 && <Field label="Payment account">
                   <select aria-label="Payment account" className="form-select" value={receiptAccountId} onChange={e => setReceiptAccountId(e.target.value)}>
-                    <option value="">Choose cash or bank</option>
+                    <option value="">Choose account</option>
                     {paymentAccounts.data.accounts.map(a => <option key={a._id} value={a._id}>{a.name}</option>)}
                   </select>
                 </Field>}
@@ -474,9 +473,10 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                 </div>
               </>
             )}
+            </div>
           </fieldset>
         </form>
-        <fieldset disabled={busy}>
+        <fieldset disabled={busy} className="pos-checkout">
           {!quotation && (
             <div className="mb-3">
               <p className="small mb-2">
@@ -484,12 +484,9 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                   ? "Customer required for credit sale"
                   : "Customer (Optional)"}
               </p>
-              <CustomerPicker
-                value={customer}
-                onChange={value => { setCustomer(value); setCredit("0"); }}
-                required={due > 0}
-                onBusy={setCustomerBusy}
-              />
+              <button type="button" className="btn btn-outline-secondary" onClick={()=>setCustomerOpen(true)}>{customer?customer.name:'Select customer'}</button>
+              {customer&&<small className="text-body-secondary d-block">Debt: {money(customer.remainingMoney)} | Store credit: {money((customer.storeCreditBalanceMinor??0)/100)}</small>}
+              {customerOpen&&<Modal title="Select customer" busy={customerBusy} onClose={()=>setCustomerOpen(false)}><CustomerPicker expanded value={customer} onChange={value=>{setCustomer(value);setCredit('0');if(value)setCustomerOpen(false);}} required={due>0} onBusy={setCustomerBusy}/></Modal>}
             </div>
           )}
           <button
@@ -505,7 +502,6 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                 : "Complete sale"}
           </button>
         </fieldset>
-      </section>
     </div>
   );
 }
