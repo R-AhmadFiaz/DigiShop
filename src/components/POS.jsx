@@ -376,7 +376,11 @@ export default function POS({ quotation = false, onConvertQuotation }) {
                       </tr>
                     );
                   })}
-                  <tr className="pos-entry-row"><td colSpan={6}><div className="pos-product-entry"><span className="small text-body-secondary">Next product (F2)</span>
+
+                </tbody>
+              </table>
+            </div>
+            <aside className="pos-search-panel" aria-label="Product search panel"><h3 className="h6 mb-2">Find a product (F2)</h3>
         <ProductFilters search={search} searchRef={searchInput} searchProps={{role:'combobox','aria-autocomplete':'list','aria-keyshortcuts':'F2','aria-expanded':suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':suggestions&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
           if(e.isComposing||e.ctrlKey||e.altKey||e.metaKey)return;if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}
           if(e.key==='Tab'){setSuggestions(false);return;}
@@ -426,10 +430,7 @@ export default function POS({ quotation = false, onConvertQuotation }) {
           )}
         </div>
 
-                  </div></td></tr>
-                </tbody>
-              </table>
-            </div>
+            </aside>
             <div className={"pos-payments"+(customer&&!quotation?" has-credit":"")}>
             <div className="row g-2 mt-2">
               <div className={discountType === "NONE" ? "col-12" : "col-7"}>

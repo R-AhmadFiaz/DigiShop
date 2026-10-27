@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const pos=fs.readFileSync(new URL('../src/components/POS.jsx',import.meta.url),'utf8');
-test('unified POS keeps entry inside the grid, checkout outside the scroller and native validation disabled',()=>{
- assert.match(pos,/pos-entry-row/);assert.match(pos,/pos-lines/);assert.match(pos,/pos-payments/);assert.match(pos,/pos-checkout/);
- assert.ok(pos.indexOf('pos-entry-row')>pos.indexOf('<tbody>')&&pos.indexOf('pos-entry-row')<pos.indexOf('</tbody>'));
+test('POS keeps search separate, checkout outside both scrollers and native validation disabled',()=>{
+ assert.match(pos,/pos-search-panel/);assert.match(pos,/pos-lines/);assert.match(pos,/pos-payments/);assert.match(pos,/pos-checkout/);
+ assert.ok(pos.indexOf('pos-search-panel')>pos.indexOf('</tbody>'));
+ assert.match(pos,/aria-label="Product search panel"/);
  assert.match(pos,/<form id="sale-form" noValidate onSubmit=\{submit\}/);
  assert.match(pos,/validateSale\(/);assert.match(pos,/aria-invalid=\{!!rowError\}/);
  assert.match(pos,/ResizeObserver/);assert.match(pos,/root.getBoundingClientRect\(\).top\+window.scrollY/);

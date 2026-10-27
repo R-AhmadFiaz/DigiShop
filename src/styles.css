@@ -802,3 +802,70 @@ p, td, th { overflow-wrap: break-word; }
 .pos-lines:focus-visible { outline: 3px solid #0f766e; outline-offset: -3px; }
 .pos-lines .pos-row-selected > td { box-shadow: inset 0 0 0 9999px #0f766e0d; }
 .pos-lines:focus .pos-row-selected > td { border-block-color: #0f766e; }
+
+/* Shared desktop navigation; the same destinations remain in the mobile drawer. */
+@media screen and (min-width:769px) {
+ .app-shell { display:block; }
+ .navigation-drawer { position:relative; height:auto; overflow:visible; border-bottom:1px solid var(--bs-border-color); z-index:5; }
+ .navigation-drawer .sidebar { display:flex; flex-direction:row; align-items:center; gap:20px; width:100%; height:auto; position:static; padding:8px 16px; overflow:visible; border:0; }
+ .navigation-drawer .sidebar-brand { margin:0; white-space:nowrap; }
+ .navigation-drawer .brand-name { font-size:24px; }
+ .navigation-drawer .sidebar-brand img { width:32px; height:32px; }
+ .navigation-drawer .role-label { display:none; }
+ .navigation-drawer nav { display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:4px; min-width:0; }
+ .navigation-drawer nav > a,.navigation-drawer nav > details > summary { white-space:nowrap; padding:6px 10px; margin:0; }
+ .more-nav { position:relative; }
+ .navigation-overflow { position:absolute; top:100%; right:0; width:230px; max-height:calc(100dvh - 80px); overflow-y:auto; border:1px solid var(--bs-border-color); border-radius:4px; background:#fff; padding:6px; box-shadow:0 5px 12px #0002; }
+ .navigation-overflow a { display:block; }
+ .navigation-overflow .accounts-nav a { padding-left:20px; }
+ .more-nav:has(a.active) > summary { color:#0f766e; background:#e6f5f1; border-radius:4px; }
+ .workspace { padding:12px 16px; max-width:none; }
+ .app-header { margin-bottom:8px; }
+}
+@media screen and (min-width:769px) and (max-width:1050px) {
+ .navigation-drawer .sidebar { gap:8px; padding-inline:10px; }
+ .navigation-drawer .brand-name { font-size:20px; }
+ .navigation-drawer nav { gap:0; }
+ .navigation-drawer nav > a,.navigation-drawer nav > details > summary { padding-inline:6px; font-size:14px; }
+}
+@media (max-width:768px) {
+ .more-nav,.navigation-overflow { width:100%; }
+ .navigation-overflow { padding-left:8px; }
+ .navigation-drawer .more-nav summary { padding:8px; }
+}
+/* Invoice and search have independent scroll regions; settlement stays outside both. */
+.pos-unified .pos-search-panel { min-width:0; min-height:0; display:flex; flex-direction:column; border:1px solid var(--bs-border-color); border-radius:4px; padding:8px; }
+.pos-unified .pos-search-panel .product-filters { flex-wrap:wrap; gap:6px; }
+.pos-unified .pos-search-panel .product-filter-search { flex:1 1 100%; }
+.pos-unified .pos-search-panel .product-filter-choice { flex:1 1 100px; max-width:none; }
+.pos-unified .pos-search-panel .product-results { min-height:0; max-height:300px; overflow-y:auto; overscroll-behavior:contain; }
+.pos-unified .pos-search-panel .product-result { display:flex; gap:8px; text-align:left; }
+.pos-unified .pos-search-panel .product-result > span { min-width:0; overflow-wrap:anywhere; }
+.pos-unified .pos-search-panel .product-result > span:last-child { flex-shrink:0; }
+.pos-unified .pos-search-panel .product-result small { display:block; }
+@media (min-width:1100px) and (min-height:700px) {
+ .pos-unified #sale-form > fieldset { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,30%); grid-template-rows:auto auto minmax(0,1fr) auto; column-gap:10px; }
+ .pos-unified .pos-invoice-heading { grid-column:1; grid-row:1; }
+ .pos-unified .pos-error { grid-column:1; grid-row:2; max-height:80px; overflow-y:auto; }
+ .pos-unified .pos-lines { grid-column:1; grid-row:3; scrollbar-gutter:stable; overscroll-behavior:contain; scroll-padding-top:42px; }
+ .pos-unified .pos-search-panel { grid-column:2; grid-row:1/4; }
+ .pos-unified .pos-search-panel .product-results { flex:1; max-height:none; }
+ .pos-unified .pos-payments { grid-column:1/-1; grid-row:4; }
+ .pos-unified .cart-table td:first-child { min-width:140px; }
+ .pos-unified .cart-table .quantity { width:65px; }
+ .pos-unified .item-rate { min-width:80px; width:85px; }
+ .pos-unified .cart-table th { z-index:2; }
+ .pos-unified .pos-lines input { scroll-margin-block:42px 10px; }
+}
+@media (max-width:1099px), (max-height:699px) {
+ .pos-unified .pos-search-panel { order:-1; margin-bottom:10px; }
+ .pos-unified .pos-lines { max-height:45dvh; overflow:auto; flex:none; }
+ .pos-unified .pos-search-panel .product-results { max-height:30dvh; }
+}
+
+@media screen and (min-width:1100px) {
+ .app-shell { position:relative; }
+ .navigation-drawer .sidebar { padding-right:200px; }
+ .app-header .header-actions { position:absolute; top:8px; right:16px; z-index:6; }
+ .app-header:has(> .header-actions:only-child) { margin:0; }
+}

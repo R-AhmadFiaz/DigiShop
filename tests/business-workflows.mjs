@@ -105,12 +105,12 @@ const checks=`
   await navigation('/owner/products');
   await wait('!!document.querySelector(".table tbody td")');
   assert.equal(await evaluate('getComputedStyle(document.body).fontSize'),'16px');
-  assert.equal(await evaluate('document.querySelector(".sidebar").getBoundingClientRect().width'),216);
+  assert.ok(await evaluate('document.querySelector(".sidebar").getBoundingClientRect().width>innerWidth-40'),'Desktop navigation spans the page');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".table")).fontSize'),'14.5px');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".table td")).paddingTop'),'7px');
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".btn")).minHeight'),'36px');
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Desktop page fits');
-  assert.equal(await evaluate('getComputedStyle(document.querySelector(".sidebar")).overflowY'),'auto');
+  assert.equal(await evaluate('getComputedStyle(document.querySelector(".sidebar")).overflowY'),'visible');
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:740,deviceScaleFactor:1,mobile:true});
   assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),'Mobile page has no horizontal overflow');
   assert.ok(await evaluate('[...document.querySelectorAll(".btn,.form-control,.form-select")].filter(e=>e.getClientRects().length).every(e=>e.getBoundingClientRect().height>=44)'),'Mobile controls retain 44px touch targets');
@@ -134,6 +134,8 @@ const checks=`
   await login(owner.username);
 `;
 
+// Navigation overflow is intentional: reveal its native details before existing navigation clicks.
+source=source.replace('async function click(text) {', `async function click(text) { await evaluate('(()=>{const a=[...document.querySelectorAll(".sidebar a")].find(a=>a.textContent.trim()==='+JSON.stringify(text)+');if(a){let p=a.parentElement;while(p){if(p.tagName==="DETAILS")p.open=true;p=p.parentElement;}}})()');`);
 // Forms now rely on authoritative server-issued references, never typed numbers.
 source=source.replace(/await label\('(?:Purchase reference|Delivery reference|Payment reference|Return reference|Credit transaction reference|Correction reference)',[^;]+;/g,'')
  .replace(/await fill\('\[name=reference\]',[^;]+;/g,'')

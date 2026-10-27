@@ -7,8 +7,11 @@ export const posNavigationChecks=String.raw`
   const navProducts=await Product.insertMany(Array.from({length:105},(_,i)=>({shopId:shop._id,name:'NavItem '+String(i+1).padStart(3,'0'),slug:'nav-item-'+i,brand:'Navigation',category:navCategory._id,unit:'piece',costPrice:5,retailPrice:10,wholesalePrice:8,stockQuantity:i===104?0:20})));
   const navKey=async(key,vk,modifiers=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code:key,modifiers,...(key==='Enter'?{text:'\r',unmodifiedText:'\r'}:{}),windowsVirtualKeyCode:vk});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code:key,modifiers,windowsVirtualKeyCode:vk});};
   for(const actor of [owner,cashier]){
+    await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
     await login(actor.username);await navigation(actor.role==='OWNER'?'/owner/sales':'/cashier/pos');
-    await wait('!!document.querySelector(".product-filter-search")');
+    await wait('!!document.querySelector(".product-filter-search")');await sleep(100);
+    assert.ok(await evaluate('document.scrollingElement.scrollHeight<=innerHeight+2'),'OWNER/CASHIER desktop page does not scroll');
+    assert.ok(await evaluate('document.querySelector("button[form=sale-form]").getBoundingClientRect().bottom<=innerHeight'),'OWNER/CASHIER checkout is visible');
     await navKey('F2',113);await send('Input.insertText',{text:'NavItem'});
     await wait('document.querySelectorAll(".product-result").length===105');
     assert.equal(await evaluate('[...document.querySelectorAll(".product-result")].every(p=>p.tabIndex===-1)'),true);

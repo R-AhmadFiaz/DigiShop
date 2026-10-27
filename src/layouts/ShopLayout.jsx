@@ -10,6 +10,7 @@ const links = {
     ["products", "Products"],
     ["stock", "Stock"],
     ["purchases", "Purchases"],
+    ["customers", "Customers"],
     ["expenses", "Expenses"],
     ["partners", "Partners & Capital"],
     ["existing-setup", "Starting Balances"],
@@ -36,11 +37,21 @@ export default function ShopLayout() {
     user.role === "CASHIER" && pathname.replace(/\/$/, "") === "/cashier/pos";
   const drawer=useRef(null),menuButton=useRef(null);
   const [menuOpen,setMenuOpen]=useState(false);
+  const mainSections=user.role==='OWNER'?['','sales','products','purchases','customers','reports']:links[user.role].map(([to])=>to);
+  const secondaryLinks=links[user.role].filter(([to])=>!mainSections.includes(to));
+  const navigation=useRef(null);
+  useEffect(()=>{
+    const close=event=>{if(!navigation.current?.contains(event.target))navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);};
+    document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);
+  },[]);
+  useEffect(()=>{navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);},[pathname]);
   useEffect(()=>{
     if(!menuOpen)return;
     const dialog=drawer.current,trigger=menuButton.current,previous=document.body.style.overflow,previousRoot=document.documentElement.style.overflow;
     dialog.showModal();document.body.style.overflow='hidden';document.documentElement.style.overflow='hidden';
-    (dialog.querySelector('[aria-current="page"]')||dialog.querySelector('button')).focus();
+    const active=dialog.querySelector('[aria-current="page"]');
+    for(let parent=active?.parentElement;parent&&parent!==dialog;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+    (active||dialog.querySelector('button')).focus();
     const resize=()=>{if(window.innerWidth>768)setMenuOpen(false);};
     window.addEventListener('resize',resize);
     return()=>{dialog.close();document.body.style.overflow=previous;document.documentElement.style.overflow=previousRoot;window.removeEventListener('resize',resize);trigger?.focus();};
@@ -84,21 +95,23 @@ export default function ShopLayout() {
               ? "Shop Management"
               : "Sales counter"}
         </div>
-        <nav aria-label="Main navigation" onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
-          {links[user.role].map(([to, label]) => (
+        <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{if(e.key==='Escape'){const details=e.target.closest('details');if(details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();}}}} onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
+          {links[user.role].filter(([to])=>mainSections.includes(to)).map(([to, label]) => (
             <NavLink key={to} to={to || "."} end={!["sales","purchases"].includes(to)}>
               {label}
             </NavLink>
           ))}
+          {secondaryLinks.length>0&&<details className="more-nav"><summary>More</summary><div className="navigation-overflow">
+            {secondaryLinks.map(([to,label])=><NavLink key={to} to={to} end>{label}</NavLink>)}
           {user.role === "OWNER" && (
-            <details className="accounts-nav" open={pathname.includes('/accounts/') || pathname === '/owner/customers' ? true : undefined}>
+            <details className="accounts-nav">
               <summary>Accounts</summary>
-              <NavLink to="customers">Customers</NavLink>
               <NavLink to="accounts/companies">Suppliers</NavLink>
               <NavLink to="accounts/cash-bank">Cash &amp; Bank</NavLink>
               <NavLink to="accounts/transactions">Transactions</NavLink>
             </details>
           )}
+          </div></details>}
         </nav>
       </aside>
       </dialog>
