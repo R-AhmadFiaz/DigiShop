@@ -751,7 +751,7 @@ p, td, th { overflow-wrap: break-word; }
 .pos-grid [role=listbox][hidden] { display:none; }
 @media (min-width:1100px) { .pos-grid .product-results { max-height:55vh; overflow-y:auto; scrollbar-gutter:stable; overscroll-behavior:contain; } }
 
-/* Unified invoice entry; fixed viewport is limited to normal desktop billing. */
+/* Wide browser windows retain desktop billing despite browser chrome; very short windows scroll naturally. */
 .pos-unified { display:flex; flex-direction:column; gap:0; max-width:none; width:100%; border:1px solid var(--bs-border-color); border-radius:6px; background:#fff; padding:10px; }
 .pos-unified #sale-form,.pos-unified #sale-form > fieldset { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; }
 .pos-unified .pos-invoice-heading { flex:none; padding-bottom:6px; gap:8px; }
@@ -779,8 +779,8 @@ p, td, th { overflow-wrap: break-word; }
 .pos-unified .pos-checkout > button { width:auto !important; min-width:180px; }
 .pos-unified .pos-error .alert { margin:0 0 5px; padding:6px 10px; }
 .pos-unified [aria-invalid=true] { border-color:#b91c1c; }
-@media (min-width:1100px) and (min-height:700px) { .pos-billing { height:var(--pos-height,65dvh); min-height:0; } }
-@media (max-width:1099px), (max-height:699px) {
+@media (min-width:1100px) and (min-height:600px) { .pos-billing { height:var(--pos-height,65dvh); min-height:0; } }
+@media (max-width:1099px), (max-height:599px) {
  .pos-unified { height:auto; }
  .pos-unified .pos-lines { flex:auto; max-height:none; }
  .pos-unified .pos-payments { grid-template-columns:repeat(3,minmax(0,1fr)); }
@@ -792,7 +792,7 @@ p, td, th { overflow-wrap: break-word; }
 .pos-unified { align-items:stretch; }
 .pos-unified .pos-payments .sale-total { border:0; }
 .pos-unified .cart-table td:first-child > small.text-body-secondary { display:inline !important; margin-left:6px; }
-@media (min-width:1100px) and (min-height:700px) {
+@media (min-width:1100px) and (min-height:600px) {
  .sales-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
  .sales-toolbar .page-title,.sales-toolbar .screen-tabs { margin:0 !important; border:0; }
  .pos-unified .pos-payments.has-credit { grid-template-columns:repeat(7,minmax(0,1fr)); }
@@ -843,7 +843,7 @@ p, td, th { overflow-wrap: break-word; }
 .pos-unified .pos-search-panel .product-result > span { min-width:0; overflow-wrap:anywhere; }
 .pos-unified .pos-search-panel .product-result > span:last-child { flex-shrink:0; }
 .pos-unified .pos-search-panel .product-result small { display:block; }
-@media (min-width:1100px) and (min-height:700px) {
+@media (min-width:1100px) and (min-height:600px) {
  .pos-unified #sale-form > fieldset { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,30%); grid-template-rows:auto auto minmax(0,1fr) auto; column-gap:10px; }
  .pos-unified .pos-invoice-heading { grid-column:1; grid-row:1; }
  .pos-unified .pos-error { grid-column:1; grid-row:2; max-height:80px; overflow-y:auto; }
@@ -857,7 +857,7 @@ p, td, th { overflow-wrap: break-word; }
  .pos-unified .cart-table th { z-index:2; }
  .pos-unified .pos-lines input { scroll-margin-block:42px 10px; }
 }
-@media (max-width:1099px), (max-height:699px) {
+@media (max-width:1099px), (max-height:599px) {
  .pos-unified .pos-search-panel { order:-1; margin-bottom:10px; }
  .pos-unified .pos-lines { max-height:45dvh; overflow:auto; flex:none; }
  .pos-unified .pos-search-panel .product-results { max-height:30dvh; }

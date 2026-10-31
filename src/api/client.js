@@ -6,6 +6,11 @@ let sessionVersion = 0;
 let onSessionExpired = () => {};
 let onShopDeactivated = () => {};
 let onSubscriptionBlocked = () => {};
+function diagnoseApiFailure(method, endpoint, status, kind = "http") {
+  if (!import.meta.env?.DEV) return;
+  const route = endpoint.split("?")[0].replace(/[a-f\d]{24}/gi, ":id");
+  console.error("[DigiShop API diagnostic]", { method, route, status, kind });
+}
 export function setSubscriptionBlockedHandler(handler) {
   onSubscriptionBlocked = handler;
 }
@@ -74,6 +79,7 @@ async function send(endpoint, options) {
     text = await response.text();
   } catch (error) {
     if (options.signal?.aborted) throw error;
+    diagnoseApiFailure(options.method || "GET", endpoint, 0, "network");
     throw new ApiError(
       endpoint.startsWith("/orders/") &&
         options.method &&
@@ -93,6 +99,12 @@ async function send(endpoint, options) {
     )
       throw new Error("Unreadable response");
   } catch {
+    diagnoseApiFailure(
+      options.method || "GET",
+      endpoint,
+      response.status,
+      "unreadable-response",
+    );
     if (response.ok)
       throw new ApiError(
         endpoint.startsWith("/orders/") &&
@@ -108,6 +120,7 @@ async function send(endpoint, options) {
           : "",
     };
   }
+  if (!response.ok) diagnoseApiFailure(options.method || "GET", endpoint, response.status);
   return { response, payload };
 }
 export async function api(endpoint, options = {}) {

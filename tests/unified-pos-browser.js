@@ -22,7 +22,7 @@ export const unifiedPOSChecks=String.raw`
   }
   assert.equal(await evaluate('document.querySelectorAll(".cart-table tbody tr:not(.pos-entry-row)").length'),30);
   const shots=path.join(frontend,'tests/artifacts/unified-pos');await fs.mkdir(shots,{recursive:true});
-  for(const [width,height] of [[1280,720],[1366,768],[1920,1080]]){
+  for(const [width,height] of [[1280,600],[1280,620],[1366,650],[1280,720],[1366,768],[1920,1080]]){
     await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await sleep(150);
     assert.ok(await evaluate('document.scrollingElement.scrollHeight<=innerHeight+2'),'No page-level vertical scrolling');
     assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'No horizontal page overflow');
