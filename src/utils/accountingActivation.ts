@@ -9,12 +9,20 @@ type Context = {shopId: string, state: string, preparation: boolean};
 export const accountingContext = new AsyncLocalStorage<Context>();
 export const productionAccountingPermitted = () => process.env.BUSINESS_ACCOUNTING_ENABLED === 'true' &&
     process.env.BUSINESS_ACCOUNTING_PRODUCTION_ALLOWED === 'true' && process.env.NODE_ENV === 'production';
+// Development posting is explicit and always tagged as integration data.
+// NODE_ENV=production can never enter this path.
+export const developmentAccountingPermitted = () => process.env.NODE_ENV !== 'production' &&
+    process.env.DIGISHOP_ENV === 'development' && process.env.BUSINESS_ACCOUNTING_DEVELOPMENT_ENABLED === 'true';
+export const accountingActivationPermitted = () => productionAccountingPermitted() || developmentAccountingPermitted() ||
+    (process.env.NODE_ENV === 'test' && process.env.BUSINESS_ACCOUNTING_ENABLED === 'true');
 export const productionPostingActive = () => productionAccountingPermitted() && accountingContext.getStore()?.state === 'ACTIVE';
-export function accountingMode(): 'INTEGRATION_TEST' | 'LIVE' {return process.env.NODE_ENV === 'test' ? 'INTEGRATION_TEST' : 'LIVE';}
+export function accountingMode(): 'INTEGRATION_TEST' | 'LIVE' {
+    return process.env.NODE_ENV === 'test' || developmentAccountingPermitted() ? 'INTEGRATION_TEST' : 'LIVE';
+}
 export function accountingAvailable() {
     if (process.env.NODE_ENV === 'test') return process.env.BUSINESS_ACCOUNTING_ENABLED === 'true';
     const context = accountingContext.getStore();
-    return productionAccountingPermitted() && !!context &&
+    return (productionAccountingPermitted() || developmentAccountingPermitted()) && !!context &&
         (context.state === 'ACTIVE' || (['PREPARING','PAUSED'].includes(context.state) && context.preparation));
 }
 export function preparationPath(path: string) {
@@ -23,7 +31,7 @@ export function preparationPath(path: string) {
 export function enforceAccountingWrite(state: string, preparation: boolean, mutation: boolean) {
     if (process.env.NODE_ENV === 'test' || !mutation) return;
     if (state === 'PAUSED') throw new apiError(409, 'Accounting posting is paused. Contact the shop owner.');
-    if (state === 'ACTIVE' && !productionAccountingPermitted()) throw new apiError(503, 'Accounting posting is paused by server configuration. No unposted sale was recorded.');
+    if (state === 'ACTIVE' && !productionAccountingPermitted() && !developmentAccountingPermitted()) throw new apiError(503, 'Accounting posting is paused by server configuration. No unposted sale was recorded.');
     if (state === 'PREPARING' && !preparation) throw new apiError(409, 'Accounting setup is in progress. Finish setup before recording business changes.');
 }
 export async function claimAccountingShop(actor: any, session: ClientSession, mutation = true): Promise<any> {
@@ -46,7 +54,7 @@ export async function claimAccountingShop(actor: any, session: ClientSession, mu
 }
 
 export async function requireInvoiceCutover(order: any, session: ClientSession) {
-    if (process.env.NODE_ENV !== 'production') return;
+    if (!productionAccountingPermitted() && !developmentAccountingPermitted()) return;
     const shop=await Shop.findById(order.shopId).session(session).lean();
     if(shop?.accounting?.strategy==='CLEAN_START'&&shop.accounting.activatedAt&&shop.accounting.cutoffAt&&order.createdAt<=shop.accounting.cutoffAt)
         throw new apiError(409,'Pre-start invoice is read-only under clean-start policy. Historical demo settlements cannot affect active accounts.');

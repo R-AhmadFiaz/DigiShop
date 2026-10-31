@@ -1,5 +1,5 @@
 import {nextReference} from './references.js';
-import {accountingContext, claimAccountingShop,productionPostingActive} from './accountingActivation.js';
+import {accountingContext, claimAccountingShop,developmentAccountingPermitted,productionPostingActive} from './accountingActivation.js';
 import {BusinessSetup} from '../models/businessSetup.model.js';
 import mongoose from 'mongoose';
 import {createHash} from 'node:crypto';
@@ -621,7 +621,7 @@ export async function getAccountHistoryEntry(actor:Actor,accountId:string,entryI
 // Private posting engine. Only the fixed adapters below can supply invoice cash
 // sources. Full SALE/PURCHASE general-ledger posting remains disabled.
 async function post(actor: Actor, input: JournalInput, session: Session, source: {kind: 'MANUAL' | 'OPENING' | 'REVERSAL' | 'INVOICE_RECEIPT' | 'INVOICE_REFUND' | 'TRANSFER' | 'SUPPLIER_OPENING' | 'PURCHASE_RECEIPT' | 'SUPPLIER_PAYMENT' | 'SUPPLIER_RETURN' | 'SUPPLIER_REFUND' | 'SUPPLIER_CREDIT_APPLICATION' | 'SUPPLIER_REVERSAL' | 'EXPENSE' | 'EXPENSE_REVERSAL' | 'CAPITAL_CONTRIBUTION' | 'CAPITAL_WITHDRAWAL' | 'CAPITAL_REVERSAL', referenceId?: string}, confirmed = false) {
-    if (process.env.NODE_ENV === 'production' && !invoiceAccountingEnabled()) throw new apiError(409, 'Accounting preparation or activation is required');
+    if ((process.env.NODE_ENV === 'production' || developmentAccountingPermitted()) && !invoiceAccountingEnabled()) throw new apiError(409, 'Accounting preparation or activation is required');
     const cashierSale = actor.role === 'CASHIER' && source.kind === 'INVOICE_RECEIPT' && !!source.referenceId;
     if (cashierSale) await cashierSaleEvent(actor, source.referenceId!, session);
     const user = await owner(actor, session, false, cashierSale);

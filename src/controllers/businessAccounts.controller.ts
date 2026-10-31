@@ -9,7 +9,7 @@ import {BusinessBrand,ProductBrandLink} from '../models/businessBrand.model.js';
 import {Product} from '../models/product.model.js';
 import {FinancialAccount} from '../models/financialAccount.model.js';
 import {Customer} from '../models/customer.model.js';
-import {accountingContext,productionPostingActive} from '../utils/accountingActivation.js';
+import {accountingContext,developmentAccountingPermitted,productionPostingActive} from '../utils/accountingActivation.js';
 
 function recordId(value: unknown): string {
     if (typeof value !== 'string' || !/^[a-f\d]{24}$/i.test(value)) throw new apiError(400, 'Valid record selection required');
@@ -145,12 +145,12 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
             case 'transaction':return accounts.getBusinessTransaction(actor,recordId(req.params.id),session);
             case 'opening':
                 enabled();
-                if(process.env.NODE_ENV==='production'&&accountingContext.getStore()?.state!=='PREPARING')throw new apiError(409,'Use explicit account enrollment after activation; initial openings cannot be recreated');
+                if((process.env.NODE_ENV==='production'||developmentAccountingPermitted())&&accountingContext.getStore()?.state!=='PREPARING')throw new apiError(409,'Use explicit account enrollment after activation; initial openings cannot be recreated');
                 if (!await FinancialAccount.exists({_id: recordId(req.params.id), shopId: actor.shopId, kind: {$in: ['CASH', 'BANK']}}).session(session)) throw new apiError(400, 'Select a cash or bank account in this shop');
                 return accounts.recordOpeningBalance(actor, {...body, accountId: recordId(req.params.id)}, session);
             case 'cutover':
                 enabled();
-                if(process.env.NODE_ENV==='production'&&accountingContext.getStore()?.state!=='PREPARING')throw new apiError(409,'Initial cutover is locked; enroll additional accounts explicitly');
+                if((process.env.NODE_ENV==='production'||developmentAccountingPermitted())&&accountingContext.getStore()?.state!=='PREPARING')throw new apiError(409,'Initial cutover is locked; enroll additional accounts explicitly');
                 if (!Array.isArray(body.accounts) || body.accounts.some((row: any) => !row || typeof row !== 'object')) throw new apiError(400, 'Valid cash/bank account confirmations required');
                 return accounts.prepareCashBankCutover(actor, body, session);
             case 'reconcileCustomer': return accounts.reconcileBusinessCustomer(actor, recordId(req.params.id), session);

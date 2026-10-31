@@ -10,7 +10,7 @@ import {BusinessTransaction} from '../models/businessTransaction.model.js';
 import {SupplierCutover} from '../models/supplierCutover.model.js';
 import {BusinessEntity} from '../models/businessEntity.model.js';
 import {AccountingActivationEvent} from '../models/accountingActivationEvent.model.js';
-import {productionAccountingPermitted,accountingContext} from '../utils/accountingActivation.js';
+import {accountingActivationPermitted,accountingContext} from '../utils/accountingActivation.js';
 import * as accounts from '../utils/businessAccounts.js';
 import {safeMinor} from '../utils/invoiceAccounting.js';
 import {asyncHandler} from '../utils/asyncHandler.js';
@@ -18,7 +18,7 @@ import {apiError} from '../utils/apiError.js';
 import {apiResponse} from '../utils/apiResponse.js';
 
 const digest=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const permitted=()=>productionAccountingPermitted()||(process.env.NODE_ENV==='test'&&process.env.BUSINESS_ACCOUNTING_ENABLED==='true');
+const permitted=accountingActivationPermitted;
 function text(value:any,max=300){if(typeof value!=='string'||!value.trim()||value.length>max)throw new apiError(400,'Provide valid confirmation details');return value.trim();}
 function token(payload:any){const key=process.env.ACCESS_TOKEN_SECRET;if(!key)throw new apiError(503,'Server signing configuration unavailable');return createHmac('sha256',key).update(JSON.stringify(payload)).digest('hex');}
 
@@ -26,7 +26,7 @@ function token(payload:any){const key=process.env.ACCESS_TOKEN_SECRET;if(!key)th
 async function readiness(actor:any,shop:any,session:mongoose.ClientSession){
     const setup=await BusinessSetup.findOne({shopId:shop._id,state:'CONFIRMED'}).session(session).lean();
     const blockers:string[]=[];
-    if(!permitted())blockers.push('Production accounting permission is disabled on the server.');
+    if(!permitted())blockers.push('Accounting permission is disabled for this server environment.');
     if(!setup)blockers.push('Confirm Existing Business Setup with reviewed cash, inventory, customer and supplier evidence first.');
     if(!['PREPARING','PAUSED'].includes(shop.accounting?.state??''))blockers.push('Begin preparation before requesting activation.');
     const customers=await Customer.find({shopId:shop._id}).sort({_id:1}).limit(1001).session(session).lean();
@@ -104,7 +104,7 @@ export const accountingActivation=(operation:string)=>asyncHandler(async(req,res
             const prior=await AccountingActivationEvent.findOne({shopId:shop._id,requestKey}).session(session);
             if(prior){if(prior.requestHash!==requestHash)throw new apiError(409,'Request key already used for different details');return {replayed:true,event:prior,state,revision};}
             if(body.expectedRevision!==revision)throw new apiError(409,'Accounting state changed; refresh and review again');
-            if(operation!=='pause'&&!permitted())throw new apiError(503,'Production accounting permission is disabled on the server');
+            if(operation!=='pause'&&!permitted())throw new apiError(503,'Accounting permission is disabled for this server environment');
             let evidence:any={previousState:state,reason};
             if(operation==='prepare'){
                 if(!['DISABLED','PREPARING'].includes(state)||!['CLEAN_START','RECONCILE'].includes(body.strategy)||body.confirmation!=='PREPARE ACCOUNTING')throw new apiError(409,'Choose clean start or reviewed reconciliation and type PREPARE ACCOUNTING');

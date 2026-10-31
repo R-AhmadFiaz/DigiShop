@@ -19,6 +19,7 @@ import {position} from './capital.controller.js';
 import {asyncHandler} from '../utils/asyncHandler.js';
 import {apiError} from '../utils/apiError.js';
 import {apiResponse} from '../utils/apiResponse.js';
+import {accountingMode} from '../utils/accountingActivation.js';
 
 // Bounded evidence scans fail closed, never present a partial page as a total.
 async function bounded(query: any, session: mongoose.ClientSession, limit = 1000): Promise<any[]> {
@@ -41,7 +42,7 @@ export const financialReports = asyncHandler(async (req, res) => {
         const cleanCutoff=shop?.accounting?.strategy==='CLEAN_START'&&shop.accounting.activatedAt?shop.accounting.cutoffAt:null;
         const salesDates=cleanCutoff?{$gte:new Date(Math.max(+range.start,+cleanCutoff+1)),$lt:range.end}:dates;
         const enabled = invoiceAccountingEnabled();
-        const postedStatus = process.env.NODE_ENV==='test'?'POSTED_TEST':'POSTED';
+        const postedStatus = accountingMode()==='INTEGRATION_TEST'?'POSTED_TEST':'POSTED';
         const requireAccounting = () => { if (!enabled) throw new apiError(409, 'Activated, prepared accounting is required; financial balances are unavailable'); };
         const sales = await section(async () => {
             const originals = await bounded(Order.find({shopId, type: 'INVOICE', status: {$in: ['PENDING', 'DELIVERED', 'CANCELLED']}, createdAt: salesDates}), session);
