@@ -6,6 +6,7 @@ import { verifyJWT } from "../middleware/auth.middleware.js";
 import { getInvoices, getInvoice, cancelOrder, createOrder, createQuotation, updateOrderStatus, updateQuotationToInvoice, viewStockLog } from "../controllers/order.controller.js";
 import { checkSubscription } from "../middleware/subscription.middleware.js";
 import {invoiceMutation, invoicePreview, getInvoiceHistory, getSalesSummary, getInvoicePaymentAccounts} from '../controllers/invoiceAdjustment.controller.js';
+import {correctInvoiceCustomerDisplayName} from '../controllers/invoiceCustomerName.controller.js';
 
 export const orderRouter = Router()
 
@@ -18,6 +19,7 @@ orderRouter.route('/:quotationId').patch(verifyJWT, verifyShopUser, updateQuotat
 orderRouter.route('/stocklogs').get(verifyJWT, verifyShopUser, verifyOwner, viewStockLog)
 orderRouter.route('/sales-summary').get(verifyJWT, verifyShopUser, verifyOwner, getSalesSummary)
 orderRouter.route('/:orderId/history').get(verifyJWT, verifyShopUser, verifyOwner, getInvoiceHistory)
+orderRouter.route('/:orderId/customer-display-name').patch(verifyJWT, verifyShopUser, verifyOwner, correctInvoiceCustomerDisplayName)
 orderRouter.route('/:orderId/adjustments/preview').post(verifyJWT, verifyShopUser, verifyOwner, invoicePreview('ADJUSTMENT'))
 orderRouter.route('/:orderId/adjustments').post(verifyJWT, verifyShopUser, verifyOwner, invoiceMutation('ADJUSTMENT'))
 orderRouter.route('/:orderId/payments/preview').post(verifyJWT, verifyShopUser, verifyOwner, invoicePreview('PAYMENT'))

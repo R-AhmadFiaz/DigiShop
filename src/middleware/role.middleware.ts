@@ -42,9 +42,11 @@ export const verifyShopUser = asyncHandler(async (req: Request, res: Response, n
     const state=shop.accounting?.state ?? 'DISABLED';
     const mutation=!['GET','HEAD','OPTIONS'].includes(req.method);
     const financial=/^\/api\/v2\/(orders|purchases|accounts)(\/|$)/.test(path);
+    // Printed customer-name corrections do not post money, stock or ledgers.
+    const invoiceNameCorrection=/^\/api\/v2\/orders\/[a-f\d]{24}\/customer-display-name$/i.test(path);
     // Preparation freezes opening evidence. Emergency pause targets financial
     // workflows; it does not disable ordinary product management or read-only AI.
-    if (!activation) enforceAccountingWrite(state, preparation, mutation &&
+    if (!activation) enforceAccountingWrite(state, preparation, mutation && !invoiceNameCorrection &&
         (state==='PREPARING' ? !/^\/api\/v2\/ai(\/|$)/.test(path) : financial));
     accountingContext.run({shopId:String(shop._id),state:shop.accounting?.state ?? 'DISABLED',preparation}, () => next());
 });

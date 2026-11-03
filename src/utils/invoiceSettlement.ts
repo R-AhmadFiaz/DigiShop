@@ -62,6 +62,8 @@ export async function verifiedInvoiceFunding(order: any, session: mongoose.Clien
     const openingCashMinor = opening?.openingCashMinor ?? moneyMinor(order.originalSnapshot?.paidAmount ?? order.paidAmount);
     const openingCreditMinor = opening?.openingCreditMinor ?? 0;
     let cashNetMinor = openingCashMinor, creditNetMinor = openingCreditMinor, revision = 0;
+    let cashReceivedMinor = openingCashMinor, cashRefundedMinor = 0;
+    let creditRedeemedMinor = openingCreditMinor, creditIssuedMinor = 0, creditRestoredMinor = 0;
     let expectedTotal = moneyMinor(order.originalSnapshot?.totalPrice ?? order.totalPrice);
     let expectedDue = moneyMinor(order.originalSnapshot?.amountDue ?? order.amountDue);
     for (const event of events) {
@@ -76,6 +78,13 @@ export async function verifiedInvoiceFunding(order: any, session: mongoose.Clien
                 event.after.settledMinor !== openingCashMinor + openingCreditMinor) throw new apiError(409, 'Original sale settlement is inconsistent');
             continue;
         }
+        cashReceivedMinor += event.financial.cashReceivedMinor;
+        cashRefundedMinor += event.financial.cashRefundMinor;
+        creditRedeemedMinor += event.financial.creditRedeemedMinor;
+        creditIssuedMinor += event.financial.creditIssuedMinor;
+        creditRestoredMinor += event.financial.creditRestoredMinor ?? 0;
+        safeMinor(cashReceivedMinor); safeMinor(cashRefundedMinor); safeMinor(creditRedeemedMinor);
+        safeMinor(creditIssuedMinor); safeMinor(creditRestoredMinor);
         if (event.revisionBefore !== revision || event.revisionAfter !== revision + 1) throw new apiError(409, 'Invoice revision history is incomplete');
         if (event.before.settledMinor !== cashNetMinor + creditNetMinor) throw new apiError(409, 'Invoice payment history is inconsistent');
         if (event.before.totalMinor !== expectedTotal || event.before.dueMinor !== expectedDue) throw new apiError(409, 'Invoice history baseline is inconsistent');
@@ -122,8 +131,10 @@ export async function verifiedInvoiceFunding(order: any, session: mongoose.Clien
     const debt = debtEntries.reduce((sum, e) => sum + signedLedgerMinor(e), 0);
     if (debt !== moneyMinor(order.amountDue) || (debt > 0 && !order.customerId) ||
         debtEntries.some(e => String(e.customerId) !== String(order.customerId))) throw new apiError(409, 'Invoice debt history requires verified reconciliation');
-    if (order.customerId) await checkedCustomer(order.customerId, order.shopId, session);
-    return {cashNetMinor, creditNetMinor, openingCashMinor, openingCreditMinor};
+    const customer = order.customerId ? await checkedCustomer(order.customerId, order.shopId, session) : null;
+    return {cashNetMinor, creditNetMinor, openingCashMinor, openingCreditMinor,
+        cashReceivedMinor, cashRefundedMinor, creditRedeemedMinor, creditIssuedMinor, creditRestoredMinor,
+        availableCreditMinor: customer?.storeCreditBalanceMinor ?? 0};
 }
 
 export async function calculateInvoiceSettlement(order: any, newTotalMinor: number, input: SettlementInput, actor: any,

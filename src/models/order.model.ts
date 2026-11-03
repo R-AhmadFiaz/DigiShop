@@ -55,6 +55,8 @@ export interface IOrder extends Document{
     returnState?: 'NONE' | 'PARTIAL' | 'FULL',
     settlementState?: {cashNetMinor: number, creditNetMinor: number, openingCashMinor: number, openingCreditMinor: number},
     creditRecipientId?: Types.ObjectId,
+    customerDisplayName?: string,
+    customerDisplayRevision?: number,
     cancelledAt?: Date,
     cancellationMode?: 'LEGACY' | 'SETTLED',
     invoiceNo: string,
@@ -172,6 +174,9 @@ const orderSchema = new Schema<IOrder>(
             type: Schema.Types.ObjectId,
             ref: 'Customer'
         },
+        // Invoice-only printed/display name override. It never changes customerId.
+        customerDisplayName: {type: String, trim: true, maxlength: 120},
+        customerDisplayRevision: {type: Number, min: 0, default: 0},
         shopId: {
             type: Schema.Types.ObjectId,
             ref: 'Shop',

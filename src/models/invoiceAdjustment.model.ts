@@ -41,6 +41,7 @@ const adjustmentSchema = new Schema({
     createdByName: {type: String, required: true},
     createdByRole: {type: String, enum: ['OWNER', 'CASHIER']},
     reason: {type: String, required: true},
+    reasonSource: {type: String, enum: ['USER', 'SYSTEM']},
     before: {type: snapshotSchema, required: true},
     after: {type: snapshotSchema, required: true},
     movements: {type: [new Schema({

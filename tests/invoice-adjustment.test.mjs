@@ -52,6 +52,20 @@ test('financial allocation is exact, preserves funding types and never converts 
     assert.throws(() => financialSettlement(10000, 4000, 0, {cashReceivedAmount: 61}), /exceeds/);
     for (const bad of [-1, NaN, Infinity, 1.001, '10', null]) assert.throws(() => financialSettlement(10000, 0, 0, {cashReceivedAmount: bad}));
 });
+test('smart review settlement examples preserve prior funding and reduce debt before refunding', () => {
+    const fullPayment = financialSettlement(940000, 160000, 0, {});
+    assert.equal(fullPayment.dueMinor, 780000);
+    const partialPayment = financialSettlement(1300000, 600000, 0, {cashReceivedAmount: 2000});
+    assert.equal(partialPayment.dueMinor, 500000);
+    assert.equal(partialPayment.cashNetMinor, 800000);
+    const debtReturn = financialSettlement(800000, 600000, 0, {});
+    assert.equal(debtReturn.dueMinor, 200000);
+    assert.equal(debtReturn.cashRefundMinor, 0);
+    const paidReturn = financialSettlement(350000, 500000, 0, {cashRefundAmount: 1500});
+    assert.equal(paidReturn.cashRefundMinor, 150000);
+    const exchange = financialSettlement(1040000, 1000000, 0, {});
+    assert.equal(exchange.dueMinor, 40000);
+});
 test('existing and returned units retain price; newly supplied same-product units use current server price', () => {
     const plan = planInvoiceAdjustment(invoice(), input({additions: [{productId: id(3), quantity: 2}]}), [product]);
     assert.equal(plan.after.items[0].unitPrice, 50);
@@ -59,6 +73,14 @@ test('existing and returned units retain price; newly supplied same-product unit
     assert.notEqual(plan.after.items[0].lineId, plan.after.items[1].lineId);
     assert.equal(plan.movements[0].unitPriceMinor, 5000);
     assert.equal(plan.after.totalMinor, 19000);
+});
+test('ordinary adjustments accept omitted or whitespace-only reasons without changing the plan', () => {
+    for (const reason of [undefined, '', '   ']) {
+        const plan = planInvoiceAdjustment(invoice(), input({reason}), []);
+        assert.equal(plan.after.totalMinor, 5000);
+        assert.equal(plan.movements[0].kind, 'RETURN');
+    }
+    assert.throws(() => planInvoiceAdjustment(invoice(), input({reason: 'x'.repeat(301)}), []), /Invalid adjustment request/);
 });
 test('restock/damaged returns and same-product exchange record gross movements separately', () => {
     for (const disposition of ['RESTOCK', 'DAMAGED']) {

@@ -5,6 +5,7 @@ import {Order} from '../models/order.model.js';
 import {Product} from '../models/product.model.js';
 import {StockLog} from '../models/stockLog.model.js';
 import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
+import {InvoiceCustomerNameCorrection} from '../models/invoiceCustomerNameCorrection.model.js';
 import {Shop} from '../models/shop.model.js';
 import {apiError} from '../utils/apiError.js';
 import {invoiceTotals, moneyMinor, moneyMajor, settlementPlan} from '../utils/invoiceAccounting.js';
@@ -21,7 +22,7 @@ import type {CashRouting} from '../utils/invoiceAccountingIntegration.js';
 type Line = {lineId: string, productId: any, quantity: number, unitPrice: number, name?: string, brand?: string, unit?: string};
 type ReturnLine = {lineId: string, quantity: number, disposition: 'RESTOCK' | 'DAMAGED'};
 type Addition = {productId: string, quantity: number};
-type AdjustmentInput = SettlementInput & CashRouting & {requestKey: string, expectedRevision: number, reason: string,
+type AdjustmentInput = SettlementInput & CashRouting & {requestKey: string, expectedRevision: number, reason?: string, reasonSource?: 'USER' | 'SYSTEM',
     returns: ReturnLine[], additions: Addition[], discountType?: string, discountValue?: number, confirmationToken?: string};
 type Actor = {_id: any, shopId: any, role: string, username: string};
 type Operation = 'ADJUSTMENT' | 'PAYMENT' | 'CANCELLATION';
@@ -38,10 +39,14 @@ export const getInvoicePaymentAccounts = asyncHandler(async (req, res) => {
     } finally {await session.abortTransaction(); await session.endSession();}
 });
 
-function validateInput(input: AdjustmentInput) {
-    if (!input || typeof input.requestKey !== 'string' || !/^[\w-]{8,100}$/.test(input.requestKey) ||
+function validateInput(input: AdjustmentInput, kind: Operation = 'ADJUSTMENT') {
+    if (!input) throw new apiError(400, 'Invalid adjustment request');
+    const reasonInvalid = input.reason === undefined || input.reason === null
+        ? kind !== 'ADJUSTMENT'
+        : typeof input.reason !== 'string' || input.reason.length > 300 || (kind !== 'ADJUSTMENT' && !input.reason.trim());
+    if (typeof input.requestKey !== 'string' || !/^[\w-]{8,100}$/.test(input.requestKey) ||
         !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0 ||
-        typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 300 ||
+        reasonInvalid ||
         !Array.isArray(input.returns) || !Array.isArray(input.additions) ||
         input.returns.length + input.additions.length > 100) throw new apiError(400, 'Invalid adjustment request');
     if ((input.discountType !== undefined && !['NONE', 'PERCENTAGE', 'FIXED'].includes(input.discountType)) ||
@@ -108,7 +113,7 @@ function httpInput(body: any, kind: Operation): AdjustmentInput {
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new apiError(400, 'Invoice operation body required');
     const input = {...body, returns: body.returns ?? [], additions: body.additions ?? []};
     if(kind==='PAYMENT'&&(input.reason===undefined||input.reason===null||(typeof input.reason==='string'&&input.reason.length<=300&&!input.reason.trim())))input.reason='Customer invoice payment';
-    validateInput(input);
+    validateInput(input, kind);
     return input;
 }
 export function invoiceMutation(kind: Operation) {
@@ -164,7 +169,12 @@ export function invoicePreview(kind: Operation) {
             res.setHeader('Cache-Control', 'no-store');
             return res.status(200).json(new apiResponse(200, {revision: order.revision ?? 0, before: plan.before,
                 proposed: {...plan.after, ...(settlement ? {settledMinor: settlement.settledMinor, dueMinor: settlement.dueMinor} : {})},
-                movements: plan.movements, requirements, settlement, confirmationToken: token, canSubmit: !!token, validationMessage}, 'Invoice preview calculated'));
+                movements: plan.movements, requirements, funding: {cashReceivedMinor: funding.cashReceivedMinor,
+                    cashRefundedMinor: funding.cashRefundedMinor, creditRedeemedMinor: funding.creditRedeemedMinor,
+                    creditIssuedMinor: funding.creditIssuedMinor, creditRestoredMinor: funding.creditRestoredMinor,
+                    cashNetMinor: funding.cashNetMinor, creditNetMinor: funding.creditNetMinor,
+                    availableCreditMinor: funding.availableCreditMinor},
+                settlement, confirmationToken: token, canSubmit: !!token, validationMessage}, 'Invoice preview calculated'));
         } finally {await session.abortTransaction(); await session.endSession();}
     });
 }
@@ -181,8 +191,10 @@ export const getInvoiceHistory = asyncHandler(async (req, res) => {
     const filter: any = {shopId: req.user.shopId, orderId: order._id, ...(kind ? {kind} : {}), ...(requestKey ? {requestKey} : {})};
     const history = await InvoiceAdjustment.find(filter).select('-requestHash').sort({occurredAt: -1, _id: -1}).skip(skip).limit(limit).session(session);
     const recordCount = await InvoiceAdjustment.countDocuments(filter).session(session);
+    const customerNameHistory = await InvoiceCustomerNameCorrection.find({shopId: req.user.shopId, orderId: order._id})
+        .select('-requestHash').sort({recordedAt: -1, _id: -1}).limit(50).session(session).lean();
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(new apiResponse(200, {history, revision: order.revision ?? 0,
+    return res.status(200).json(new apiResponse(200, {history, customerNameHistory, revision: order.revision ?? 0,
         pagination: {recordCount, totalPages: Math.ceil(recordCount / limit), currentPage: page, limit}}, 'Invoice history fetched'));
     } finally {await session.abortTransaction(); await session.endSession();}
 });
@@ -198,7 +210,7 @@ export const getSalesSummary = asyncHandler(async (req, res) => {
 // Shared pure item planner. Supplied product prices are read by the core from MongoDB,
 // never from the request. Existing units are not merged into new-price additions.
 export function planInvoiceAdjustment(order: any, input: AdjustmentInput, products: any[], settlementOnly = false) {
-    validateInput(input);
+    validateInput(input, 'ADJUSTMENT');
     if (order.type !== 'INVOICE' || !['PENDING', 'DELIVERED'].includes(order.status)) throw new apiError(409, 'Invoice is locked');
     if (!['RETAIL', 'WHOLESALE'].includes(order.saleType)) throw new apiError(409, 'Invoice sale type requires reconciliation');
     if (!order.items.length && order.returnState !== 'FULL') throw new apiError(409, 'Legacy invoice items require reconciliation');
@@ -261,11 +273,16 @@ export async function applyInvoiceCancellation(actor: Actor, orderId: string, in
 async function applyInvoiceOperation(actor: Actor, orderId: string, input: AdjustmentInput, kind: Operation) {
     if (actor.role !== 'OWNER' || !actor.shopId) throw new apiError(403, 'Owner access required');
     if (!mongoose.isValidObjectId(orderId)) throw new apiError(400, 'Valid invoice required');
-    validateInput(input);
+    if (kind === 'ADJUSTMENT') {
+        const userReason = typeof input.reason === 'string' ? input.reason.trim() : '';
+        input = {...input, reason: userReason || 'Invoice adjusted', reasonSource: userReason ? 'USER' : 'SYSTEM'};
+    }
+    validateInput(input, kind);
     const accounting = invoiceAccountingEnabled(), routing = accounting ? invoiceCashRouting(input) : undefined;
     // Only accepted fields participate in replay identity; forged shop/actor/prices are ignored.
     const requestHash = createHash('sha256').update(JSON.stringify({kind, expectedRevision: input.expectedRevision,
-        reason: input.reason.trim(), returns: input.returns.map(i => ({lineId: i.lineId, quantity: i.quantity, disposition: i.disposition})),
+        reason: input.reason!.trim(), ...(kind === 'ADJUSTMENT' && input.reasonSource === 'SYSTEM' ? {reasonSource: 'SYSTEM'} : {}),
+        returns: input.returns.map(i => ({lineId: i.lineId, quantity: i.quantity, disposition: i.disposition})),
         additions: input.additions.map(i => ({productId: i.productId, quantity: i.quantity})),
         discountType: input.discountType, discountValue: input.discountValue,
         cashReceivedAmount: input.cashReceivedAmount ?? 0, creditRedeemedAmount: input.creditRedeemedAmount ?? 0,
@@ -340,7 +357,8 @@ async function applyInvoiceOperation(actor: Actor, orderId: string, input: Adjus
             ...(settlement.creditIssuedMinor ? {creditRecipientId: order.customerId ?? settlement.recipientId} : {}),
             invoiceNo: order.invoiceNo, requestKey: input.requestKey, requestHash,
             revisionBefore: input.expectedRevision, revisionAfter: input.expectedRevision + 1,
-            createdBy: actor._id, createdByName: actor.username, reason: input.reason.trim(),
+            createdBy: actor._id, createdByName: actor.username, reason: input.reason!.trim(),
+            ...(kind === 'ADJUSTMENT' ? {reasonSource: input.reasonSource} : {}),
             ...(accounting ? {createdByRole: actor.role} : {}),
             ...(accounting ? {cashRouting: {mode: accountingMode(), ...routing}} : {}),
             before: plan.before, after: plan.after, movements: plan.movements,
