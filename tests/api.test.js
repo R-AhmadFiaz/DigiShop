@@ -186,6 +186,43 @@ test("FormData boundary stays browser-managed and response errors remain readabl
     "?search=Wire+%26+Cable&page=2",
   );
 });
+test("invoice errors are classified for the operation that failed", async () => {
+  globalThis.fetch = async () => response(409, {
+    message: "Customer debt history requires verified reconciliation",
+  });
+  try {
+    await assert.rejects(
+      api("/orders/012345678901234567890123/adjustments/preview", { method: "POST", body: {} }),
+      error => {
+        assert.match(error.message, /payment or customer balance records need review/i);
+        assert.doesNotMatch(error.message, /cannot be cancelled/i);
+        return true;
+      },
+    );
+    await assert.rejects(
+      api("/orders/012345678901234567890123/cancellations/preview", { method: "POST", body: {} }),
+      /cannot be cancelled safely/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+test("adjustment stock and stale-revision failures have distinct guidance", async () => {
+  for (const [message, expected] of [
+    ["Product missing or insufficient sellable stock", /available stock changed/i],
+    ["Invoice changed; reload before adjusting", /invoice changed while you were editing/i],
+  ]) {
+    globalThis.fetch = async () => response(409, { message });
+    try {
+      await assert.rejects(
+        api("/orders/012345678901234567890123/adjustments/preview", { method: "POST", body: {} }),
+        expected,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+});
 test("an interrupted or unreadable sale response is never replayed", async () => {
   for (const result of [
     {

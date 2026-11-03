@@ -1,12 +1,16 @@
 import { displayName } from "../utils/identity";
 import { useAuth } from "../auth/AuthContext";
 import { dateText, money } from "./Common";
+import { invoiceCustomerDisplayName } from "../utils/invoiceCustomerName";
 export function receiptFrom(order, products = [], customer = null) {
+  const linkedCustomer =
+    customer || (typeof order.customerId === "object" ? order.customerId : null);
+  const customerName = order.customerDisplayName ?? linkedCustomer?.name ?? invoiceCustomerDisplayName(order);
   return {
     ...order,
-    customer:
-      customer ||
-      (typeof order.customerId === "object" ? order.customerId : null),
+    customer: customerName
+      ? { ...(linkedCustomer || {}), name: customerName }
+      : linkedCustomer,
     lines: order.items.map((item) => {
       const product =
         typeof item.productId === "object"

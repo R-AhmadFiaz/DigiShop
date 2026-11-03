@@ -35,7 +35,11 @@ function authFailure(status, message) {
     (status === 400 && /token is not provided|user is not found/i.test(message))
   );
 }
-function friendly(message, status) {
+function friendly(message, status, endpoint) {
+  const cancellation = /^\/orders\/[^/]+\/(?:cancel|cancellations(?:\/preview)?)$/.test(endpoint);
+  const invoiceOperation = /^\/orders\/[^/]+\/(?:adjustments|payments|cancellations)(?:\/preview)?$/.test(endpoint);
+  if (status === 409 && /invoice changed|reload before (?:preview|adjusting)|concurrent invoice change/i.test(message))
+    return "This invoice changed while you were editing. Reload it before continuing.";
   if (/subscription/i.test(message))
     return "This shop needs an active subscription. Contact the platform administrator.";
   if (
@@ -44,8 +48,12 @@ function friendly(message, status) {
     )
   )
     return "There is not enough stock. Check quantities and try again.";
-  if (/debt history|balance cannot safely|product missing/i.test(message))
+  if (cancellation && /debt history|balance cannot safely|product missing/i.test(message))
     return "This invoice cannot be cancelled safely. Its stock or customer balance needs review.";
+  if (invoiceOperation && /product missing|insufficient sellable stock/i.test(message))
+    return "A product or its available stock changed. Reload the invoice and check the quantities.";
+  if (invoiceOperation && /debt history|balance cannot safely|verified reconciliation|requires reconciliation|history (?:is )?inconsistent|history is incomplete|ledger history/i.test(message))
+    return "This invoice’s payment or customer balance records need review before this change can be completed.";
   if (/duplicate|already exist/i.test(message))
     return "An account or item with these details already exists.";
   if (status >= 500)
@@ -178,6 +186,7 @@ export async function api(endpoint, options = {}) {
       friendly(
         result.payload.message || result.payload.messege || "",
         result.response.status,
+        endpoint,
       ),
       result.response.status,
     );

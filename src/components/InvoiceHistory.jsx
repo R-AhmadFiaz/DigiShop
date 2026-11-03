@@ -16,9 +16,10 @@ export function FinancialMovements({ financial = {} }) {
     financial[field] ? <Fragment key={field}><dt>{label}</dt><dd>{money(financial[field] / 100)}</dd></Fragment> : null)}</dl>;
 }
 export function EventDocument({ event, order }) {
+  const reason = event.reasonSource === 'SYSTEM' ? `${event.reason} (system description)` : event.reason;
   return <>
     <h3 className="h6">{event.kind.toLowerCase()} · Revision {event.revisionAfter}</h3>
-    <RecordFacts items={[["Reference",event.reference||event.invoiceNo],["Date",dateText(event.occurredAt)],["Recorded by",displayName(event.createdByName)||"Unavailable"],["Reason",event.reason]]}/>
+    <RecordFacts items={[["Reference",event.reference||event.invoiceNo],["Date",dateText(event.occurredAt)],["Recorded by",displayName(event.createdByName)||"Unavailable"],["Reason",reason]]}/>
     <RecordTable label="Returned and added products" rowKey={(_,index)=>index} rows={(event.movements||[]).map((m,index)=>({...m,_id:index}))} columns={[
       {key:'kind',label:'Action',render:m=>m.kind==='RETURN'?'Returned':'Added'},
       {key:'name',label:'Product',render:movement=>{
@@ -46,6 +47,13 @@ export default function InvoiceHistory({ order, onPrint }) {
       {key:'due',label:'Invoice due after',numeric:true,render:e=>Number.isSafeInteger(e.after?.dueMinor)?money(e.after.dueMinor/100):'Unavailable'},
       {key:'print',label:'Print',render:event=><button className="btn btn-outline-secondary btn-sm" onClick={()=>onPrint(event)}>Open printable record</button>}
     ]} details={event=><EventDocument event={event} order={order}/>} empty="No recorded movements. Earlier payments are not inferred."/>}
+    {history.data?.customerNameHistory?.length>0&&<div className="mt-3"><h3 className="h6">Customer name updates</h3><RecordTable label="Invoice customer name changes" rows={history.data.customerNameHistory} columns={[
+      {key:'date',label:'Date',render:event=>dateText(event.recordedAt)},
+      {key:'action',label:'Action',render:()=>"Customer name updated"},
+      {key:'previous',label:'Previous name',render:event=>event.previousName||'Walk-in customer'},
+      {key:'current',label:'New name',render:event=>event.newName},
+      {key:'actor',label:'Updated by',render:event=>displayName(event.actorName)||'Unavailable'}
+    ]} empty="No customer name changes."/></div>}
     <Pagination pagination={history.data?.pagination} onPage={setPage} />
   </section>;
 }

@@ -71,10 +71,13 @@ test("payment and cancellation omit item and discount edits; refund recipient is
   const cashOnly = adjustmentBody({ ...input, funds: { cashRefundAmount: "10", creditIssueAmount: "0" }, recipient: { _id: "previous-selection" } });
   assert.equal(Object.hasOwn(cashOnly, "creditRecipientId"), false);
 });
-test("blank, negative, nonfinite and sub-paisa financial inputs are rejected", () => {
+test("blank adjustment reasons are optional while invalid financial inputs are rejected", () => {
   for (const value of ["", " ", "-1", "Infinity", "NaN", "0.001"]) assert.throws(() => amount(value, "payment"));
   for (const value of ["0", "1.23", "8000"]) assert.equal(amount(value, "payment"), Number(value));
-  assert.throws(() => adjustmentBody({ ...input, reason: " " }), /reason/);
+  assert.equal(adjustmentBody({ ...input, reason: "" }).reason, "");
+  assert.equal(adjustmentBody({ ...input, reason: "   " }).reason, "");
+  assert.equal(adjustmentBody({ ...input, reason: "  Damaged item  " }).reason, "Damaged item");
+  assert.throws(() => adjustmentBody({ ...input, mode: "cancellations", reason: " " }), /cancellation reason/);
   for (const quantity of ["-1", "1.5", "4"]) assert.throws(() => adjustmentBody({ ...input, returns: { "original-line": { quantity, disposition: "RESTOCK" } } }), /quantities/);
 });
 test("uncertain financial requests retain identical tokens/body/key across reload, scoped by user", () => {
@@ -101,8 +104,8 @@ test("unavailable storage preserves ordinary screens but financial submission fa
   delete globalThis.sessionStorage;
 });
 
-test('ordinary invoice payments accept blank notes without weakening adjustment explanations',()=>{
+test('ordinary invoice payments preserve their default note while adjustments keep reasons optional',()=>{
   const body=adjustmentBody({...input,mode:'payments',reason:'',funds:{...input.funds,cashReceivedAmount:'1'}});
   assert.equal(body.reason,'Customer invoice payment');
-  assert.throws(()=>adjustmentBody({...input,reason:''}),/reason/);
+  assert.equal(adjustmentBody({...input,reason:''}).reason,'');
 });

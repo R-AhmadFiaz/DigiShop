@@ -31,7 +31,7 @@ test('sole-account convenience remains restricted to server-prepared lists and p
     assert.match(source,/chosenReceiptAccountId/);assert.match(source,/\/orders\/payment-accounts/);
   }
   const preview=fs.readFileSync(new URL('../src/components/InvoiceAdjustment.jsx',import.meta.url),'utf8');
-  assert.match(preview,/accounts\.some\(a=>a\._id===accountId\)/);
+  assert.match(preview,/accounts\.some\(a=>String\(a\._id\)===String\(accountId\)\)/);
   assert.match(preview,/body\[field\]=accountId/);assert.match(preview,/confirmationToken: preview.confirmationToken/);
 });
 
