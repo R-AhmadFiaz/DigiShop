@@ -33,6 +33,8 @@ businessAccountsRouter.route('/financial/:id/opening').post(businessAccounts('op
 businessAccountsRouter.route('/cutover/prepare').post(businessAccounts('cutover'));
 businessAccountsRouter.route('/reconciliation').get(businessAccounts('reconcile'));
 businessAccountsRouter.route('/customers/:id/reconciliation').get(businessAccounts('reconcileCustomer'));
+businessAccountsRouter.route('/customers/activity').get(businessAccounts('customerActivity'));
+businessAccountsRouter.route('/customers/:id/history').get(businessAccounts('customerHistory'));
 
 businessAccountsRouter.route('/suppliers/:id/cutover-preview').get(businessAccounts('supplierPreview'));
 businessAccountsRouter.route('/suppliers/:id/cutover').post(businessAccounts('supplierOpening'));

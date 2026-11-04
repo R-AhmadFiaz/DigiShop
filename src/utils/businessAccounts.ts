@@ -879,6 +879,123 @@ export async function reconcileBusinessCustomer(actor: Actor, customerId: string
         invoiceOutstandingMinor, reconciled: issues.length === 0, issues};
 }
 
+// Customer history combines immutable invoice events with legacy ledger rows.
+// Journal entries are intentionally not emitted separately because they are
+// the accounting representation of the same invoice event.
+export async function getCustomerHistory(actor: Actor, customerId: string, input: {page:number,limit:number,q?:string,type?:string,from?:string,to?:string}, session: Session) {
+    await owner(actor, session);
+    const customer=await Customer.findOne({_id:id(customerId),shopId:actor.shopId}).session(session).lean();
+    if(!customer)throw new apiError(404,'Customer not found in shop');
+    const reconciliation=await reconcileBusinessCustomer(actor,customerId,session);
+    if(input.type!==undefined&&!['INVOICE','PAYMENT','RETURN','REFUND','CREDIT','ADJUSTMENT','LEGACY'].includes(input.type))throw new apiError(400,'Invalid customer activity type');
+    let from:Date|undefined,to:Date|undefined;
+    for(const [key,value] of [['from',input.from],['to',input.to]] as const)if(value!==undefined){if(typeof value!=='string'||!Number.isFinite(+new Date(value))||new Date(value).toISOString()!==value||+new Date(value)>Date.now())throw new apiError(400,'Valid non-future canonical UTC date required');if(key==='from')from=new Date(value);else to=new Date(value);}
+    if(from&&to&&from>=to)throw new apiError(400,'History end must follow its start');
+    const pattern=input.q?.trim()?new RegExp(input.q.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'):null;
+    const ledger=await CustomerLedger.find({shopId:actor.shopId,customerId:customer._id}).sort({createdAt:1,_id:1}).limit(5001).session(session).lean();
+    const orders=await Order.find({shopId:actor.shopId,type:'INVOICE',$or:[{customerId:customer._id},{_id:{$in:ledger.flatMap(row=>row.referenceId?[row.referenceId]:[])}}]}).select('_id invoiceNo customerId totalPrice paidAmount amountDue createdAt status createdByName').sort({createdAt:1,_id:1}).limit(5001).session(session).lean();
+    const orderIds=orders.map(row=>row._id);
+    const adjustments=await InvoiceAdjustment.find({shopId:actor.shopId,$or:[{orderId:{$in:orderIds}},{debtCustomerId:customer._id},{creditCustomerId:customer._id},{creditRecipientId:customer._id}]}).sort({occurredAt:1,_id:1}).limit(5001).session(session).lean();
+    const missingOrderIds=adjustments.map(row=>row.orderId).filter(value=>!orderIds.some(orderId=>String(orderId)===String(value)));
+    const linkedOrders=missingOrderIds.length?await Order.find({shopId:actor.shopId,type:'INVOICE',_id:{$in:missingOrderIds}}).select('_id invoiceNo customerId').session(session).lean():[];
+    const allOrders=[...orders,...linkedOrders];
+    const sourceJournals=adjustments.length?await BusinessTransaction.find({shopId:actor.shopId,'source.referenceId':{$in:adjustments.map(row=>row._id)}}).select('_id source postings.accountId').session(session).lean():[];
+    const reversalJournals=sourceJournals.length?await BusinessTransaction.find({shopId:actor.shopId,'source.kind':'REVERSAL','source.referenceId':{$in:sourceJournals.map(row=>row._id)}}).select('_id source postings.accountId').session(session).lean():[];
+    const productIds=[...new Set(adjustments.flatMap(row=>row.movements.map((move:any)=>String(move.productId))))].map(id);
+    const products=productIds.length?await Product.find({shopId:actor.shopId,_id:{$in:productIds}}).select('_id name').session(session).lean():[];
+    const emittedAdjustmentIds=new Set(adjustments.map(row=>String(row._id)));
+    const unmatchedAdjustmentLedger=ledger.filter(row=>row.adjustmentId&&!emittedAdjustmentIds.has(String(row.adjustmentId))).length;
+    const invoiceSaleIds=new Set(adjustments.filter(row=>row.kind==='SALE').map(row=>String(row.orderId)));
+    const events:any[]=[];
+    for(const event of adjustments){
+        const order=allOrders.find(row=>String(row._id)===String(event.orderId));
+        const belongsDebt=String(event.debtCustomerId??order?.customerId??'')===String(customer._id);
+        const financial=event.financial??{};
+        const creditEffectMinor=(String(event.creditRecipientId??order?.customerId??'')===String(customer._id)?financial.creditIssuedMinor||0:0)+(String(order?.customerId??'')===String(customer._id)?(financial.creditRestoredMinor||0)-(financial.creditRedeemedMinor||0):0);
+        let type=event.kind==='SALE'?'INVOICE':event.movements?.some((move:any)=>move.kind==='RETURN')?'RETURN':event.kind==='PAYMENT'?'PAYMENT':financial.cashRefundMinor?'REFUND':financial.creditIssuedMinor||financial.creditRedeemedMinor||financial.creditRestoredMinor?'CREDIT':'ADJUSTMENT';
+        const amountMinor=type==='INVOICE'?(order?moneyMinor(order.totalPrice):Math.abs(financial.salesDeltaMinor||0)):type==='PAYMENT'?(financial.cashReceivedMinor||0)+(financial.creditRedeemedMinor||0):type==='REFUND'?(financial.cashRefundMinor||0)+(financial.creditIssuedMinor||0)+(financial.creditRestoredMinor||0):type==='CREDIT'?(financial.creditIssuedMinor||0)+(financial.creditRedeemedMinor||0)+(financial.creditRestoredMinor||0):Math.max(financial.cashReceivedMinor||0,financial.cashRefundMinor||0,financial.creditIssuedMinor||0,financial.creditRedeemedMinor||0,financial.creditRestoredMinor||0,Math.abs(financial.salesDeltaMinor||0));
+        const relatedJournals=[...sourceJournals.filter(row=>String(row.source.referenceId)===String(event._id)),...reversalJournals.filter(reversal=>sourceJournals.some(row=>String(row._id)===String(reversal.source.referenceId)&&String(row.source.referenceId)===String(event._id)))];
+        const activity=type==='INVOICE'?'Invoice created':type==='PAYMENT'?'Payment received':type==='RETURN'?'Product return':type==='REFUND'?'Cash refund':type==='CREDIT'?financial.creditIssuedMinor?'Store credit issued':financial.creditRedeemedMinor?'Store credit used':'Store credit restored':'Invoice adjustment';
+        events.push({eventId:event._id,type,occurredAt:event.occurredAt??null,recordedAt:null,activity,invoiceNo:event.invoiceNo??order?.invoiceNo??'Unavailable',orderId:order?._id??null,reference:event.reference??null,amountMinor,debtEffectMinor:belongsDebt?financial.debtDeltaMinor??0:null,creditEffectMinor:creditEffectMinor||creditEffectMinor===0&&(String(order?.customerId??'')===String(customer._id)||String(event.creditRecipientId??'')===String(customer._id))?creditEffectMinor:null,transactionIds:relatedJournals.map(row=>row._id),accountIds:[...new Set(relatedJournals.flatMap(row=>row.postings.map((posting:any)=>String(posting.accountId))))],details:{reason:event.reason,kind:event.kind,actor:event.createdByName??null,products:event.movements?.filter((move:any)=>move.kind==='RETURN').map((move:any)=>({productId:move.productId,name:products.find(product=>String(product._id)===String(move.productId))?.name??'Product unavailable',quantity:move.quantity,condition:move.disposition??'Unavailable'}))??[],cashReceivedMinor:financial.cashReceivedMinor??0,cashRefundMinor:financial.cashRefundMinor??0,creditIssuedMinor:financial.creditIssuedMinor??0,creditRedeemedMinor:financial.creditRedeemedMinor??0,creditRestoredMinor:financial.creditRestoredMinor??0}});
+    }
+    for(const row of ledger){
+        if((row.adjustmentId&&emittedAdjustmentIds.has(String(row.adjustmentId)))||(row.description==='PURCHASE'&&row.referenceId&&invoiceSaleIds.has(String(row.referenceId))))continue;
+        const delta=signedLedgerMinor(row),order=allOrders.find(item=>String(item._id)===String(row.referenceId));
+        const unmatchedAdjustment=!!row.adjustmentId&&!emittedAdjustmentIds.has(String(row.adjustmentId));
+        events.push({eventId:row._id,type:row.balanceType==='CREDIT'?'CREDIT':row.description==='PURCHASE'?'INVOICE':row.description==='PAYMENT'?'PAYMENT':row.description==='CANCELLATION'?'ADJUSTMENT':'LEGACY',occurredAt:row.createdAt??null,recordedAt:row.createdAt??null,activity:row.description==='PURCHASE'?'Legacy invoice debt':row.description==='PAYMENT'?'Legacy payment':row.description==='CREDIT_ISSUED'?'Store credit issued':row.description==='CREDIT_REDEEMED'?'Store credit used':row.description==='CREDIT_RESTORED'?'Store credit restored':row.description==='CANCELLATION'?'Legacy debt reversal':row.description==='ADJUSTMENT'?'Legacy invoice adjustment':'Legacy account entry',invoiceNo:row.invoiceNo||order?.invoiceNo||'Unavailable',orderId:order?._id??null,reference:null,amountMinor:Math.abs(delta),debtEffectMinor:row.balanceType==='CREDIT'?null:delta,creditEffectMinor:row.balanceType==='CREDIT'?delta:null,details:{reason:row.description,actor:null,legacy:!row.adjustmentId,unmatchedAdjustment}});
+    }
+    const truncated=ledger.length>5000||orders.length>5000||adjustments.length>5000;
+    const filtered=events.filter(event=>{const date=event.occurredAt?new Date(event.occurredAt):null;return(!input.type||event.type===input.type)&&(!from||date&&date>=from)&&(!to||date&&date<to)&&(!pattern||pattern.test([event.activity,event.invoiceNo,event.reference,event.details?.reason,event.details?.actor].join(' ')));}).sort((a,b)=>new Date(a.occurredAt??a.recordedAt??0).getTime()-new Date(b.occurredAt??b.recordedAt??0).getTime()||String(a.eventId).localeCompare(String(b.eventId)));
+    const skip=(input.page-1)*input.limit;
+    return {customer:{_id:customer._id,name:customer.name,phoneNo:customer.phoneNo,address:customer.address??''},position:{debtMinor:reconciliation.debtMinor,storeCreditMinor:reconciliation.storeCreditMinor,reconciled:reconciliation.reconciled,issues:reconciliation.issues,asOf:(customer as any).updatedAt??null},coverage:{complete:!truncated&&!unmatchedAdjustmentLedger&&reconciliation.reconciled,limitedBy:truncated?'RECORD_LIMIT':unmatchedAdjustmentLedger?'UNMATCHED_LEDGER_SOURCE':!reconciliation.reconciled?'RECONCILIATION':'NONE',unmatchedAdjustmentLedger,journalEventsDeduplicated:true,records:['INVOICE_ADJUSTMENT','CUSTOMER_LEDGER'],legacyTimestampBasis:'RECORDED_ONLY'},entries:filtered.slice(skip,skip+input.limit),pagination:{currentPage:input.page,limit:input.limit,recordCount:filtered.length,totalPages:Math.ceil(filtered.length/input.limit)}};
+}
+
+export async function getGlobalCustomerActivity(actor:Actor,input:{service:'INVOICES'|'PAYMENTS'|'RETURNS'|'REFUNDS'|'CREDIT'|'HISTORY',page:number,limit:number,q?:string,customerId?:string,from?:string,to?:string},session:Session){
+    await owner(actor,session);
+    const filterCustomer=input.customerId?await Customer.findOne({_id:id(input.customerId),shopId:actor.shopId}).select('_id name phoneNo').session(session).lean():null;
+    if(input.customerId&&!filterCustomer)throw new apiError(404,'Customer not found in shop');
+    const pattern=input.q?.trim()?new RegExp(input.q.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i'):null;
+    let from:Date|undefined,to:Date|undefined;
+    for(const [key,value] of [['from',input.from],['to',input.to]] as const)if(value!==undefined){if(typeof value!=='string'||!Number.isFinite(+new Date(value))||new Date(value).toISOString()!==value||+new Date(value)>Date.now())throw new apiError(400,'Valid non-future canonical UTC date required');if(key==='from')from=new Date(value);else to=new Date(value);}
+    if(from&&to&&from>=to)throw new apiError(400,'History end must follow its start');
+    const creditQuery={$or:[{'financial.creditIssuedMinor':{$gt:0}},{'financial.creditRedeemedMinor':{$gt:0}},{'financial.creditRestoredMinor':{$gt:0}}]};
+    const selection:any={shopId:actor.shopId};
+    if(input.service==='INVOICES')selection.kind='SALE';
+    if(input.service==='PAYMENTS')selection['financial.cashReceivedMinor']={$gt:0};
+    if(input.service==='RETURNS')selection['movements.kind']='RETURN';
+    if(input.service==='REFUNDS')selection['financial.cashRefundMinor']={$gt:0};
+    if(input.service==='CREDIT')selection.$or=creditQuery.$or;
+    const adjustments=await InvoiceAdjustment.find(selection).sort({occurredAt:-1,_id:-1}).limit(5001).session(session).lean();
+    const ledgerFilter:any={shopId:actor.shopId,description:{$in:['PURCHASE','PAYMENT','CANCELLATION','ADJUSTMENT','CREDIT_ISSUED','CREDIT_REDEEMED','CREDIT_RESTORED']}};
+    if(input.service==='INVOICES')ledgerFilter.description='PURCHASE';
+    if(input.service==='PAYMENTS')ledgerFilter.description='PAYMENT';
+    if(input.service==='RETURNS')ledgerFilter.description={$in:['CANCELLATION','ADJUSTMENT']};
+    if(input.service==='REFUNDS')ledgerFilter._id={$in:[]};
+    if(input.service==='CREDIT')ledgerFilter.balanceType='CREDIT';
+    const ledger=await CustomerLedger.find(ledgerFilter).sort({createdAt:-1,_id:-1}).limit(5001).session(session).lean();
+    const orderIds=[...new Map([...adjustments.map(row=>row.orderId),...ledger.flatMap(row=>row.referenceId?[row.referenceId]:[])].map(value=>[String(value),value])).values()];
+    const orders=orderIds.length?await Order.find({shopId:actor.shopId,type:'INVOICE',_id:{$in:orderIds}}).select('_id invoiceNo customerId totalPrice createdByName').session(session).lean():[];
+    const adjustmentsById=new Map(adjustments.map(row=>[String(row._id),row]));
+    const saleOrderIds=new Set(adjustments.filter(row=>row.kind==='SALE').map(row=>String(row.orderId)));
+    const ledgerEvents=ledger.filter(row=>!(row.adjustmentId&&adjustmentsById.has(String(row.adjustmentId)))&&!(row.description==='PURCHASE'&&row.referenceId&&saleOrderIds.has(String(row.referenceId))));
+    const customerIds=[...new Map([...orders.flatMap(row=>row.customerId?[row.customerId]:[]),...ledgerEvents.map(row=>row.customerId),...adjustments.flatMap(row=>[row.debtCustomerId,row.creditCustomerId,row.creditRecipientId].filter(Boolean))].map(value=>[String(value),value])).values()];
+    const customers=customerIds.length?await Customer.find({shopId:actor.shopId,_id:{$in:customerIds}}).select('_id name phoneNo storeCreditBalanceMinor').session(session).lean():[];
+    const sourceJournals=adjustments.length?await BusinessTransaction.find({shopId:actor.shopId,'source.referenceId':{$in:adjustments.map(row=>row._id)}}).select('_id source postings.accountId').session(session).lean():[];
+    const reversalJournals=sourceJournals.length?await BusinessTransaction.find({shopId:actor.shopId,'source.kind':'REVERSAL','source.referenceId':{$in:sourceJournals.map(row=>row._id)}}).select('_id source postings.accountId').session(session).lean():[];
+    const accountIds=[...new Set([...sourceJournals,...reversalJournals].flatMap(row=>row.postings.map((posting:any)=>String(posting.accountId))))].map(id);
+    const accounts=accountIds.length?await FinancialAccount.find({shopId:actor.shopId,_id:{$in:accountIds}}).select('_id name kind').session(session).lean():[];
+    const productIds=[...new Set(adjustments.flatMap(row=>row.movements.map((move:any)=>String(move.productId))))].map(id);
+    const products=productIds.length?await Product.find({shopId:actor.shopId,_id:{$in:productIds}}).select('_id name').session(session).lean():[];
+    const events:any[]=[];
+    for(const event of adjustments){
+        const order=orders.find(row=>String(row._id)===String(event.orderId));
+        const financial=event.financial??{};
+        const isReturn=event.movements?.some((move:any)=>move.kind==='RETURN');
+        const type=event.kind==='SALE'?'INVOICE':isReturn?'RETURN':event.kind==='PAYMENT'?'PAYMENT':financial.cashRefundMinor?'REFUND':financial.creditIssuedMinor||financial.creditRedeemedMinor||financial.creditRestoredMinor?'CREDIT':'ADJUSTMENT';
+        if(input.service==='INVOICES'&&type!=='INVOICE')continue;
+        if(input.service==='PAYMENTS'&&!financial.cashReceivedMinor)continue;
+        if(input.service==='RETURNS'&&!isReturn)continue;
+        if(input.service==='REFUNDS'&&!financial.cashRefundMinor)continue;
+        if(input.service==='CREDIT'&&!(financial.creditIssuedMinor||financial.creditRedeemedMinor||financial.creditRestoredMinor))continue;
+        const customerId=input.service!=='RETURNS'&&financial.creditIssuedMinor&&event.creditRecipientId?event.creditRecipientId:event.debtCustomerId??event.creditCustomerId??order?.customerId??event.creditRecipientId;
+        const customer=customers.find(row=>String(row._id)===String(customerId));
+        const effectCredit=String(order?.customerId??'')===String(customerId)?(financial.creditRestoredMinor||0)-(financial.creditRedeemedMinor||0):0;
+        const amountMinor=type==='INVOICE'?(order?moneyMinor(order.totalPrice):Math.abs(financial.salesDeltaMinor||0)):type==='PAYMENT'?(financial.cashReceivedMinor||0)+(financial.creditRedeemedMinor||0):type==='REFUND'?(financial.cashRefundMinor||0)+(financial.creditIssuedMinor||0)+(financial.creditRestoredMinor||0):type==='CREDIT'?(financial.creditIssuedMinor||0)+(financial.creditRedeemedMinor||0)+(financial.creditRestoredMinor||0):Math.max(financial.cashReceivedMinor||0,financial.cashRefundMinor||0,financial.creditIssuedMinor||0,financial.creditRedeemedMinor||0,financial.creditRestoredMinor||0,Math.abs(financial.salesDeltaMinor||0));
+        const related=[...sourceJournals.filter(row=>String(row.source.referenceId)===String(event._id)),...reversalJournals.filter(reversal=>sourceJournals.some(row=>String(row._id)===String(reversal.source.referenceId)&&String(row.source.referenceId)===String(event._id)))];
+        events.push({eventId:event._id,type,activity:type==='INVOICE'?'Invoice created':type==='PAYMENT'?'Payment received':type==='RETURN'?'Product return':type==='REFUND'?'Cash refund':type==='CREDIT'?financial.creditIssuedMinor?'Store credit issued':financial.creditRedeemedMinor?'Store credit used':'Store credit restored':'Invoice adjustment',occurredAt:event.occurredAt??null,customerId:customer?._id??null,customerName:customer?.name??'Customer unavailable',customerPhone:customer?.phoneNo??null,availableCreditMinor:customer?.storeCreditBalanceMinor??null,invoiceNo:event.invoiceNo??order?.invoiceNo??'Unavailable',orderId:order?._id??null,reference:event.reference??null,amountMinor,debtEffectMinor:event.debtCustomerId&&String(event.debtCustomerId)===String(customerId)?financial.debtDeltaMinor??0:null,creditEffectMinor:type==='CREDIT'?financial.creditIssuedMinor?financial.creditIssuedMinor:effectCredit:null,transactionIds:related.map(row=>row._id),accounts:[...new Map(related.flatMap(row=>row.postings.map((posting:any)=>accounts.find(account=>String(account._id)===String(posting.accountId)))).filter(Boolean).map((account:any)=>[String(account._id),{_id:account._id,name:account.name,kind:account.kind}])).values()],details:{reason:event.reason,actor:event.createdByName??null,cashReceivedMinor:financial.cashReceivedMinor??0,cashRefundMinor:financial.cashRefundMinor??0,creditIssuedMinor:financial.creditIssuedMinor??0,creditRedeemedMinor:financial.creditRedeemedMinor??0,creditRestoredMinor:financial.creditRestoredMinor??0,products:event.movements?.filter((move:any)=>move.kind==='RETURN').map((move:any)=>({productId:move.productId,name:products.find(product=>String(product._id)===String(move.productId))?.name??'Product unavailable',quantity:move.quantity,condition:move.disposition??'Unavailable'}))??[]}});
+    }
+    for(const row of ledgerEvents){
+        const delta=signedLedgerMinor(row),order=orders.find(item=>String(item._id)===String(row.referenceId)),customer=customers.find(item=>String(item._id)===String(row.customerId));
+        const type=row.balanceType==='CREDIT'?'CREDIT':row.description==='PURCHASE'?'INVOICE':row.description==='PAYMENT'?'PAYMENT':row.description==='CANCELLATION'?'ADJUSTMENT':'LEGACY';
+        events.push({eventId:row._id,type,activity:row.description==='PAYMENT'?'Legacy payment':row.description==='CREDIT_ISSUED'?'Store credit issued':row.description==='CREDIT_REDEEMED'?'Store credit used':row.description==='CREDIT_RESTORED'?'Store credit restored':row.description==='PURCHASE'?'Legacy invoice debt':row.description==='CANCELLATION'?'Legacy debt reversal':'Legacy customer adjustment',occurredAt:row.createdAt??null,recordedAt:row.createdAt??null,customerId:customer?._id??null,customerName:customer?.name??'Customer unavailable',customerPhone:customer?.phoneNo??null,availableCreditMinor:customer?.storeCreditBalanceMinor??null,invoiceNo:row.invoiceNo||order?.invoiceNo||'Unavailable',orderId:order?._id??null,reference:null,amountMinor:Math.abs(delta),debtEffectMinor:row.balanceType==='CREDIT'?null:delta,creditEffectMinor:row.balanceType==='CREDIT'?delta:null,transactionIds:[],accounts:[],details:{reason:row.description,legacy:!row.adjustmentId}});
+    }
+    const truncated=adjustments.length>5000||ledger.length>5000;
+    const missingCustomerCount=events.filter(event=>!event.customerId).length,missingInvoiceCount=events.filter(event=>event.type!=='LEGACY'&&event.invoiceNo!=='Unavailable'&&!event.orderId).length;
+    const filtered=events.filter(event=>{const date=event.occurredAt?new Date(event.occurredAt):null;return(!input.customerId||String(event.customerId)===input.customerId)&&(!from||date&&date>=from)&&(!to||date&&date<to)&&(!pattern||pattern.test([event.customerName,event.customerPhone,event.activity,event.invoiceNo,event.reference,event.details?.reason,event.details?.actor].join(' ')));}).sort((a,b)=>new Date(b.occurredAt??b.recordedAt??0).getTime()-new Date(a.occurredAt??a.recordedAt??0).getTime()||String(b.eventId).localeCompare(String(a.eventId)));
+    const skip=(input.page-1)*input.limit;
+    return {filterCustomer,coverage:{complete:!truncated&&!missingCustomerCount&&!missingInvoiceCount,limitedBy:truncated?'RECORD_LIMIT':missingCustomerCount||missingInvoiceCount?'UNAVAILABLE_SOURCE':'NONE',missingCustomerCount,missingInvoiceCount,journalEventsDeduplicated:true,legacyTimestampBasis:'RECORDED_ONLY'},entries:filtered.slice(skip,skip+input.limit),pagination:{currentPage:input.page,limit:input.limit,recordCount:filtered.length,totalPages:Math.ceil(filtered.length/input.limit)}};
+}
+
 export async function reconcileCashBank(actor: Actor, input: {clearingAccountId: string, page?: number, limit?: number}, session: Session) {
     await owner(actor, session);
     const clearing = await accountInShop(actor, input.clearingAccountId, session), config = clearing.cashIntegration;

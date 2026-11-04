@@ -18,6 +18,8 @@ const {Product}=await import('../dist/models/product.model.js');
 const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
+const {Order}=await import('../dist/models/order.model.js');
+const {InvoiceAdjustment}=await import('../dist/models/invoiceAdjustment.model.js');
 const {BusinessBrand,ProductBrandLink}=await import('../dist/models/businessBrand.model.js');
 const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -30,7 +32,7 @@ await test('business accounts: real isolated MongoDB transactions', {skip:!exist
         for(let n=0;;n++){try{await mongoose.connect(`mongodb://127.0.0.1:${port}/business_test?directConnection=true`,{serverSelectionTimeoutMS:500,autoCreate:false,autoIndex:false});break;}catch(e){if(n>40)throw e;await sleep(100);}}
         await mongoose.connection.db.admin().command({replSetInitiate:{_id:'businessTest',members:[{_id:0,host:`127.0.0.1:${port}`}]}});
         for(let n=0;!(await mongoose.connection.db.admin().command({hello:1})).isWritablePrimary;n++){if(n>200)throw Error('No primary');await sleep(100);}
-        for(const M of [Shop,User,Customer,CustomerLedger,Product,BusinessEntity,FinancialAccount,BusinessTransaction,BusinessBrand,ProductBrandLink]){await M.createCollection();await M.createIndexes();}
+        for(const M of [Shop,User,Customer,CustomerLedger,Order,InvoiceAdjustment,Product,BusinessEntity,FinancialAccount,BusinessTransaction,BusinessBrand,ProductBrandLink]){await M.createCollection();await M.createIndexes();}
         async function fixture(suffix){const _id=new mongoose.Types.ObjectId();const shop=await Shop.create({name:'Shop '+suffix,address:'Test',contactNo:suffix==='a'?'03111111111':'03222222222',ownerId:_id,subscriptionActive:true,subscriptionExpiry:new Date(Date.now()+86400000)});const user=await User.create({_id,username:'owner'+suffix,email:suffix+'@business.test',password:'testing123',role:'OWNER',shopId:shop._id});return {_id:user._id,shopId:shop._id,role:'OWNER'};}
         const actor=await fixture('a'),other=await fixture('b');
         const run=(fn,a=actor)=>service.businessTransaction(a,s=>fn(s));
@@ -112,6 +114,27 @@ await test('business accounts: real isolated MongoDB transactions', {skip:!exist
             const statement=await run(s=>service.getAccountStatement(actor,{accountId:String(credit._id),page:2,limit:1},s));
             assert.equal(statement.openingBalanceMinor,300);assert.equal(statement.entries[0].runningBalanceMinor,200);
             assert.equal(await BusinessTransaction.countDocuments(),count);
+        });
+        await t.test('customer history deduplicates adjustment-linked ledger rows and isolates shops',async()=>{
+            const historyCustomer=await Customer.create({name:'History buyer',phoneNo:'03555555555',remainingMoney:0,storeCreditBalanceMinor:0,shopId:actor.shopId});
+            const orderId=new mongoose.Types.ObjectId(),adjustmentId=new mongoose.Types.ObjectId(),now=new Date();
+            await Order.create({_id:orderId,shopId:actor.shopId,type:'INVOICE',items:[],invoiceNo:'HIST-1',totalPrice:0,discountAmount:0,subtotal:0,saleType:'RETAIL',createdBy:actor._id,createdByName:'Owner',paidAmount:0,amountDue:0,customerId:historyCustomer._id,status:'DELIVERED'});
+            const snapshot={items:[],subtotalMinor:0,discountMinor:0,totalMinor:0,settledMinor:0,dueMinor:0,discountType:'NONE',discountValue:0};
+            await InvoiceAdjustment.create({_id:adjustmentId,shopId:actor.shopId,orderId,invoiceNo:'HIST-1',kind:'SALE',requestKey:'history-sale-key',requestHash:'history-sale-hash',revisionBefore:0,revisionAfter:0,createdBy:actor._id,createdByName:'Owner',reason:'Invoice created',before:snapshot,after:snapshot,movements:[],financial:{salesDeltaMinor:0,debtDeltaMinor:0,cashReceivedMinor:0,cashRefundMinor:0,creditRedeemedMinor:0,creditIssuedMinor:0,creditRestoredMinor:0},occurredAt:now});
+            await CustomerLedger.create({customerId:historyCustomer._id,shopId:actor.shopId,referenceId:orderId,adjustmentId,invoiceNo:'HIST-1',createdBy:actor._id,description:'PAYMENT',amount:0,amountMinor:0});
+            const history=await run(s=>service.getCustomerHistory(actor,String(historyCustomer._id),{page:1,limit:20},s));
+            assert.equal(history.entries.length,1);assert.equal(history.entries[0].type,'INVOICE');assert.equal(String(history.entries[0].orderId),String(orderId));
+            const global=await run(s=>service.getGlobalCustomerActivity(actor,{service:'HISTORY',page:1,limit:20,customerId:String(historyCustomer._id)},s));
+            assert.equal(global.entries.length,1);assert.equal(global.entries[0].customerName,'History buyer');assert.equal(global.entries[0].invoiceNo,'HIST-1');
+            const invoices=await run(s=>service.getGlobalCustomerActivity(actor,{service:'INVOICES',page:1,limit:20,customerId:String(historyCustomer._id)},s));
+            assert.equal(invoices.entries.length,1);assert.equal(invoices.entries[0].type,'INVOICE');
+            assert.equal((await run(s=>service.getGlobalCustomerActivity(actor,{service:'HISTORY',page:2,limit:1,customerId:String(historyCustomer._id)},s))).entries.length,0);
+            await InvoiceAdjustment.create([{shopId:actor.shopId,orderId,invoiceNo:'HIST-1',requestKey:'history-refund-key',requestHash:'history-refund-hash',kind:'CANCELLATION',revisionBefore:0,revisionAfter:1,createdBy:actor._id,createdByName:'Owner',debtCustomerId:historyCustomer._id,reason:'Customer refund',before:snapshot,after:snapshot,movements:[],financial:{salesDeltaMinor:0,debtDeltaMinor:0,cashReceivedMinor:0,cashRefundMinor:250,creditRedeemedMinor:0,creditIssuedMinor:0,creditRestoredMinor:0},occurredAt:new Date(now.getTime()+1000)}]);
+            const refunds=await run(s=>service.getGlobalCustomerActivity(actor,{service:'REFUNDS',page:1,limit:20,customerId:String(historyCustomer._id)},s));
+            assert.equal(refunds.entries.length,1);assert.equal(refunds.entries[0].type,'REFUND');assert.equal(refunds.entries[0].details.cashRefundMinor,250);
+            assert.equal((await run(s=>service.getGlobalCustomerActivity(actor,{service:'RETURNS',page:1,limit:20,customerId:String(historyCustomer._id)},s))).entries.length,0);
+            assert.equal((await run(s=>service.getGlobalCustomerActivity(other,{service:'HISTORY',page:1,limit:20},s),other)).entries.length,0);
+            await assert.rejects(run(s=>service.getCustomerHistory(other,String(historyCustomer._id),{page:1,limit:20},s),other),/not found/);
         });
         await t.test('shop isolation covers entities, accounts, postings, reversals and brands',async()=>{
             await assert.rejects(run(s=>service.getBusinessEntity(other,String(entity._id),s),other),/not found/);

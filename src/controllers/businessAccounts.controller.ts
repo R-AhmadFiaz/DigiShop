@@ -154,6 +154,19 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
                 if (!Array.isArray(body.accounts) || body.accounts.some((row: any) => !row || typeof row !== 'object')) throw new apiError(400, 'Valid cash/bank account confirmations required');
                 return accounts.prepareCashBankCutover(actor, body, session);
             case 'reconcileCustomer': return accounts.reconcileBusinessCustomer(actor, recordId(req.params.id), session);
+            case 'customerHistory': {
+                const {page,limit}=paging(req.query);
+                for(const key of ['q','type','from','to'])if(req.query[key]!==undefined&&typeof req.query[key]!=='string')throw new apiError(400,'Invalid customer history filter');
+                if(typeof req.query.q==='string'&&req.query.q.length>100)throw new apiError(400,'Search must be text of at most 100 characters');
+                return accounts.getCustomerHistory(actor,recordId(req.params.id),{page,limit,...Object.fromEntries(['q','type','from','to'].filter(k=>req.query[k]!==undefined).map(k=>[k,req.query[k]]))},session);
+            }
+            case 'customerActivity': {
+                const {page,limit}=paging(req.query),service=req.query.service??'HISTORY';
+                if(typeof service!=='string'||!['INVOICES','PAYMENTS','RETURNS','REFUNDS','CREDIT','HISTORY'].includes(service))throw new apiError(400,'Select a valid customer service');
+                for(const key of ['q','from','to','customerId'])if(req.query[key]!==undefined&&typeof req.query[key]!=='string')throw new apiError(400,'Invalid customer activity filter');
+                if(typeof req.query.q==='string'&&req.query.q.length>100)throw new apiError(400,'Search must be text of at most 100 characters');
+                return accounts.getGlobalCustomerActivity(actor,{service:service as 'INVOICES'|'PAYMENTS'|'RETURNS'|'REFUNDS'|'CREDIT'|'HISTORY',page,limit,...Object.fromEntries(['q','from','to'].filter(k=>req.query[k]!==undefined).map(k=>[k,req.query[k]])),...(req.query.customerId!==undefined?{customerId:recordId(req.query.customerId)}:{})},session);
+            }
             case 'reconcile':
                 enabled();
                 return accounts.reconcileCashBank(actor, {clearingAccountId: recordId(req.query.clearingAccountId), ...paging(req.query)}, session);
