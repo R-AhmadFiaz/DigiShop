@@ -20,9 +20,9 @@ function Detail({eventId,accountId,onClose}){
     <details><summary>Accounting details (Optional)</summary><p className="text-body-secondary">Debit and credit are bookkeeping entries, not necessarily cash received or paid.</p><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Account</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{event.postings.map(p=><tr key={p.accountId}><td>{p.account?.name||'Unavailable'}</td><td>{pkr(p.debitMinor)}</td><td>{pkr(p.creditMinor)}</td></tr>)}</tbody></table></div></details>
   </>}</Modal>;
 }
-export default function TransactionHistory({accountId,name,supplier=false}){
+export default function TransactionHistory({accountId,name,supplier=false,sourceId}){
   const [search,setSearch]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[type,setType]=useState(''),[page,setPage]=useState(1),[selected,setSelected]=useState(null);
-  const term=useDebounce(search),filters={q:term,page,limit:20,from:from?from+'T00:00:00.000Z':undefined,to:to?to+'T00:00:00.000Z':undefined,type};
+  const term=useDebounce(search),filters={q:term,page,limit:20,from:from?from+'T00:00:00.000Z':undefined,to:to?to+'T00:00:00.000Z':undefined,type,sourceId:sourceId||undefined};
   const result=useLoad((accountId?'/accounts/financial/'+accountId+'/history':'/accounts/transactions')+query(filters));
   const data=result.data,entries=accountId?data?.transactions:data?.entries;
   const posting=e=>e.accountPosting||e.postings?.find(p=>String(p.accountId)===accountId);

@@ -19,9 +19,10 @@ test('POS accounting checkout sends a body key and explicit account, retaining t
 
 test('customer collection reuses invoice settlement and sends preview-bound cash routing',()=>{
   const customers=fs.readFileSync(new URL('../src/pages/Customers.jsx',import.meta.url),'utf8');
-  assert.match(customers,/customerId:customer\._id,page,limit:10/);
+  assert.match(customers,/CustomerAccountHistory/);
+  assert.match(customers,/\/accounts\/customers\/'.*\/history/);
   assert.match(customers,/Receive Payment/);
-  assert.match(customers,/to=\{'\/owner\/sales\/'\+order\._id\}/);
+  assert.match(customers,/to=\{'\/owner\/sales\/'\+event\.orderId\}/);
   assert.doesNotMatch(customers,/method:\s*['"]POST/);
   const form=fs.readFileSync(new URL('../src/components/InvoiceAdjustment.jsx',import.meta.url),'utf8');
   assert.match(form,/useLoad\('\/orders\/payment-accounts'\)/);

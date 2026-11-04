@@ -622,7 +622,7 @@ html { overflow-y: scroll; scrollbar-gutter: stable; }
 .record-table > tbody > .record-clickable:hover > td { background: #e6f5f1; }
 .record-clickable { cursor: pointer; }
 .record-clickable:focus-visible { outline: 2px solid #0f766e; outline-offset: -2px; }
-.record-number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.record-number { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
 .record-actions { width: 1%; white-space: nowrap; }
 .record-detail > td { background: #f0fdfa !important; padding: 12px !important; }
 .record-facts { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 3fr); gap: 4px 12px; margin-bottom: 12px; }
@@ -790,6 +790,57 @@ p, td, th { overflow-wrap: break-word; }
 }
 @media (max-width:500px) { .pos-unified .pos-payments { grid-template-columns:repeat(2,minmax(0,1fr)); } .pos-unified .pos-checkout > button { width:100% !important; } }
 .pos-unified { align-items:stretch; }
+.shop-dialog-wide:has(.customer-account-workspace) { width:min(1100px,calc(100vw - 24px)); height:min(820px,92dvh); max-height:92dvh; display:flex; flex-direction:column; overflow:hidden; }
+.shop-dialog-wide:has(.customer-account-workspace) > .dialog-header { flex:0 0 auto; }
+.customer-account-workspace { display:flex; flex:1; flex-direction:column; min-height:0; }
+.customer-identity { display:flex; flex-wrap:wrap; gap:4px 18px; padding-bottom:8px; border-bottom:1px solid var(--bs-border-color); color:var(--bs-secondary-color); font-size:13px; }
+.customer-account-history { display:flex; flex:1; flex-direction:column; min-height:0; margin-top:8px !important; }
+.customer-account-history > h3 { margin-bottom:4px; }
+.customer-account-history .balance-strip { flex:0 0 auto; padding:6px 0; margin:0; gap:8px 28px; }
+.customer-account-history .balance-strip > div { min-width:160px; }
+.customer-account-history .balance-strip dd { font-size:18px; }
+.customer-balance-status { margin:4px 0 6px; font-size:12px; }
+.customer-balance-status details { display:inline-block; margin-left:6px; }
+.customer-history-filters { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.customer-history-filters input { flex:1 1 220px; max-width:320px; }
+.customer-history-filters select { flex:0 1 180px; }
+.customer-history-layout { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:10px; min-width:0; min-height:0; overflow:hidden; }
+.customer-history-layout.with-detail { grid-template-columns:minmax(0,1fr) minmax(260px,320px); }
+.customer-history-main { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.customer-account-history .customer-history-layout { flex:1; min-height:0; }
+.customer-history-main .record-register { min-height:0; max-height:400px; overflow:auto; }
+.customer-account-history .customer-history-main .record-register { flex:1; max-height:none; }
+.customer-history-main .record-table thead { position:sticky; top:0; z-index:1; background:#fff; }
+.record-table.customer-activity-table { width:100%; min-width:1120px; table-layout:fixed; }
+.customer-activity-table th:nth-child(1),.customer-activity-table td:nth-child(1) { width:18%; }
+.customer-activity-table th:nth-child(2),.customer-activity-table td:nth-child(2) { width:24%; }
+.customer-activity-table th:nth-child(3),.customer-activity-table td:nth-child(3) { width:17%; }
+.customer-activity-table th:nth-child(4),.customer-activity-table td:nth-child(4) { width:13%; }
+.customer-activity-table th:nth-child(5),.customer-activity-table td:nth-child(5) { width:20%; }
+.customer-activity-table th:nth-child(6),.customer-activity-table td:nth-child(6) { width:8%; }
+.customer-activity-table th:nth-child(1),.customer-activity-table td:nth-child(1),.customer-activity-table th:nth-child(3),.customer-activity-table td:nth-child(3),.customer-activity-table th:nth-child(n+4),.customer-activity-table td:nth-child(n+4) { white-space:nowrap; }
+.customer-activity-table td:nth-child(2) { overflow-wrap:anywhere; }
+.customer-activity-table td:nth-child(5) { white-space:normal; }
+.customer-activity-table td:nth-child(5) .customer-balance-change { overflow-wrap:normal; }
+.customer-activity-table > :not(caption) > * > * { padding:4px 6px; line-height:1.25; }
+.customer-activity-table .record-view-action { min-height:24px; padding:1px 6px; font-size:12px; line-height:1.2; }
+.customer-record-inspector { min-width:0; max-height:440px; overflow:auto; border:1px solid var(--bs-border-color); border-radius:4px; padding:10px; background:#f8faf9; }
+.customer-record-inspector:focus { outline:2px solid #0f766e; outline-offset:1px; }
+.customer-record-inspector-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.customer-record-inspector .record-facts { grid-template-columns:minmax(100px,auto) minmax(0,1fr); gap:4px 8px; margin-bottom:8px; font-size:13px; }
+.customer-return-lines { border-top:1px solid var(--bs-border-color); padding-top:7px; }
+.customer-record-links { display:flex; flex-wrap:wrap; gap:5px 12px; border-top:1px solid var(--bs-border-color); margin-top:8px; padding-top:7px; font-size:13px; }
+.customer-service-panel .customer-history-layout { grid-template-columns:minmax(0,1fr); }
+.customer-service-panel .customer-history-layout.with-detail { grid-template-columns:minmax(0,1fr) minmax(270px,320px); }
+.customer-service-panel .customer-history-main .record-register { max-height:430px; }
+@media(max-width:767.98px){
+ .shop-dialog-wide:has(.customer-account-workspace) { height:92dvh; padding:12px; }
+ .customer-history-layout.with-detail,.customer-service-panel .customer-history-layout.with-detail { grid-template-columns:minmax(0,1fr); }
+ .customer-account-history .customer-history-layout.with-detail { overflow:auto; }
+ .customer-account-history .customer-history-main .record-register { flex:0 0 auto; max-height:36dvh; }
+ .customer-record-inspector { max-height:32dvh; }
+}
+.customer-event-detail { padding:8px 12px; border-left:3px solid #0f766e; background:#f8faf9; }
 .pos-unified .pos-payments .sale-total { border:0; }
 .pos-unified .cart-table td:first-child > small.text-body-secondary { display:inline !important; margin-left:6px; }
 @media (min-width:1100px) and (min-height:600px) {
@@ -819,6 +870,7 @@ p, td, th { overflow-wrap: break-word; }
  .navigation-overflow a { display:block; }
  .navigation-overflow .accounts-nav a { padding-left:20px; }
  .more-nav:has(a.active) > summary { color:#0f766e; background:#e6f5f1; border-radius:4px; }
+ .customer-nav:has([aria-current="page"]) > summary { color:#0f766e; background:#e6f5f1; border-radius:4px; }
  .workspace { padding:12px 16px; max-width:none; }
  .app-header { margin-bottom:8px; }
 }

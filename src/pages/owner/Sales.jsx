@@ -1,5 +1,6 @@
 import RecordTable from '../../components/RecordTable';
 import { Link, useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { query } from "../../api/client";
 import { useDebounce, useLoad } from "../../api/hooks";
 import {
@@ -11,9 +12,9 @@ import {
   Pagination,
 } from "../../components/Common";
 import POS from "../../components/POS";
-export default function Sales() {
+export default function Sales({customerModule=false}) {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("view") === "history" ? "history" : "sale";
+  const tab = customerModule||params.get("view") === "history" ? "history" : "sale";
   const setTab = (view) =>
     setParams((current) => {
       current.set("view", view);
@@ -23,7 +24,7 @@ export default function Sales() {
     <>
       <div className="sales-toolbar">
       <PageTitle title="Sales" />
-      <div className="screen-tabs no-print">
+      {!customerModule&&<div className="screen-tabs no-print">
         <button
           className={tab === "sale" ? "active" : ""}
           onClick={() => setTab("sale")}
@@ -36,18 +37,20 @@ export default function Sales() {
         >
           Invoice history
         </button>
-      </div>
+      </div>}
       </div>
       <div hidden={tab !== "sale"}>
         <POS />
       </div>
-      {tab === "history" && <InvoiceHistory />}
+      {tab === "history" && <InvoiceHistory customerModule={customerModule}/>}
     </>
   );
 }
-function InvoiceHistory() {
+function InvoiceHistory({customerModule=false}) {
   const [params, setParams] = useSearchParams();
   const search = params.get("search") || "";
+  const customerId=params.get('customerId')||'';
+  const [customerSearch,setCustomerSearch]=useState('');
   const page = Math.max(1, Number(params.get("page")) || 1);
   const term = useDebounce(search);
   const setPage = (value) =>
@@ -59,10 +62,12 @@ function InvoiceHistory() {
       { replace: true },
     );
   const invoices = useLoad(
-    "/orders/" + query({ search: term, page, limit: 20 }),
+    "/orders/" + query({ search: term, customerId:customerId||undefined, page, limit: 20 }),
   );
+  const customerTerm=useDebounce(customerSearch),customers=useLoad('/customers/'+query({search:customerTerm,page:1,limit:100}),customerModule);
   return (
     <>
+      {customerModule&&<div className="row g-2 mb-2"><div className="col-md-5"><label className="form-label d-block">Find customer<input className="form-control" aria-label="Search customers for invoice filter" value={customerSearch} onChange={event=>setCustomerSearch(event.target.value)} maxLength={100}/></label></div><div className="col-md-5"><label className="form-label d-block">Filter invoices by customer<select className="form-select" aria-label="Filter invoices by customer" value={customerId} onChange={e=>setParams(current=>{if(e.target.value)current.set('customerId',e.target.value);else current.delete('customerId');current.set('page','1');return current;},{replace:true})}><option value="">All customers</option>{customers.data?.customers.map(customer=><option key={customer._id} value={customer._id}>{customer.name} · {customer.phoneNo}</option>)}</select></label></div></div>}
       <input
         className="form-control search-input mb-3"
         aria-label="Search invoice number"
@@ -85,7 +90,8 @@ function InvoiceHistory() {
         <Notice error={invoices.error} loading={invoices.loading} />
         {invoices.data&&<RecordTable label="Sales invoice register" rows={invoices.data.orders} columns={[
  {key:'date',label:'Date',render:o=>dateText(o.createdAt)},
- {key:'invoice',label:'Invoice',render:o=><Link to={o._id+'?'+params.toString()}>{o.invoiceNo||'View invoice'}</Link>},
+ {key:'invoice',label:'Invoice',render:o=><Link to={customerModule?'/owner/sales/'+o._id:'/owner/sales/'+o._id+'?'+params.toString()}>{o.invoiceNo||'View invoice'}</Link>},
+ ...(customerModule?[{key:'customer',label:'Customer',render:o=>customers.data?.customers.find(c=>c._id===o.customerId)?.name||'Customer unavailable'}]:[]),
  {key:'sale',label:'Sale',render:o=>o.saleType==='WHOLESALE'?'Wholesale':'Retail'},
  {key:'total',label:'Bill total',numeric:true,render:o=>money(o.totalPrice)},
  {key:'paid',label:'Paid / settled',numeric:true,render:o=>money(o.paidAmount)},

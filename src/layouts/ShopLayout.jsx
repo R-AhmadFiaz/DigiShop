@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Notice } from "../components/Common";
@@ -44,7 +44,7 @@ export default function ShopLayout() {
     const close=event=>{if(!navigation.current?.contains(event.target))navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);};
     document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);
   },[]);
-  useEffect(()=>{navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);},[pathname]);
+  useEffect(()=>{navigation.current?.querySelectorAll('details[open]').forEach(d=>{const restore=d.contains(document.activeElement);d.open=false;if(restore)d.querySelector('summary')?.focus();});},[pathname]);
   useEffect(()=>{
     if(!menuOpen)return;
     const dialog=drawer.current,trigger=menuButton.current,previous=document.body.style.overflow,previousRoot=document.documentElement.style.overflow;
@@ -95,13 +95,29 @@ export default function ShopLayout() {
               ? "Shop Management"
               : "Sales counter"}
         </div>
-        <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{if(e.key==='Escape'){const details=e.target.closest('details');if(details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();}}}} onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
+        <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{
+          const details=e.target.closest('details');
+          if(e.key==='Escape'&&details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();return;}
+          if(e.key===' '&&e.target.matches('.navigation-overflow a')){e.preventDefault();e.target.click();return;}
+          if(details?.classList.contains('more-nav')&&['ArrowDown','ArrowUp'].includes(e.key)){
+            const summary=e.target.closest('summary');
+            if(summary){e.preventDefault();details.open=true;const items=details.querySelectorAll('.navigation-overflow a');items[e.key==='ArrowDown'?0:items.length-1]?.focus();return;}
+            const items=[...details.querySelectorAll('.navigation-overflow a')],index=items.indexOf(e.target);
+            if(index>=0&&items.length){e.preventDefault();items[(index+(e.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();}
+          }
+        }} onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
           {links[user.role].filter(([to])=>mainSections.includes(to)).map(([to, label]) => (
-            <NavLink key={to} to={to || "."} end={!["sales","purchases"].includes(to)}>
-              {label}
-            </NavLink>
-          ))}
-          {secondaryLinks.length>0&&<details className="more-nav"><summary>More</summary><div className="navigation-overflow">
+            to==='customers' ? <details key={to} className="more-nav customer-nav">
+              <summary aria-label="Customers menu" aria-current={pathname.startsWith('/owner/customers')||pathname==='/cashier/customers'?'page':undefined}>Customers</summary>
+              <div className="navigation-overflow">
+                <NavLink to={to} end>Customer accounts</NavLink>
+                {user.role==='OWNER'&&<>
+                  <NavLink to="customers/invoices">Customer invoices</NavLink>
+                  <NavLink to="customers/activity?type=HISTORY">Customer activity</NavLink>
+                </>}
+              </div>
+            </details> : <NavLink key={to} to={to || "."} end={!['sales','purchases'].includes(to)}>{label}</NavLink>
+          ))}          {secondaryLinks.length>0&&<details className="more-nav"><summary>More</summary><div className="navigation-overflow">
             {secondaryLinks.map(([to,label])=><NavLink key={to} to={to} end>{label}</NavLink>)}
           {user.role === "OWNER" && (
             <details className="accounts-nav">

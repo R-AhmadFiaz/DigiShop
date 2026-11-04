@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "./client";
-export function useLoad(url) {
+export function useLoad(url, enabled = true) {
   const [data, setData] = useState(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
     [revision, setRevision] = useState(0);
   useEffect(() => {
+    if (!enabled) { setData(null); setError(""); setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -21,7 +22,7 @@ export function useLoad(url) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [url, revision]);
+  }, [url, revision, enabled]);
   return { data, error, loading, reload: () => setRevision((v) => v + 1) };
 }
 export function useDebounce(value, delay = 250) {

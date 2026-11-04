@@ -288,6 +288,11 @@ async function mock(event) {
     }
     else if(endpoint==='/accounts/financial' && request.method==='POST'){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
     else if(endpoint==='/accounts/financial')data={entries:financialAccounts,pagination:{currentPage:1,totalPages:1},livePostingEnabled:false};
+    else if(/^\/accounts\/customers\/[^/]+\/history$/.test(endpoint))data={customer:{_id:customer._id,name:customer.name,phoneNo:customer.phoneNo,address:customer.address},position:{debtMinor:1000,storeCreditMinor:4000,reconciled:true,issues:[],asOf:'2026-01-01T00:00:00.000Z'},coverage:{complete:true,journalEventsDeduplicated:true},entries:[{eventId:'customer-sale',type:'INVOICE',activity:'Invoice created',occurredAt:'2026-01-01T10:00:00.000Z',invoiceNo:'INV-1',orderId:invoice._id,amountMinor:5000,debtEffectMinor:1000,creditEffectMinor:null,details:{reason:'Sale',actor:'Original Seller',cashReceivedMinor:4000}}],pagination:{currentPage:1,limit:20,recordCount:1,totalPages:1}};
+    else if(endpoint==='/accounts/customers/activity'){
+      const service=url.searchParams.get('service'),payment={eventId:'customer-payment',type:'PAYMENT',activity:'Payment received',occurredAt:'2026-01-01T11:00:00.000Z',customerId:customer._id,customerName:customer.name,customerPhone:customer.phoneNo,availableCreditMinor:4000,invoiceNo:'INV-1',orderId:invoice._id,amountMinor:1000,debtEffectMinor:-1000,creditEffectMinor:null,transactionIds:['payment-journal'],accounts:[{_id:'cash-account',name:'Counter cash',kind:'CASH'}],details:{reason:'Payment received',actor:'Ali',cashReceivedMinor:1000}},returned={eventId:'customer-return',type:'RETURN',activity:'Product return',occurredAt:'2026-01-02T11:00:00.000Z',customerId:customer._id,customerName:customer.name,customerPhone:customer.phoneNo,availableCreditMinor:4000,invoiceNo:'INV-1',orderId:invoice._id,amountMinor:500,debtEffectMinor:-500,creditEffectMinor:null,transactionIds:[],accounts:[{_id:'cash-account',name:'Counter cash',kind:'CASH'}],details:{reason:'Return accepted',actor:'Ali',cashRefundMinor:500,products:[{productId:product._id,name:product.name,quantity:1,condition:'RESTOCK'}]}},credit={...payment,eventId:'customer-credit',type:'CREDIT',activity:'Store credit issued',amountMinor:500,creditEffectMinor:500,details:{reason:'Refund issued as store credit',actor:'Ali',creditIssuedMinor:500},transactionIds:[]};
+      const invoiceActivity={...payment,eventId:'customer-invoice',type:'INVOICE',activity:'Invoice created',amountMinor:5000,details:{reason:'Invoice created',actor:'Ali'}},entries=service==='INVOICES'?[invoiceActivity]:service==='PAYMENTS'?[payment]:service==='RETURNS'?[returned]:service==='REFUNDS'?[returned]:service==='CREDIT'?[credit]:[invoiceActivity,payment,returned,credit];data={filterCustomer:url.searchParams.has('customerId')?{_id:customer._id,name:customer.name,phoneNo:customer.phoneNo}:null,coverage:{complete:true,limitedBy:'NONE'},entries,pagination:{currentPage:Number(url.searchParams.get('page')||1),limit:20,recordCount:entries.length,totalPages:1}};
+    }
     else if(endpoint.endsWith('/reconciliation'))data={debtMinor:1000,storeCreditMinor:4000,reconciled:true,issues:[]};
     else if(endpoint.endsWith('/history')){
       if(!allowAccountBalance){status=409;message='Prepared cash/bank cutover required; balance unavailable';}
@@ -297,7 +302,7 @@ async function mock(event) {
       else data={account:financialAccounts[0],authority:'JOURNAL',balanceMinor:supplierReady?supplierCashMinor:125000,currency:'PKR',livePostingEnabled:false};
     } else {status=404;message='Account not found in shop';}
   }
-  else if (endpoint === "/customers/")
+  else if (endpoint === "/customers/" || endpoint === "/customers")
     data = {
       customers: [customer],
       pagination: { currentPage: 1, totalPages: 1 },
@@ -636,9 +641,9 @@ try {
       await sleep(100);
     }
   }
-  socket = new WebSocket(
-    pages.find((p) => p.type === "page").webSocketDebuggerUrl,
-  );
+  const debuggerUrl=new URL(pages.find((p)=>p.type==="page").webSocketDebuggerUrl);
+  debuggerUrl.hostname="127.0.0.1";
+  socket = new WebSocket(debuggerUrl);
   await new Promise((resolve) =>
     socket.addEventListener("open", resolve, { once: true }),
   );
@@ -708,7 +713,7 @@ try {
     await evaluate(
       '[...document.querySelectorAll(".sidebar nav a")].map(e=>e.textContent)',
     ),
-    ["POS", "Customers", "Quotations", "AI Assistant"],
+    ["POS", "Customer accounts", "Quotations", "AI Assistant"],
   );
   assert.ok(
     !(await evaluate(
@@ -796,7 +801,7 @@ try {
   await fill('[aria-label="Quantity for Copper Cable"]', "1");
   assert.equal(await evaluate(paymentInput + '.value'), "0");
   await evaluate("window.confirm = () => false");
-  await click("Customers");
+  await click("Customers");await click("Customer accounts");
   await wait('location.pathname === "/cashier/customers"');
   await click("POS");
   await wait('!!document.querySelector(".cart-table .quantity")');
@@ -810,6 +815,7 @@ try {
   await click("POS");
   await wait('!!document.querySelector(".cart-table .quantity")');
   assert.equal(await evaluate(paymentInput + '.value'), "20", "Manual partial payment survives navigation");
+  await click("Select customer");
   await wait('!!document.querySelector(".customer-result")');
   await click("New customer");
   await fill("[name=name]", "New buyer");
@@ -832,7 +838,7 @@ try {
     saleType: document.querySelector('[aria-label="Sale type"]').value,
     discount: document.querySelector(".row select").value,
     total: document.querySelector(".sale-total").innerText,
-    customer: document.querySelector(".customer-picker").innerText
+    customer: document.body.innerText.includes("New buyer")
   })`);
   assert.equal(await evaluate(`document.querySelector('[aria-label="POS category filter"]').value`), "");
   await fill('[aria-label="POS category filter"]', "category-two");
@@ -844,7 +850,7 @@ try {
     saleType: document.querySelector('[aria-label="Sale type"]').value,
     discount: document.querySelector(".row select").value,
     total: document.querySelector(".sale-total").innerText,
-    customer: document.querySelector(".customer-picker").innerText
+    customer: document.body.innerText.includes("New buyer")
   })`);
   assert.equal(saleAfterCategory, saleBeforeCategory);
   await click("Customers");
@@ -884,9 +890,9 @@ try {
   await send("Emulation.setEmulatedMedia", { media: "print" });
   assert.equal(
     await evaluate(
-      'getComputedStyle(document.querySelector(".sidebar")).display',
+      'getComputedStyle(document.querySelector(".sidebar")).visibility',
     ),
-    "none",
+    "hidden",
   );
   assert.equal(
     await evaluate(
@@ -945,7 +951,7 @@ try {
     calls.filter((c) => c.endpoint === "/orders/create-order").length,
     writesBefore,
   );
-  await evaluate('document.querySelector(".customer-result").click()');
+  await click("Select customer");await wait('!!document.querySelector(".customer-result")');await evaluate('document.querySelector(".customer-result").click()');
   nextFailure = "/orders/create-order";
   await click("Complete sale");
   await wait('document.body.innerText.includes("active subscription")');
@@ -979,7 +985,7 @@ try {
   assert.equal(invoice.paidAmount, 50);
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Net store-credit settlement")'));
   assert.equal(await evaluate('[...document.querySelectorAll("button")].some(b => b.textContent === "Return / change invoice")'), false);
-  await click("Customers");
+  await click("Customers");await click("Customer accounts");
   await wait('!!document.querySelector("table")');
   await fill('[aria-label="Search customer by name or phone"]', "0300");
   await sleep(350);
@@ -1228,20 +1234,23 @@ try {
     expiryBeforePayment = shops[0].subscriptionExpiry;
   await click("Renew Subscription");
   await wait('location.pathname==="/owner/renew"');
-  for (const text of [
-    "PKR 8,000",
-    "30 Days",
-    "Meezan Bank",
-    "RANA AHMAD FIAZ",
-    "00300111791703",
-    "Shop Name",
-  ])
-    assert.ok(
-      await evaluate(
-        "document.body.innerText.includes(" + JSON.stringify(text) + ")",
-      ),
-      'Renewal information: '+text,
-    );
+  if(process.env.DIGISHOP_CUSTOMER_HISTORY_ONLY!=='1'){
+    for (const text of [
+      "PKR 8,000",
+      "30 Days",
+      "Meezan Bank",
+      "RANA AHMAD FIAZ",
+      "00300111791703",
+      "Shop Name",
+    ])
+      assert.ok(
+        await evaluate(
+          "document.body.innerText.includes(" + JSON.stringify(text) + ")",
+        ),
+        'Renewal information: '+text,
+      );
+  }
+  if(process.env.DIGISHOP_CUSTOMER_HISTORY_ONLY!=='1'){
   const paymentLink = new URL(
     await evaluate(
       '[...document.querySelectorAll("a")].find(e=>e.textContent==="Send Payment Proof on WhatsApp").href',
@@ -1274,6 +1283,7 @@ try {
     "Payment view and Copy make no API requests",
   );
   await screenshot("owner-renewal");
+  }
 
   await click("Sign out");
   await login("CASHIER");
@@ -1348,10 +1358,104 @@ try {
   assert.deepEqual(JSON.parse(calls.filter(c=>c.endpoint==='/accounts/entities'&&c.method==='POST').at(-1).body).roles,['SUPPLIER']);
   await fill('[aria-label="Search businesses"]','Eagle');await sleep(300);
   await fill('[aria-label="Business list filter"]','');await click('Business details');await click('Business setup & brand links');await wait('document.body.innerText.includes("Brand associations")');
-  await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle — Linked")');
+  await fill('[name=brandName]','Eagle');await click('Add brand association');await wait('document.body.innerText.includes("Eagle")&&document.body.innerText.includes("Linked")');
   await click('Unlink');await wait('document.body.innerText.includes("Brand unlinked.")');await click('Link brand');await wait('document.body.innerText.includes("Brand linked.")');
-  await click('Close');await click('Customers');await click('Receive Payment');await wait('document.body.innerText.includes("Balances checked")');
-  assert.ok(await evaluate('document.querySelector("dialog").innerText.includes("40.00")'));await click('Close');
+  await click('Close');await click('Customers');await click('Customer accounts');await wait('!![...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Receive Payment")');
+  await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Receive Payment").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('document.body.innerText.includes("Balances checked as of")&&document.body.innerText.includes("Invoice created")');
+  assert.ok(await evaluate('document.querySelector("dialog[open]").innerText.includes("40.00")'));
+  assert.ok(await evaluate('document.querySelector("dialog[open]").innerText.includes("Customer owes us")&&document.querySelector("dialog[open]").innerText.includes("Available store credit")'));
+  assert.ok(await evaluate('!!(document.querySelector("dialog[open]").querySelector("a[href*=invoice]")||document.querySelector("dialog[open]").querySelector("a[href*=sales]"))'));
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/customer-one/history'&&c.method==='GET'));
+  assert.ok(!calls.some(c=>c.endpoint==='/accounts/customers/customer-one/history'&&c.method!=='GET'));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait('!document.querySelector("dialog[open]")');
+  const restoredFocus=await evaluate('document.activeElement.outerHTML');
+  assert.ok(restoredFocus.includes('Receive Payment'),'Escape closes customer details and restores focus to its opener: '+restoredFocus);
+  await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Receive Payment").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('document.body.innerText.includes("Balances checked as of")&&document.body.innerText.includes("Invoice created")');
+  for(const [width,height] of [[1366,768],[1440,900],[1600,900]]){
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    assert.ok(await evaluate('(()=>{const r=document.querySelector("dialog[open]").getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()'),`Customer account dialog fits ${width}x${height}`);
+    assert.ok(await evaluate('document.querySelector(".record-register").clientWidth<=document.querySelector(".record-register").parentElement.clientWidth+1'),`Customer history stays contained at ${width}x${height}`);
+    assert.ok(await evaluate('(()=>{const t=document.querySelector(".customer-activity-table"),r=t.tBodies[0].rows[0],c=[...r.cells];return t&&c.length===6&&t.tHead.rows[0].cells[5].textContent==="View"&&[c[0],c[2],c[3],c[5]].every(x=>x.scrollWidth<=x.clientWidth+2)&&c[4].getBoundingClientRect().right<=c[5].getBoundingClientRect().left+1})()'),`Customer history financial values and View column stay aligned at ${width}x${height}`);
+    assert.ok(await evaluate('document.querySelector(".navigation-drawer nav").scrollWidth<=document.querySelector(".navigation-drawer nav").clientWidth+1'),`Main navigation fits ${width}x${height}`);
+  }
+  /* eslint-disable no-useless-escape */
+  await evaluate('[...document.querySelectorAll(".customer-history-main .record-actions button")].at(-1).focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('!!document.querySelector(\".customer-record-inspector\")');
+  assert.ok(await evaluate('document.querySelector(\".customer-record-inspector\").innerText.includes(\"Invoice created\")&&document.querySelector(\".customer-record-inspector\").innerText.includes(\"INV-1\")'));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait('!document.querySelector(\".customer-record-inspector\")');
+  await wait('document.activeElement.textContent.trim().includes("View")');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait('!document.querySelector(\"dialog[open]\")');
+  await evaluate('document.querySelector(\".customer-nav summary\").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  await wait('document.querySelector(\".customer-nav\").open');
+  await evaluate('document.querySelector(\".customer-nav .navigation-overflow a\").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  await wait('document.activeElement.textContent.includes(\"Customer invoices\")');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  await wait('document.activeElement.textContent.includes(\"Customer activity\")');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('location.pathname===\"/owner/customers/activity\"&&document.body.innerText.includes(\"Customer activity\")');
+  await wait('document.querySelectorAll(\".record-register tbody tr\").length===4');
+  for(const [width,height] of [[1366,768],[1440,900],[1600,900]]){
+    await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    assert.ok(await evaluate('(()=>{const t=document.querySelector(\".customer-activity-table\");return t&&[...t.tBodies[0].rows].every(r=>{const c=[...r.cells];return [c[0],c[2],c[3],c[5]].every(x=>x.scrollWidth<=x.clientWidth+2)&&c[4].getBoundingClientRect().right<=c[5].getBoundingClientRect().left+1&&c[4].getBoundingClientRect().height<=48})})()'),`Global customer activity aligns amounts without overlap at ${width}x${height}`);
+  }
+  assert.ok(await evaluate('!document.querySelector(\".secondary-navigation\")&&document.querySelector(\".customer-nav summary\").getAttribute(\"aria-current\")===\"page\"'));
+  await evaluate('(()=>{const s=document.querySelector(\"[aria-label=\\\"Filter customer records by customer\\\"]\");s.value=\"customer-one\";s.dispatchEvent(new Event(\"change\",{bubbles:true}));return true})()');
+  for(let attempt=0;attempt<100&&!calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('customerId=customer-one'));attempt++)await sleep(80);
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('customerId=customer-one')),'Customer activity filters by the selected customer');
+  const firstRow=await evaluate('document.querySelector(\".record-register tbody tr.record-clickable\").getAttribute(\"data-record-id\")');
+  await evaluate('document.querySelector(\".record-register tbody tr.record-clickable\").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+  assert.notEqual(await evaluate('document.activeElement.getAttribute(\"data-record-id\")'),firstRow,'ArrowDown moves through customer activity rows');
+  await evaluate('(()=>{const s=document.querySelector(\"[aria-label=\\\"Filter customer record type\\\"]\");s.value=\"PAYMENTS\";s.dispatchEvent(new Event(\"change\",{bubbles:true}));return true})()');
+  await wait('document.body.innerText.includes(\"Payment received\")');
+  await fill('[aria-label=\"Search customer records\"]','INV-1');await sleep(350);
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('q=INV-1')),'Customer activity search reaches the authoritative filtered read');
+  for(const [type,label] of [['INVOICES','Invoice created'],['RETURNS','Product return'],['REFUNDS','Product return'],['CREDIT','Store credit issued']]){
+    await evaluate('(()=>{const s=document.querySelector(\"[aria-label=\\\"Filter customer record type\\\"]\");s.value='+JSON.stringify(type)+';s.dispatchEvent(new Event(\"change\",{bubbles:true}));return true})()');
+    await wait('document.body.innerText.includes('+JSON.stringify(label)+')');
+    for(let attempt=0;attempt<100&&!calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('service='+type));attempt++)await sleep(80);
+    assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('service='+type)),'Customer service filter requests '+type);
+    assert.equal(await evaluate('document.querySelectorAll(\".record-register tbody tr.record-clickable\").length'),1,'The selected service shows each authoritative source event once');
+  }
+  await evaluate('(()=>{const s=document.querySelector(\"[aria-label=\\\"Filter customer record type\\\"]\");s.value=\"PAYMENTS\";s.dispatchEvent(new Event(\"change\",{bubbles:true}));return true})()');
+  await wait('document.body.innerText.includes(\"Payment received\")');
+  for(let attempt=0;attempt<100&&!calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('service=PAYMENTS'));attempt++)await sleep(80);
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('service=PAYMENTS')));
+  await evaluate('[...document.querySelectorAll(\".record-actions button.record-view-action\")].at(-1).focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('!!document.querySelector(\".customer-record-inspector\")');
+  assert.ok(await evaluate('document.querySelector(\".customer-record-inspector\").innerText.includes(\"Payment received\")&&document.querySelector(\".customer-record-inspector\").innerText.includes(\"Counter cash\")'));
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait('!document.querySelector(\".customer-record-inspector\")');
+  await wait('document.activeElement.textContent.trim().includes("View")');
+  assert.ok(!calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.method!=='GET'),'Customer activity performs no financial writes');
+  await evaluate('document.querySelector(\".customer-nav summary\").focus()');
+  for(let index=0;index<2;index++){await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});}
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32,nativeVirtualKeyCode:32});await send('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});
+  await wait('location.pathname===\"/owner/customers/invoices\"&&document.body.innerText.includes(\"Invoice\")');
+  await evaluate('history.back()');await wait('location.pathname===\"/owner/customers/activity\"');
+  await evaluate('history.forward()');await wait('location.pathname===\"/owner/customers/invoices\"');
+  await evaluate('document.querySelector(\".customer-nav summary\").click()');
+  assert.ok(await evaluate('document.querySelector(\".customer-nav\").open'));
+  await evaluate('document.dispatchEvent(new PointerEvent(\"pointerdown\",{bubbles:true}))');
+  assert.ok(await evaluate('!document.querySelector(\".customer-nav\").open'),'Outside pointer closes Customers dropdown');
+  /* eslint-enable no-useless-escape */
+  if(process.env.DIGISHOP_CUSTOMER_HISTORY_ONLY==='1'){
+    await new Promise(resolve=>process.stdout.write('Customer navigation mocked browser passed: Customers dropdown destinations, keyboard navigation, Escape focus restoration, service filters and search, contextual details, browser back/forward, no financial writes, and 1366x768 / 1440x900 / 1600x900 containment.\n',resolve));
+    if(socket?.readyState===1)await send('Browser.close');
+    chrome.kill();process.exit(0);
+  }
+  await click('Close');
   await click('Suppliers');await fill('[aria-label="Search businesses"]','');await click('Other business records (Advanced)');await click('Add other business');
   const customerCreatesBefore=calls.filter(c=>c.endpoint==='/customers/create-customer').length;
   await evaluate('[...document.querySelectorAll("dialog label")].find(label=>label.textContent.trim()==="Customer").querySelector("input").click()');

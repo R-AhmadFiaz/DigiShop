@@ -29,6 +29,7 @@ import Transactions from './pages/owner/Transactions';
 import Purchases from './pages/owner/Purchases';
 import PurchaseDetails from './pages/owner/PurchaseDetails';
 import SupplierDetails from './pages/owner/SupplierDetails';
+import CustomerServices from './pages/owner/CustomerServices';
 function Guard({ role }) {
   const { user } = useAuth();
   return !user ? (
@@ -91,6 +92,8 @@ export default function App() {
           <Route path="sales" element={<Sales />} />
           <Route path="sales/:orderId" element={<Invoice />} />
           <Route path="customers" element={<Customers />} />
+          <Route path="customers/invoices" element={<Sales customerModule />} />
+          <Route path="customers/:service" element={<CustomerServices />} />
           <Route path="accounts/companies" element={<Companies />} />
           <Route path="accounts/cash-bank" element={<CashBank />} />
           <Route path="accounts/transactions" element={<Transactions />} />

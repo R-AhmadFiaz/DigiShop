@@ -5,7 +5,7 @@ import { query } from '../../api/client';
 import { activity, pkr, pakistanTime } from '../../api/purchases';
 import { Field, Modal, Notice, PageTitle } from '../../components/Common';
 import RecordTable from '../../components/RecordTable';
-import { CustomerBalances, CustomerInvoices } from '../Customers';
+import { CustomerAccountHistory } from '../Customers';
 import {cashBankTotal} from '../../api/financialReports';
 export {cashBankTotal} from '../../api/financialReports';
 
@@ -126,6 +126,6 @@ export default function FinancialReports(){
         <div id="selected-report"><ReportContent d={d} selected={selected} onCustomer={setCustomer}/></div>
       </section><ReportNotes d={d}/>
     </>}
-    {customer&&<Modal wide title={customer.name+' — Customer Khata'} onClose={()=>setCustomer(null)}><CustomerBalances customer={{...customer,_id:customer.id}}/><CustomerInvoices customer={{...customer,_id:customer.id}}/></Modal>}
+    {customer&&<Modal wide title={customer.name+' — Customer Khata'} onClose={()=>setCustomer(null)}><CustomerAccountHistory customer={{...customer,_id:customer.id}}/></Modal>}
   </>;
 }
