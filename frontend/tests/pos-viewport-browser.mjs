@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-const backend=path.resolve('../store-backend');
+const backend=path.resolve('../backend');
 const require=createRequire(path.join(backend,'package.json'));
 let source=await fs.readFile(path.join(backend,'tests/supplier-browser.integration.mjs'),'utf8');
 const start=source.indexOf('  await login(owner.username);');

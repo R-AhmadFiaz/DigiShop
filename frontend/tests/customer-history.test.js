@@ -59,9 +59,9 @@ test('Customers dropdown uses the main navigation pattern and keeps legacy servi
 
 test('global customer services are read-only and expose contextual records from the shared activity API',()=>{
   const page=fs.readFileSync(new URL('../src/pages/owner/CustomerServices.jsx',import.meta.url),'utf8');
-  const backend=fs.readFileSync(new URL('../../store-backend/src/utils/businessAccounts.ts',import.meta.url),'utf8');
-  const controller=fs.readFileSync(new URL('../../store-backend/src/controllers/businessAccounts.controller.ts',import.meta.url),'utf8');
-  const route=fs.readFileSync(new URL('../../store-backend/src/routes/businessAccounts.route.ts',import.meta.url),'utf8');
+  const backend=fs.readFileSync(new URL('../../backend/src/utils/businessAccounts.ts',import.meta.url),'utf8');
+  const controller=fs.readFileSync(new URL('../../backend/src/controllers/businessAccounts.controller.ts',import.meta.url),'utf8');
+  const route=fs.readFileSync(new URL('../../backend/src/routes/businessAccounts.route.ts',import.meta.url),'utf8');
   assert.match(page,/accounts\/customers\/activity/);assert.match(page,/payments:\{key:'PAYMENTS'/);assert.match(page,/Filter customer record type/);
   assert.match(page,/INVOICES/);assert.match(page,/REFUNDS/);assert.match(page,/Invoice/);assert.match(page,/filterCustomer/);
   assert.match(page,/coverage.complete/);assert.match(page,/onOpen=/);assert.match(page,/CustomerActivityDetails/);assert.match(page,/Balance change/);assert.match(page,/detailLabel="View"/);assert.match(page,/customer-activity-table/);
@@ -70,9 +70,9 @@ test('global customer services are read-only and expose contextual records from 
 });
 
 test('backend history exposes authoritative source joins, pagination, isolation and duplicate suppression',()=>{
-  const backend=fs.readFileSync(new URL('../../store-backend/src/utils/businessAccounts.ts',import.meta.url),'utf8');
-  const route=fs.readFileSync(new URL('../../store-backend/src/routes/businessAccounts.route.ts',import.meta.url),'utf8');
-  const controller=fs.readFileSync(new URL('../../store-backend/src/controllers/businessAccounts.controller.ts',import.meta.url),'utf8');
+  const backend=fs.readFileSync(new URL('../../backend/src/utils/businessAccounts.ts',import.meta.url),'utf8');
+  const route=fs.readFileSync(new URL('../../backend/src/routes/businessAccounts.route.ts',import.meta.url),'utf8');
+  const controller=fs.readFileSync(new URL('../../backend/src/controllers/businessAccounts.controller.ts',import.meta.url),'utf8');
   assert.match(route,/customers\/:id\/history/);assert.match(controller,/customerHistory/);
   assert.match(backend,/shopId:actor\.shopId,customerId:customer\._id/);
   assert.match(backend,/emittedAdjustmentIds\.has\(String\(row\.adjustmentId\)\)/);

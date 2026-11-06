@@ -14,7 +14,7 @@ const binary = 'C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
 const chromeBinary = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 assert.ok(existsSync(binary) && existsSync(chromeBinary), 'Local MongoDB and Chrome are required; no remote fallback');
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'digishop-live-integration-'));
-const frontend = path.resolve('../store-frontend');
+const frontend = path.resolve('../frontend');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function port() { const server = net.createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); const value = server.address().port; await new Promise(resolve => server.close(resolve)); return value; }
 const mongoPort = await port(), apiPort = await port(), webPort = await port(), debugPort = await port();

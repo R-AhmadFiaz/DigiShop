@@ -115,7 +115,7 @@ test('invoice records link to the actual customer workspace and linked financial
   const invoicePage=fs.readFileSync(new URL('../src/pages/owner/Invoice.jsx',import.meta.url),'utf8');
   const history=fs.readFileSync(new URL('../src/components/InvoiceHistory.jsx',import.meta.url),'utf8');
   const table=fs.readFileSync(new URL('../src/components/RecordTable.jsx',import.meta.url),'utf8');
-  const backend=fs.readFileSync(new URL('../../store-backend/src/controllers/invoiceAdjustment.controller.ts',import.meta.url),'utf8');
+  const backend=fs.readFileSync(new URL('../../backend/src/controllers/invoiceAdjustment.controller.ts',import.meta.url),'utf8');
   assert.match(invoicePage,/customerId.*owner\/customers\/activity/);
   assert.match(history,/event\.transactionIds/);assert.match(history,/owner\/accounts\/transactions/);
   assert.match(table,/key!=='Escape'/);assert.match(table,/requestAnimationFrame\(\(\)=>opener\?\.focus\(\)\)/);

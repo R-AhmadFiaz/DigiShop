@@ -14,7 +14,7 @@ import {keyboardSalesChecks} from './keyboard-sales-browser.js';
 import {mobileChecks} from './mobile-browser-checks.js';
 import {supplierSearchChecks} from './supplier-search-browser.js';
 
-const backend=path.resolve('../store-backend');
+const backend=path.resolve('../backend');
 const invoiceSuite=process.argv.includes('--invoices');
 let source=await fs.readFile(path.join(backend,'tests',invoiceSuite?'invoice-browser.integration.mjs':'supplier-browser.integration.mjs'),'utf8');
 // Customer choice is now explicitly opened from the fixed billing footer.
