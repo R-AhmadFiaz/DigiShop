@@ -70,7 +70,7 @@ export function Modal({ title, onClose, children, busy = false, wide = false }) 
   useEffect(() => {
     const dialog = ref.current;
     dialog.showModal();
-    dialog.querySelector("input:not([type=hidden]), select, textarea")?.focus({preventScroll:true});
+      (dialog.querySelector('[data-modal-initial-focus]')||dialog.querySelector("input:not([type=hidden]), select, textarea"))?.focus({preventScroll:true});
     dialog.scrollTop=0;
     return () => dialog.close();
   }, []);

@@ -12,6 +12,7 @@ import { invoiceCustomerDisplayName } from "../../utils/invoiceCustomerName";
 
 function InvoiceCustomerName({ order, reload }) {
   const currentName = invoiceCustomerDisplayName(order);
+  const customerId=order.customerId&&typeof order.customerId==='object'?order.customerId._id:order.customerId;
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(currentName);
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ function InvoiceCustomerName({ order, reload }) {
     finally { setBusy(false); }
   }
   return <div className="invoice-customer-name no-print" aria-label="Invoice customer name">
-    <div className="invoice-customer-current"><span className="invoice-customer-label">Customer</span><strong>{currentName || "Walk-in customer"}</strong></div>
+    <div className="invoice-customer-current"><span className="invoice-customer-label">Customer</span><strong>{currentName || "Walk-in customer"}</strong>{customerId&&<Link className="small" to={'/owner/customers/activity?'+new URLSearchParams({type:'HISTORY',customerId:String(customerId)})}>View customer activity</Link>}</div>
     {!editing ? <button ref={editButton} type="button" className="btn btn-outline-secondary btn-sm" onClick={() => { setValue(currentName); setError(""); setSuccess(""); setEditing(true); }}>Edit name</button> :
       <form className="invoice-customer-edit" onSubmit={save} onKeyDown={event => { if (!busy && event.key === "Escape") { event.preventDefault(); close(); } }}>
         <fieldset disabled={busy} className="invoice-customer-fields">

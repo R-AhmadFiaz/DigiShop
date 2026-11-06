@@ -51,6 +51,7 @@ const product = {
   stockQuantity: 20,
   minStockThreshold: 5,
 };
+const productTwo={_id:'product-two',name:'Fiber Spool',brand:'Local Wire',category:{_id:'category-one',name:'Wiring'},unit:'roll',costPrice:20,retailPrice:40,wholesalePrice:30,stockQuantity:10,minStockThreshold:2};
 const customer = {
   _id: "customer-one",
   name: "Ali",
@@ -85,13 +86,15 @@ const businessEntities = [], businessBrands = [];
 const financialAccounts = [{_id:'cash-account',name:'Counter cash',kind:'CASH',isActive:true}];
 let allowAccountBalance=false, denyAccounts=false;
 const purchaseOrders=[],goodsReceipts=[],supplierSettlements=[];
+let failPurchaseValidation=false;
 let supplierReady=false,supplierPayableMinor=5000,supplierCashMinor=125000,loseSupplierResponse=false;
 function purchaseContract(endpoint,request,body,url){
   if(role!=='OWNER')return {status:403,message:'Owner shop access required'};
   const parts=endpoint.split('/'),po=purchaseOrders.find(p=>p._id===parts[2]);
   if(endpoint==='/purchases/'&&request.method==='POST'){
+    if(failPurchaseValidation)return {status:422,message:'The supplier is no longer available. Refresh and review the order again.'};
     const prior=purchaseOrders.find(p=>p.requestKey===body.requestKey);if(prior)return {data:{purchaseOrder:prior,replayed:true}};
-    const items=body.items.map(r=>({...r,name:product.name,brand:product.brand,unit:product.unit,totalMinor:r.quantity*r.unitCostMinor,receivedQuantity:0}));
+    const items=body.items.map(r=>{const found=r.productId===productTwo._id?productTwo:product;return {...r,name:found.name,brand:found.brand,unit:found.unit,totalMinor:r.quantity*r.unitCostMinor,receivedQuantity:0};});
     const record={...body,reference:body.reference||'PO-'+(purchaseOrders.length+1),_id:'purchase-'+(purchaseOrders.length+1),supplierName:businessEntities.find(e=>e._id===body.supplierId).name,createdAt:new Date().toISOString(),items,totalMinor:items.reduce((n,r)=>n+r.totalMinor,0),revision:0,status:'DRAFT'};purchaseOrders.push(record);return {data:{purchaseOrder:record,replayed:false}};
   }
   if(endpoint==='/purchases/'){const entries=purchaseOrders.filter(p=>(!url.searchParams.get('supplierId')||p.supplierId===url.searchParams.get('supplierId'))&&(!url.searchParams.get('q')||p.reference.includes(url.searchParams.get('q')))&&(!url.searchParams.get('status')||p.status===url.searchParams.get('status')));return {data:{entries,pagination:{currentPage:1,totalPages:1,recordCount:entries.length}}};}
@@ -232,15 +235,9 @@ async function mock(event) {
   } else if (endpoint === "/products/search-product") {
     const category = url.searchParams.get("category");
     const search = url.searchParams.get("search");
+    const found=(search?[product,productTwo]:[product]).filter(p=>(!category||category===p.category._id)&&(!search||new RegExp(search,'i').test(p.name)||new RegExp(search,'i').test(p.brand)));
     data = {
-      product: (!category || category === product.category._id) &&
-        (!search || new RegExp(search, "i").test(product.name) || new RegExp(search, "i").test(product.brand)) ? [
-        role === "CASHIER"
-          ? Object.fromEntries(
-              Object.entries(product).filter(([k]) => k !== "costPrice"),
-            )
-          : product,
-      ] : [],
+      product: found.map(p=>role === "CASHIER" ? Object.fromEntries(Object.entries(p).filter(([k])=>k!=='costPrice')) : p),
     };
     if (slowCategorySearch && category === "category-one") await sleep(450);
   } else if (endpoint === "/products/low-stock")
@@ -284,7 +281,7 @@ async function mock(event) {
     }
     else if(endpoint==='/accounts/transactions'||/^\/accounts\/transactions\/[^/]+$/.test(endpoint)){
       if(!supplierReady&&!allowAccountBalance){status=409;message='Accounting is disabled; posted test journal register is unavailable';}
-      else {const entries=supplierSettlements.map(e=>({eventId:e._id,eventType:'SUPPLIER_'+e.kind,sourceDocument:{reference:e.reference,receiptId:e.receiptId},occurredAt:e.occurredAt,recordedAt:e.occurredAt,actor:{name:e.createdByName,role:'OWNER'},amountMinor:e.amountMinor,postings:[{accountId:'cash-account',account:{name:'Counter cash',kind:'CASH'},debitMinor:0,creditMinor:e.kind==='PAYMENT'?e.amountMinor:0,moneyOutMinor:e.kind==='PAYMENT'?e.amountMinor:null,moneyInMinor:null}],businessAction:{items:e.items},reversedBy:[]}));data=endpoint==='/accounts/transactions'?{entries,pagination:{currentPage:1,totalPages:1},coverage:{complete:false}}:{transaction:entries.find(e=>e.eventId===endpoint.split('/')[3]),originalTransaction:null};}
+      else {const supplierEntries=supplierSettlements.map(e=>({eventId:e._id,eventType:'SUPPLIER_'+e.kind,sourceDocument:{reference:e.reference,receiptId:e.receiptId},occurredAt:e.occurredAt,recordedAt:e.occurredAt,actor:{name:e.createdByName,role:'OWNER'},amountMinor:e.amountMinor,postings:[{accountId:'cash-account',account:{name:'Counter cash',kind:'CASH'},debitMinor:0,creditMinor:e.kind==='PAYMENT'?e.amountMinor:0,moneyOutMinor:e.kind==='PAYMENT'?e.amountMinor:null,moneyInMinor:null}],businessAction:{items:e.items},reversedBy:[]})),invoiceEntries=financialEvents.flatMap(e=>(e.transactionIds||[]).map(eventId=>({eventId,eventType:'INVOICE_RECEIPT',sourceDocument:{invoiceNo:e.invoiceNo,orderId:e.orderId},occurredAt:e.occurredAt,recordedAt:e.occurredAt,actor:{name:e.createdByName,role:'OWNER'},amountMinor:e.financial?.cashReceivedMinor||e.financial?.cashRefundMinor||0,postings:[],reversedBy:[]}))),allEntries=[...supplierEntries,...invoiceEntries],entries=allEntries.filter(e=>!url.searchParams.get('sourceId')||e.eventId===url.searchParams.get('sourceId'));data=endpoint==='/accounts/transactions'?{entries,pagination:{currentPage:1,totalPages:1},coverage:{complete:false}}:{transaction:allEntries.find(e=>e.eventId===endpoint.split('/')[3]),originalTransaction:null};}
     }
     else if(endpoint==='/accounts/financial' && request.method==='POST'){status=409;message='Accounting is disabled; live balances and financial mutations are unavailable';}
     else if(endpoint==='/accounts/financial')data={entries:financialAccounts,pagination:{currentPage:1,totalPages:1},livePostingEnabled:false};
@@ -1468,8 +1465,20 @@ try {
   await click('Purchases');await wait('document.body.innerText.includes("No purchase orders found")');
   await click('Create purchase order');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
   await click('Add Copper Cable');await fill('[aria-label="Quantity for Copper Cable"]','5');await fill('[aria-label="Unit cost for Copper Cable"]','10.00');
-  await click('Review purchase order');assert.equal(purchaseOrders.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("PO-1") && !document.querySelector("dialog[open]")');
-  assert.equal(purchaseOrders[0].items[0].unitCostMinor,1000);assert.equal(product.stockQuantity,stockBeforePurchases);
+  await fillLabel('Find purchase products','Fiber');await click('Add Fiber Spool');await fill('[aria-label="Quantity for Fiber Spool"]','2');await fill('[aria-label="Unit cost for Fiber Spool"]','3.25');
+  const purchasePosts=()=>calls.filter(c=>c.endpoint==='/purchases/'&&c.method==='POST').length;
+  await click('Review purchase order');assert.equal(purchaseOrders.length,0);assert.equal(purchasePosts(),0);assert.equal(goodsReceipts.length,0);assert.equal(supplierSettlements.length,0);
+  await wait('document.querySelector("dialog").innerText.includes("PKR 56.50") && document.querySelector("dialog").innerText.includes("Stock and payment will be recorded separately.")');
+  assert.ok(await evaluate('document.activeElement.textContent.trim()==="Confirm order"'));
+  await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Escape',code:'Escape'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
+  await wait('!document.querySelector("dialog[open]") && document.querySelector("[aria-label=\\"Quantity for Copper Cable\\"]").value==="5"');
+  await click('Review purchase order');await click('Back');await wait('!document.querySelector("dialog[open]") && document.querySelector("[aria-label=\\"Unit cost for Fiber Spool\\"]").value==="3.25"');
+  await click('Review purchase order');failPurchaseValidation=true;await click('Confirm order');failPurchaseValidation=false;
+  await wait('document.body.innerText.includes("supplier is no longer available") && !document.querySelector("dialog[open]")');assert.equal(purchasePosts(),1);assert.equal(purchaseOrders.length,0);
+  await click('Review purchase order');await wait('document.activeElement.textContent.trim()==="Confirm order"');
+  await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'Enter',code:'Enter'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter'});
+  await wait('document.body.innerText.includes("PO-1") && !document.querySelector("dialog[open]")');
+  assert.equal(purchasePosts(),2);assert.equal(purchaseOrders[0].items.length,2);assert.equal(purchaseOrders[0].items[0].unitCostMinor,1000);assert.equal(purchaseOrders[0].items[1].unitCostMinor,325);assert.equal(purchaseOrders[0].totalMinor,5650);assert.equal(product.stockQuantity,stockBeforePurchases);assert.equal(goodsReceipts.length,0);assert.equal(supplierSettlements.length,0);
   await click('View');await wait('document.body.innerText.includes("Confirm order")');purchaseOrders[0].revision++;await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Purchase changed")');await click('Refresh current data');await wait('document.body.innerText.includes("Confirm order")');await click('Confirm order');await click('Confirm and record');await wait('document.body.innerText.includes("Receive delivery")');
   await fill('[aria-label="Delivered Copper Cable"]','1');await click('Review delivered quantities');assert.equal(goodsReceipts.length,0);await click('Confirm and record');await wait('document.body.innerText.includes("GR-1")');
   assert.equal(product.stockQuantity,stockBeforePurchases+1);assert.equal(goodsReceipts[0].accountingStatus,'DEFERRED');
@@ -1621,11 +1630,31 @@ try {
   );
   await click("INV-2");
   await wait('!!document.querySelector(".receipt")');
+  Object.assign(invoice,{customerId:customer._id});
+  financialEvents.unshift({_id:'trace-sale-event',orderId:'invoice-two',invoiceNo:'INV-2',reference:'INV-2',kind:'SALE',revisionAfter:0,occurredAt:'2026-01-03T10:00:00.000Z',createdByName:'Original Seller',reason:'Initial invoice payment',financial:{cashReceivedMinor:5000},transactionIds:['trace-invoice-journal']});
   await send("Page.reload");
   await sleep(300);
   await wait('!!document.querySelector(".receipt")');
   assert.ok(await evaluate('location.pathname.includes("invoice-two")'));
   assert.ok(await evaluate('document.querySelector(".receipt").innerText.includes("Sold by: Ali")'));
+  assert.ok(await evaluate('[...document.querySelectorAll(".invoice-customer-name a")].some(a=>a.textContent.includes("View customer activity")&&a.href.includes("customerId=customer-one"))'),'Invoice links to the actual linked customer');
+  await click('View customer activity');await wait('location.pathname==="/owner/customers/activity"&&document.body.innerText.includes("Customer activity")');
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.query.includes('customerId=customer-one')),'Customer link opens history filtered by the invoice customer');
+  await evaluate('history.back()');await wait('location.pathname==="/owner/sales/invoice-two"');
+  await evaluate('document.querySelector(".record-register button[aria-expanded=false]").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('!!document.querySelector(".invoice-related-transactions")');
+  assert.ok(await evaluate('[...document.querySelectorAll(".invoice-related-transactions a")].some(a=>a.href.includes("sourceId=trace-invoice-journal"))'),'Invoice event links only to its authoritative linked transaction ID');
+  await evaluate('document.querySelector(".invoice-related-transactions a").focus()');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  await wait('!document.querySelector(".invoice-related-transactions")&&document.activeElement.textContent.includes("Details")');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait('!!document.querySelector(".invoice-related-transactions")');
+  allowAccountBalance=true;await click('View financial transaction');
+  await wait('location.pathname==="/owner/accounts/transactions"&&document.body.innerText.includes("INV-2")');
+  assert.ok(calls.some(c=>c.endpoint==='/accounts/transactions'&&c.query.includes('sourceId=trace-invoice-journal')),'Transaction workspace filters by the linked journal ID');
+  assert.equal(await evaluate('document.querySelectorAll(".record-register tbody tr.record-clickable").length'),1,'The invoice source produces one linked journal row');
+  await evaluate('history.back()');await wait('location.pathname==="/owner/sales/invoice-two"');allowAccountBalance=false;
   await assertReceiptShop();
   // OWNER returns/exchanges use server plans, never browser accounting. These
   // isolated contract fixtures do not mutate any real shop records.

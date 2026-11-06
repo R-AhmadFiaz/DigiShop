@@ -29,6 +29,7 @@ const {StockLog} = await import('../dist/models/stockLog.model.js');
 const {InvoiceAdjustment} = await import('../dist/models/invoiceAdjustment.model.js');
 const {Customer} = await import('../dist/models/customer.model.js');
 const {CustomerLedger} = await import('../dist/models/customerLedger.model.js');
+const {BusinessTransaction} = await import('../dist/models/businessTransaction.model.js');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 await test('isolated real MongoDB replica-set invoice adjustment tests', {skip: !existsSync(binary)}, async t => {
@@ -51,7 +52,7 @@ await test('isolated real MongoDB replica-set invoice adjustment tests', {skip: 
             if (n > 200) throw new Error('Replica set did not elect primary');
             await sleep(100);
         }
-        for (const Model of [Order, Product, Shop, StockLog, InvoiceAdjustment, Customer, CustomerLedger, User]) {
+        for (const Model of [Order, Product, Shop, StockLog, InvoiceAdjustment, Customer, CustomerLedger, BusinessTransaction, User]) {
             await Model.createCollection(); await Model.createIndexes();
         }
         const ownerId = new mongoose.Types.ObjectId();
@@ -561,10 +562,23 @@ await test('isolated real MongoDB replica-set invoice adjustment tests', {skip: 
             const next = returned(current, 1, {cashRefundAmount: 50});
             const secondPreview = await http('POST', `/orders/${order._id}/adjustments/preview`, next);
             assert.equal((await http('POST', `/orders/${order._id}/adjustments`, {...next, confirmationToken: secondPreview.body.data.confirmationToken})).status, 200);
+            const linkedTransaction = await BusinessTransaction.create({shopId: shop._id, requestKey: 'invoice-trace-test', requestHash: 'invoice-trace-test',
+                source: {kind: 'INVOICE_REFUND', referenceId: saved.body.data.event._id}, occurredAt: new Date(), reason: 'Isolated invoice trace fixture',
+                createdBy: ownerId, createdByName: 'Original owner', postings: [
+                    {accountId: new mongoose.Types.ObjectId(), debitMinor: 5000, creditMinor: 0},
+                    {accountId: new mongoose.Types.ObjectId(), debitMinor: 0, creditMinor: 5000}
+                ]});
+            await BusinessTransaction.create({shopId: foreignShop._id, requestKey: 'invoice-trace-foreign', requestHash: 'invoice-trace-foreign',
+                source: {kind: 'INVOICE_REFUND', referenceId: saved.body.data.event._id}, occurredAt: new Date(), reason: 'Foreign shop fixture',
+                createdBy: foreignOwnerId, createdByName: 'Foreign owner', postings: [
+                    {accountId: new mongoose.Types.ObjectId(), debitMinor: 5000, creditMinor: 0},
+                    {accountId: new mongoose.Types.ObjectId(), debitMinor: 0, creditMinor: 5000}
+                ]});
             const history = await http('GET', `/orders/${order._id}/history?page=2&limit=1`);
             assert.equal(history.status, 200); assert.equal(history.body.data.history.length, 1);
             assert.equal(history.body.data.pagination.recordCount, 2); assert.equal(history.body.data.pagination.totalPages, 2);
             assert.equal(history.body.data.history[0]._id, saved.body.data.event._id);
+            assert.deepEqual(history.body.data.history[0].transactionIds, [String(linkedTransaction._id)]);
             assert.ok(!JSON.stringify(history.body).includes('requestHash'));
             assert.equal((await http('GET', `/orders/${order._id}/history?limit=101`)).status, 400);
             assert.equal((await http('GET', `/orders/${order._id}/history?kind=unknown`)).status, 400);

@@ -9,6 +9,17 @@ test('purchase values use exact minor units and whole quantities',()=>{
   for(const value of ['','-1','0.001','NaN','Infinity'])assert.throws(()=>minorAmount(value));
   assert.throws(()=>purchaseItems([]));assert.throws(()=>purchaseItems([{_id:'p',quantity:'1.5',cost:'1'}]));
 });
+test('purchase confirmation reviews validated line totals and clearly separates receipt and payment',()=>{
+  const source=fs.readFileSync(new URL('../src/pages/owner/Purchases.jsx',import.meta.url),'utf8');
+  assert.match(source,/confirmationType:'purchase-order'/);assert.match(source,/unitCostMinor:items\[index\]\.unitCostMinor/);
+  assert.match(source,/totalMinor:items\[index\]\.quantity\*items\[index\]\.unitCostMinor/);
+  const action=fs.readFileSync(new URL('../src/components/SupplierAction.jsx',import.meta.url),'utf8');
+  for(const label of ['Supplier:','Product','Quantity','Unit price','Total','Order total','Stock and payment will be recorded separately.','Confirm order','Back'])assert.ok(action.includes(label));
+  assert.doesNotMatch(source,/Automatic purchase reference|This does not receive stock or make a payment/);
+  assert.match(action,/request\.confirmationType==='purchase-order'\?<>/);
+  assert.match(action,/lock\.current=true/);assert.match(action,/savePending\(storageKey,request\)/);
+  const modal=fs.readFileSync(new URL('../src/components/Common.jsx',import.meta.url),'utf8');assert.match(modal,/data-modal-initial-focus/);
+});
 test('receiving validates remaining units and does not silently receive ordered totals',()=>{
   const rows=[{productId:'p',quantity:5,receivedQuantity:2}],remaining=r=>r.quantity-r.receivedQuantity;
   assert.deepEqual(quantityItems(rows,{p:'1'},remaining),[{productId:'p',quantity:1}]);

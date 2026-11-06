@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import {Link} from 'react-router-dom';
 import { query } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { dateText, money, Notice, Pagination } from "./Common";
@@ -29,6 +30,7 @@ export function EventDocument({ event, order }) {
       {key:'stock',label:'Stock handling',render:m=>m.disposition==='DAMAGED'?'Damaged — not restocked':m.disposition==='RESTOCK'?'Restocked':'—'}
     ]} empty="No product movements."/>
     <FinancialMovements financial={event.financial} />
+    {Array.isArray(event.transactionIds)&&event.transactionIds.length>0&&<div className="invoice-related-transactions"><strong>Related financial transactions</strong>{[...new Set(event.transactionIds.map(String))].map((id,index)=><Link key={id} to={'/owner/accounts/transactions?'+new URLSearchParams({sourceId:id})}>View financial transaction{event.transactionIds.length>1?' '+(index+1):''}</Link>)}</div>}
     {event.after && <p>Invoice total: {money(event.after.totalMinor / 100)} · Outstanding: {money(event.after.dueMinor / 100)}</p>}
   </>;
 }

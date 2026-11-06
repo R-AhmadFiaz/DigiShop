@@ -4,7 +4,7 @@ import { query } from '../../api/client';
 import { useDebounce, useLoad } from '../../api/hooks';
 import {useProductSearch} from '../../api/productSearch';
 import ProductFilters from '../../components/ProductFilters';
-import { minorAmount, pkr, purchaseItems } from '../../api/purchases';
+import { purchaseItems } from '../../api/purchases';
 import { Empty, Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import PurchaseTable from '../../components/PurchaseTable';
 import SupplierAction from '../../components/SupplierAction';
@@ -18,7 +18,8 @@ function CreatePurchase({prepare,locked,onClose}) {
   function submit(e){
     e.preventDefault();if(locked)return;setError('');
     try{if(!supplier)throw new Error('Choose a supplier.');const form=new FormData(e.currentTarget),items=purchaseItems(rows);
-      prepare({path:'/purchases/',title:'Create purchase order',summary:'Automatic purchase reference'+' — '+supplier.name+'\n'+rows.map(r=>r.name+': '+r.quantity+' units at '+pkr(minorAmount(r.cost))).join('\n')+'\nThis does not receive stock or make a payment.',body:{...(form.get('notes')?{notes:form.get('notes')}:{}),...(form.get('supplierDocumentNo')?{supplierDocumentNo:form.get('supplierDocumentNo')}:{}),supplierId:supplier._id,items,requestKey:crypto.randomUUID()}});
+      const reviewedItems=rows.map((row,index)=>({name:row.name,quantity:items[index].quantity,unitCostMinor:items[index].unitCostMinor,totalMinor:items[index].quantity*items[index].unitCostMinor}));
+      prepare({path:'/purchases/',title:'Confirm purchase order',confirmationType:'purchase-order',supplierName:supplier.name,items:reviewedItems,totalMinor:reviewedItems.reduce((total,item)=>total+item.totalMinor,0),body:{...(form.get('notes')?{notes:form.get('notes')}:{}),...(form.get('supplierDocumentNo')?{supplierDocumentNo:form.get('supplierDocumentNo')}:{}),supplierId:supplier._id,items,requestKey:crypto.randomUUID()}});
     }catch(e){setError(e.message);}
   }
   return <section className="panel mb-3"><h2 className="h5">Create purchase order</h2><form onSubmit={submit}><fieldset disabled={locked}><Notice error={error}/>

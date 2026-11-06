@@ -5,6 +5,7 @@ import {Order} from '../models/order.model.js';
 import {Product} from '../models/product.model.js';
 import {StockLog} from '../models/stockLog.model.js';
 import {InvoiceAdjustment} from '../models/invoiceAdjustment.model.js';
+import {BusinessTransaction} from '../models/businessTransaction.model.js';
 import {InvoiceCustomerNameCorrection} from '../models/invoiceCustomerNameCorrection.model.js';
 import {Shop} from '../models/shop.model.js';
 import {apiError} from '../utils/apiError.js';
@@ -191,10 +192,15 @@ export const getInvoiceHistory = asyncHandler(async (req, res) => {
     const filter: any = {shopId: req.user.shopId, orderId: order._id, ...(kind ? {kind} : {}), ...(requestKey ? {requestKey} : {})};
     const history = await InvoiceAdjustment.find(filter).select('-requestHash').sort({occurredAt: -1, _id: -1}).skip(skip).limit(limit).session(session);
     const recordCount = await InvoiceAdjustment.countDocuments(filter).session(session);
+    const linkedJournals = history.length ? await BusinessTransaction.find({shopId: req.user.shopId,
+        'source.kind': {$in: ['INVOICE_RECEIPT', 'INVOICE_REFUND']}, 'source.referenceId': {$in: history.map(event => event._id)}})
+        .select('_id source.referenceId').session(session).lean() : [];
+    const historyWithTransactions = history.map(event => ({...event.toObject(), transactionIds: linkedJournals
+        .filter(journal => String(journal.source.referenceId) === String(event._id)).map(journal => String(journal._id))}));
     const customerNameHistory = await InvoiceCustomerNameCorrection.find({shopId: req.user.shopId, orderId: order._id})
         .select('-requestHash').sort({recordedAt: -1, _id: -1}).limit(50).session(session).lean();
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(new apiResponse(200, {history, customerNameHistory, revision: order.revision ?? 0,
+    return res.status(200).json(new apiResponse(200, {history: historyWithTransactions, customerNameHistory, revision: order.revision ?? 0,
         pagination: {recordCount, totalPages: Math.ceil(recordCount / limit), currentPage: page, limit}}, 'Invoice history fetched'));
     } finally {await session.abortTransaction(); await session.endSession();}
 });
