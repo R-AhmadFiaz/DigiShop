@@ -40,7 +40,7 @@ Frontend: `VITE_API_BASE_URL` (local value `http://localhost:3001/api/v2`). Back
 
 Additional backend runtime variable: `NODE_ENV`. Feature flags retain their existing behavior; do not enable accounting flags to run the migration. Cloudinary/OpenAI credentials are needed only for those integrations; local dummy values do not enable them. Admin variables support the existing separate admin-creation utility; do not run it against shared databases during verification.
 
-The backend appends its existing database name `inventory-store` to `MONGO_DB_URI`; supply a MongoDB server base URI, not a URI already containing a database or query parameters. Transactions require a replica set. Use a disposable local replica set for development and tests, never shared Atlas for test mutations. Original credentials remain in the untouched original repositories; an isolated temporary history clone also holds the original historical Git objects and must never be published. No original environment file is copied to this checkout.
+The backend appends its existing database name `inventory-store` to `MONGO_DB_URI`; supply a MongoDB server base URI, not a URI already containing a database or query parameters. Transactions require a replica set. Use a disposable local replica set for development and tests, never shared Atlas for test mutations. Original credentials remain in the untouched original repositories. The temporary history clone was removed after import. No original environment file is copied to this checkout.
 
 ## Development
 
@@ -50,7 +50,7 @@ npm run dev:frontend
 npm run dev:backend
 ```
 
-Frontend: http://localhost:5173 (strict port). Backend: http://localhost:3001, API prefix /api/v2. Start local MongoDB before the backend. Root development commands set a matching API URL, backend PORT and CORS_ORIGIN; shell overrides are supported. Ctrl+C stops the started service trees.
+Frontend: http://localhost:5173 (strict port). Backend: http://localhost:3001, API prefix /api/v2. Start local MongoDB before the backend. Root development commands set a matching API URL, backend PORT and CORS_ORIGIN; shell overrides are supported. Set FRONTEND_PORT and PORT to unused ports when existing services occupy 5173 or 3001; CORS and API defaults follow those overrides. Ctrl+C stops the started service trees.
 
 Each app remains independently runnable: `cd frontend; npm run dev` or `cd backend; npm run dev`. Configure their own local environment first: the unchanged frontend fallback is port 3000, while the backend fallback is 3001. Use the matching environment values above. Preview uses Vite's separate preview port and needs that origin in CORS if calling the backend.
 
@@ -92,3 +92,7 @@ git push -u origin main
 ```
 
 Pushing main includes both histories through its parent graph. Archive branches are optional; do not use --mirror or --all. This checkout intentionally has no remote. Publishing and deployment require separate explicit approval.
+
+## Migration verification
+
+See [MIGRATION_REPORT.md](MIGRATION_REPORT.md) for results and remaining risks. Both builds and all 625 frontend/backend unit/integration tests pass. The optional broad browser smoke test has an unresolved customer-navigation failure; its purchase-order checks were not reached. No publication or deployment has occurred.
