@@ -566,6 +566,11 @@ async function wait(expression) {
       (await evaluate("document.body.innerText")) + "\nBrowser errors: " + JSON.stringify(errors),
   );
 }
+async function waitForSettledFocus(expression) {
+    await wait(expression);
+    // Observe the frame that runs queued focus-restoration callbacks, then check the target again.
+    assert.ok(await evaluate('new Promise(resolve=>requestAnimationFrame(()=>resolve('+expression+')))'), 'Focus restoration settled: '+expression);
+  }
 async function assertReceiptShop() {
   const identity = await evaluate(`(() => {
     const header = document.querySelector(".receipt").firstElementChild;
@@ -1432,12 +1437,18 @@ try {
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13,text:'\r',unmodifiedText:'\r'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
   await wait('!!document.querySelector(\".customer-record-inspector\")');
   assert.ok(await evaluate('document.querySelector(\".customer-record-inspector\").innerText.includes(\"Payment received\")&&document.querySelector(\".customer-record-inspector\").innerText.includes(\"Counter cash\")'));
+  await wait('document.activeElement===document.querySelector(".customer-record-inspector")');
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27,nativeVirtualKeyCode:27});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await wait('!document.querySelector(\".customer-record-inspector\")');
-  await wait('document.activeElement.textContent.trim().includes("View")');
+  await waitForSettledFocus('document.activeElement===[...document.querySelectorAll(".record-actions button.record-view-action")].at(-1)');
   assert.ok(!calls.some(c=>c.endpoint==='/accounts/customers/activity'&&c.method!=='GET'),'Customer activity performs no financial writes');
   await evaluate('document.querySelector(\".customer-nav summary\").focus()');
-  for(let index=0;index<2;index++){await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});}
+  await wait('document.activeElement===document.querySelector(".customer-nav summary")');
+  for(let index=0;index<2;index++){
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
+    await wait('document.activeElement===document.querySelectorAll(".customer-nav .navigation-overflow a")['+index+']');
+  }
   await send('Input.dispatchKeyEvent',{type:'keyDown',key:' ',code:'Space',windowsVirtualKeyCode:32,nativeVirtualKeyCode:32});await send('Input.dispatchKeyEvent',{type:'keyUp',key:' ',code:'Space',windowsVirtualKeyCode:32});
   await wait('location.pathname===\"/owner/customers/invoices\"&&document.body.innerText.includes(\"Invoice\")');
   await evaluate('history.back()');await wait('location.pathname===\"/owner/customers/activity\"');
