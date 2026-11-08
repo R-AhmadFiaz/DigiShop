@@ -64,7 +64,7 @@ export function Pagination({ pagination, onPage }) {
     </div>
   );
 }
-export function Modal({ title, onClose, children, busy = false, wide = false }) {
+export function Modal({ title, onClose, children, busy = false, wide = false, trapFocus = false }) {
   const ref = useRef(null);
   const headingId=useId();
   useEffect(() => {
@@ -81,6 +81,14 @@ export function Modal({ title, onClose, children, busy = false, wide = false }) 
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
+      }}
+      onKeyDown={event=>{
+        if(!trapFocus||event.key!=='Tab'||event.target.closest('dialog')!==event.currentTarget)return;
+        const dialog=event.currentTarget,items=[...dialog.querySelectorAll('button,a[href],input,select,textarea,[tabindex]')].filter(e=>e.tabIndex>=0&&!e.matches(':disabled')&&e.getClientRects().length);
+        const index=items.indexOf(document.activeElement);
+        if(!items.length){event.preventDefault();dialog.focus();return;}
+        if(event.shiftKey&&(index<=0)){event.preventDefault();items.at(-1).focus();}
+        else if(!event.shiftKey&&(index<0||index===items.length-1)){event.preventDefault();items[0].focus();}
       }}
       aria-labelledby={headingId}
     >

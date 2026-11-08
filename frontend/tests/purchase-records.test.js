@@ -71,4 +71,25 @@ try{
     assert.equal((html.match(/href="\/owner\/purchases\/po"/g)||[]).length,1);
     assert.doesNotMatch(html,/>Open purchase<|>Details<\/button>/);
   });
+  await test('refresh follows posted full/partial receipts and return corrections without using order value as debt',async()=>{
+    const base={_id:'refresh-po',supplierId:'refresh-supplier',totalMinor:3250000,items:[{productId:'ghee',quantity:50,receivedQuantity:0}]};
+    let deliveries=[],returns=[];
+    const request=async path=>{
+      const url=new URL(path,'http://local');
+      const entries=url.pathname.endsWith('/receipts')?deliveries:returns.filter(row=>row.receiptId===url.searchParams.get('sourceId'));
+      return {entries,pagination:{recordCount:entries.length,totalPages:entries.length?1:0}};
+    };
+    assert.deepEqual((await readPurchaseRecords(base,undefined,request)).summary,{items:[{...base.items[0],returnedQuantity:0,keptQuantity:0}],received:0,returned:0,kept:0});
+    const delivery=(id,quantity)=>({_id:id,purchaseOrderId:base._id,supplierId:base.supplierId,items:[{productId:'ghee',quantity}],accountingStatus:'POSTED'});
+    deliveries=[delivery('first',20)];
+    let result=await readPurchaseRecords({...base,items:[{...base.items[0],receivedQuantity:20}]},undefined,request);
+    assert.deepEqual([result.summary.received,result.summary.returned,result.summary.kept],[20,0,20]);
+    deliveries.push(delivery('remaining',30));
+    const received={...base,items:[{...base.items[0],receivedQuantity:50}]};
+    result=await readPurchaseRecords(received,undefined,request);assert.deepEqual([result.summary.received,result.summary.returned,result.summary.kept],[50,0,50]);
+    returns=[{_id:'returned',supplierId:base.supplierId,receiptId:'first',kind:'RETURN',items:[{productId:'ghee',quantity:5}]}];
+    result=await readPurchaseRecords(received,undefined,request);assert.deepEqual([result.summary.received,result.summary.returned,result.summary.kept],[50,5,45]);
+    assert.equal(result.summary.items[0].quantity-result.summary.items[0].receivedQuantity,0,'A return does not reopen the order for over-receiving');
+  });
+
 }finally{await server.close();}

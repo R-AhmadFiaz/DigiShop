@@ -2,6 +2,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Notice } from "../components/Common";
+import SupplierQuickPayment from "../components/SupplierQuickPayment";
 import SubscriptionWarning from "../components/SubscriptionWarning";
 import { displayName } from "../utils/identity";
 const links = {
@@ -36,7 +37,18 @@ export default function ShopLayout() {
   const cashierPOS =
     user.role === "CASHIER" && pathname.replace(/\/$/, "") === "/cashier/pos";
   const drawer=useRef(null),menuButton=useRef(null);
-  const [menuOpen,setMenuOpen]=useState(false);
+  const [menuOpen,setMenuOpen]=useState(false),[paySupplier,setPaySupplier]=useState(false);
+  const purchaseTrigger=useRef(null),returnToDrawer=useRef(false);
+  function openSupplierPayment(){
+    returnToDrawer.current=menuOpen;
+    navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);
+    setMenuOpen(false);setPaySupplier(true);
+  }
+  function closeSupplierPayment(){
+    setPaySupplier(false);
+    if(returnToDrawer.current){setMenuOpen(true);requestAnimationFrame(()=>purchaseTrigger.current?.focus());}
+    else requestAnimationFrame(()=>purchaseTrigger.current?.focus());
+  }
   const mainSections=user.role==='OWNER'?['','sales','products','purchases','customers','reports']:links[user.role].map(([to])=>to);
   const secondaryLinks=links[user.role].filter(([to])=>!mainSections.includes(to));
   const navigation=useRef(null);
@@ -98,16 +110,22 @@ export default function ShopLayout() {
         <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{
           const details=e.target.closest('details');
           if(e.key==='Escape'&&details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();return;}
-          if(e.key===' '&&e.target.matches('.navigation-overflow a')){e.preventDefault();e.target.click();return;}
+          if(e.key===' '&&e.target.matches('.navigation-overflow a, .navigation-overflow button')){e.preventDefault();e.target.click();return;}
           if(details?.classList.contains('more-nav')&&['ArrowDown','ArrowUp'].includes(e.key)){
             const summary=e.target.closest('summary');
-            if(summary){e.preventDefault();details.open=true;const items=details.querySelectorAll('.navigation-overflow a');items[e.key==='ArrowDown'?0:items.length-1]?.focus();return;}
-            const items=[...details.querySelectorAll('.navigation-overflow a')],index=items.indexOf(e.target);
+            if(summary){e.preventDefault();details.open=true;const items=details.querySelectorAll('.navigation-overflow a, .navigation-overflow button');items[e.key==='ArrowDown'?0:items.length-1]?.focus();return;}
+            const items=[...details.querySelectorAll('.navigation-overflow a, .navigation-overflow button')],index=items.indexOf(e.target);
             if(index>=0&&items.length){e.preventDefault();items[(index+(e.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();}
           }
         }} onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
           {links[user.role].filter(([to])=>mainSections.includes(to)).map(([to, label]) => (
-            to==='customers' ? <details key={to} className="more-nav customer-nav">
+            to==='purchases'?<details key={to} className="more-nav purchase-nav">
+              <summary ref={purchaseTrigger} aria-label="Purchases menu" aria-current={pathname.startsWith('/owner/purchases')?'page':undefined}>Purchases</summary>
+              <div className="navigation-overflow">
+                <NavLink to="purchases">Purchase orders</NavLink>
+                <button type="button" className="btn w-100 text-start" onClick={openSupplierPayment}>Pay supplier</button>
+              </div>
+            </details>:to==='customers' ? <details key={to} className="more-nav customer-nav">
               <summary aria-label="Customers menu" aria-current={pathname.startsWith('/owner/customers')||pathname==='/cashier/customers'?'page':undefined}>Customers</summary>
               <div className="navigation-overflow">
                 <NavLink to={to} end>Customer accounts</NavLink>
@@ -131,6 +149,7 @@ export default function ShopLayout() {
         </nav>
       </aside>
       </dialog>
+      {paySupplier&&user.role==='OWNER'&&<SupplierQuickPayment onClose={closeSupplierPayment} onNavigate={()=>{setPaySupplier(false);setMenuOpen(false);returnToDrawer.current=false;}}/>}
       <main className="workspace">
         <header className="app-header no-print">
           {ownerDashboard && (

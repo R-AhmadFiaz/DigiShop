@@ -53,7 +53,7 @@ test('new supplier setup requires explicit zero-opening confirmation and purchas
   assert.match(source,/availability\.data\?\.accountingEnabled!==true/);
   assert.match(source,/CONFIRM SUPPLIER OPENING/);
   const purchase=fs.readFileSync(new URL('../src/pages/owner/PurchaseDetails.jsx',import.meta.url),'utf8');
-  assert.match(purchase,/Prepare or review supplier opening/);
+  assert.match(purchase,/Confirm previous supplier balance/);
 });
 
 test('supplier openings use simple choices and server-resolved accounts',()=>{

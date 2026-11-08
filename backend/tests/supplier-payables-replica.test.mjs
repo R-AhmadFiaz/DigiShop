@@ -236,6 +236,53 @@ await test('supplier payables: actual HTTP and disposable loopback replica set',
                 assert.equal(await FinancialAccount.countDocuments(),count);assert.equal(await SupplierCutover.countDocuments({supplierId:entity._id}),0);
             }
         });
+        await t.test('receiving readiness, full and partial deliveries preserve authoritative payable without payments',async()=>{
+            process.env.BUSINESS_ACCOUNTING_ENABLED='true';
+            const entity=await accounts.businessTransaction(a.actor,s=>accounts.createBusinessEntity(a.actor,{key:'receiving-prerequisite',name:'Isolated receiving supplier',roles:['SUPPLIER']},s));
+            const item=await product(),supplierPath='/accounts/suppliers/'+entity._id;
+            let purchase=(await create({supplierId:String(entity._id),items:[{productId:String(item._id),quantity:50,unitCostMinor:65000}]})).po;
+            const beforeStock=await stock(item),beforeJournals=await BusinessTransaction.countDocuments();
+            purchase=await confirm(purchase);
+            assert.equal(await stock(item),beforeStock);assert.equal(await BusinessTransaction.countDocuments(),beforeJournals);
+            const receive=(po,quantity,requestKey)=>({expectedRevision:po.revision,requestKey,items:[{productId:String(item._id),quantity}]});
+            assert.equal((await http('GET','/purchases/'+purchase._id)).status,200);
+            assert.equal(ok(await http('GET','/purchases/'+purchase._id+'/receipts')).entries.length,0);
+            const prerequisite=ok(await http('GET',supplierPath+'/reconciliation'));
+            assert.equal(prerequisite.authoritative,false);assert.equal(prerequisite.cutover,null);
+            const blocked=await http('POST','/purchases/'+purchase._id+'/receipts',receive(purchase,20,'blocked-receiving'));
+            assert.equal(blocked.status,409);assert.match(blocked.body.message,/Supplier payable cutover or reconciliation incomplete/);
+            assert.equal(await stock(item),beforeStock);assert.equal(await GoodsReceipt.countDocuments({purchaseOrderId:purchase._id}),0);
+            assert.equal(await BusinessTransaction.countDocuments(),beforeJournals);
+            // Explicit owner-confirmed zero opening is performed only in this disposable test database.
+            const evidence=ok(await http('GET',supplierPath+'/cutover-preview'));
+            const setup=ok(await http('POST',supplierPath+'/cutover',{requestKey:'isolated-receiving-opening',confirmation:'CONFIRM SUPPLIER OPENING',enrollNewSupplier:true,cutoffAt:new Date(Date.now()-1000).toISOString(),openingBalanceMinor:0,otherOpeningMinor:0,reviews:[],evidenceDigest:evidence.evidenceDigest,reason:'Isolated owner verified no previous debt or deliveries'}));
+            assert.equal(await BusinessTransaction.countDocuments({'source.referenceId':setup.cutover._id}),0);
+            const firstBody=receive(purchase,20,'partial-receiving');
+            const first=ok(await http('POST','/purchases/'+purchase._id+'/receipts',firstBody));purchase=first.purchaseOrder;
+            assert.equal(purchase.status,'PARTIALLY_RECEIVED');assert.equal(purchase.items[0].receivedQuantity,20);
+            assert.equal(await stock(item),beforeStock+20);assert.equal(first.receipt.totalMinor,1300000);assert.equal(first.accounting.cashMovementMinor,0);
+            assert.equal(ok(await http('GET',supplierPath+'/balance')).balanceMinor,1300000);
+            assert.equal(ok(await http('POST','/purchases/'+purchase._id+'/receipts',firstBody)).replayed,true);
+            assert.equal(await stock(item),beforeStock+20);assert.equal(await StockLog.countDocuments({purchaseReceiptId:first.receipt._id}),1);
+            assert.equal((await http('POST','/purchases/'+purchase._id+'/receipts',receive(purchase,31,'over-receiving'))).status,409);
+            assert.equal(await stock(item),beforeStock+20);assert.equal(ok(await http('GET',supplierPath+'/balance')).balanceMinor,1300000);
+            const last=ok(await http('POST','/purchases/'+purchase._id+'/receipts',receive(purchase,30,'remaining-receiving')));purchase=last.purchaseOrder;
+            assert.equal(purchase.status,'RECEIVED');assert.equal(purchase.items[0].receivedQuantity,50);assert.equal(await stock(item),beforeStock+50);
+            assert.equal(ok(await http('GET',supplierPath+'/balance')).balanceMinor,3250000);
+            assert.equal(ok(await http('GET','/purchases/'+purchase._id)).purchaseOrder.receivedValueMinor,3250000);
+            assert.equal(ok(await http('GET','/purchases/'+purchase._id+'/receipts')).entries.length,2);
+            assert.equal((await http('POST','/purchases/'+purchase._id+'/receipts',receive(purchase,1,'after-completion'))).status,409);
+            let full=(await create({supplierId:String(entity._id),items:[{productId:String(item._id),quantity:50,unitCostMinor:65000}]})).po;full=await confirm(full);
+            const fullBody=receive(full,50,'full-receiving');const fullReceipt=ok(await http('POST','/purchases/'+full._id+'/receipts',fullBody));
+            assert.equal(fullReceipt.purchaseOrder.status,'RECEIVED');assert.equal(await stock(item),beforeStock+100);
+            assert.equal(ok(await http('POST','/purchases/'+full._id+'/receipts',fullBody)).replayed,true);
+            assert.equal(await stock(item),beforeStock+100);assert.equal(ok(await http('GET',supplierPath+'/balance')).balanceMinor,6500000);
+            const journals=await BusinessTransaction.find({shopId:a.shop._id,'postings.accountId':setup.cutover.payableAccountId});
+            assert.equal(journals.length,3);assert.ok(journals.every(j=>j.source.kind==='PURCHASE_RECEIPT'&&j.postings.length===2));
+            assert.ok(journals.every(j=>j.postings.every(p=>[String(setup.cutover.payableAccountId),String(setup.cutover.offsetAccountId)].includes(String(p.accountId)))));
+            assert.equal(await mongoose.models.SupplierSettlement.countDocuments({supplierId:entity._id}),0);
+        });
+
     }finally{
         delete process.env.BUSINESS_ACCOUNTING_ENABLED;
         if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();mongo.kill();await new Promise(r=>mongo.exitCode!==null?r():mongo.once('exit',r));

@@ -5,6 +5,12 @@ export function useLoad(url, enabled = true) {
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
     [revision, setRevision] = useState(0);
+  useEffect(()=>{
+    if(!enabled||!url.startsWith('/accounts/'))return;
+    const refresh=()=>setRevision(v=>v+1);
+    window.addEventListener('digishop:supplier-payment',refresh);
+    return()=>window.removeEventListener('digishop:supplier-payment',refresh);
+  },[url,enabled]);
   useEffect(() => {
     if (!enabled) { setData(null); setError(""); setLoading(false); return; }
     const controller = new AbortController();

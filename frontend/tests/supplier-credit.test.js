@@ -19,6 +19,7 @@ test('supplier corrections retain original history and return copy no longer cla
 });
 
 test('supplier payment has one searchable account dropdown and optional note',()=>{
+  const page=fs.readFileSync(new URL('../src/components/SupplierPayment.jsx',import.meta.url),'utf8');
   assert.match(page,/Pay from \(Cash \/ Bank\)/);
   assert.match(page,/Search payment accounts/);
   assert.doesNotMatch(page,/Find payment account|label="Payment account"/);
