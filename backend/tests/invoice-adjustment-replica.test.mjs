@@ -10,7 +10,8 @@ import net from 'node:net';
 import jwt from 'jsonwebtoken';
 
 // Never reads MONGO_DB_URI, connects to existing databases, or uses app startup.
-const binary = 'C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 process.env.ACCESS_TOKEN_EXPIRY = '15m';
 process.env.REFRESH_TOKEN_EXPIRY = '7d';
 process.env.ACCESS_TOKEN_SECRET = 'isolated-replica-route-access';

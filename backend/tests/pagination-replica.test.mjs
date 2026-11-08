@@ -21,7 +21,8 @@ const {FinancialAccount}=await import('../dist/models/financialAccount.model.js'
 const {Customer}=await import('../dist/models/customer.model.js');
 const {Order}=await import('../dist/models/order.model.js');
 // Disposable loopback replica set; never a configured or shared database.
-const binary=['C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe','C:/Program Files/MongoDB/Server/9.0/bin/mongod.exe'].find(existsSync);
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const DAY=86400000;
 
@@ -63,6 +64,10 @@ await test('opt-in server pagination: disposable loopback replica set',{skip:!bi
                 assert.equal(data.product.length,page<3?20:5);
                 for(const p of data.product){assert.equal(String(p.shopId),String(a.shop._id));assert.ok(!seen.has(String(p._id)));seen.add(String(p._id));}}
             assert.equal(seen.size,45);
+            // Same order users saw before paging: the legacy query's slug-index order.
+            const legacySlugs=(await ok('/products/search-product')).product.map(p=>p.slug);
+            const pagedSlugs=[];for(let page=1;page<=3;page++)pagedSlugs.push(...(await ok('/products/search-product?page='+page+'&limit=20')).product.map(p=>p.slug));
+            assert.deepEqual(pagedSlugs,legacySlugs);assert.deepEqual(pagedSlugs,[...pagedSlugs].sort());
             const beyond=await ok('/products/search-product?page=9&limit=20');assert.equal(beyond.product.length,0);assert.equal(beyond.pagination.recordCount,45);
         });
         await t.test('paged search matches every word literally across name, brand, description and category name',async()=>{

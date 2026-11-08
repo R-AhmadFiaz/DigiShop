@@ -20,7 +20,8 @@ const {InvoiceAdjustment}=await import('../dist/models/invoiceAdjustment.model.j
 const {Product}=await import('../dist/models/product.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 // Internal adapter harness, NOT a claim that public controllers post cash yet.

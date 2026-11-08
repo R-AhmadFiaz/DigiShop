@@ -23,7 +23,8 @@ const {StockLog}=await import('../dist/models/stockLog.model.js');
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
 const {CustomerLedger}=await import('../dist/models/customerLedger.model.js');
 const {Customer}=await import('../dist/models/customer.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 await test('supplier settlements: actual HTTP and disposable loopback replica set',{skip:!existsSync(binary)},async t=>{

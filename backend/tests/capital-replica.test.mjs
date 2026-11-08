@@ -28,7 +28,8 @@ const {Order}=await import('../dist/models/order.model.js');
 const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
 const {Expense,ExpenseCategory}=await import('../dist/models/expense.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 await test('partner capital: real HTTP and disposable loopback replica set',{skip:!existsSync(binary)},async t=>{

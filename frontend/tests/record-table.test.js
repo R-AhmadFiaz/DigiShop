@@ -63,7 +63,11 @@ try{
   });
   await test('supplier forms keep uncertain-request recovery accessible inside disclosures',()=>{
     const source=fs.readFileSync(new URL('../src/pages/owner/SupplierDetails.jsx',import.meta.url),'utf8');
-    assert.match(source,/balance.creditMinor>0\|\|locked/);assert.equal((source.match(/open=\{locked\|\|undefined\}/g)||[]).length,2);
+    // Supplier credit stays in this page; the payment form moved to SupplierPayment.
+    // Both disclosures must stay open while a confirmation is pending (locked).
+    const payment=fs.readFileSync(new URL('../src/components/SupplierPayment.jsx',import.meta.url),'utf8');
+    assert.match(source,/balance.creditMinor>0\|\|locked/);assert.equal((source.match(/open=\{locked\|\|undefined\}/g)||[]).length,1);
+    assert.match(source,/<SupplierPayment /);assert.match(payment,/open=\{inline\|\|locked\|\|undefined\}/);
     assert.match(source,/accountId=\{balance.data.accountId\}[^>]*supplier/);
     assert.match(source,/CONFIRM SUPPLIER REFUND RECEIVED/);assert.match(source,/CONFIRM SUPPLIER REVERSAL/);
   });

@@ -27,7 +27,8 @@ const {FinancialAccount}=await import('../dist/models/financialAccount.model.js'
 const {BusinessEntity}=await import('../dist/models/businessEntity.model.js');
 const {BusinessBrand,ProductBrandLink}=await import('../dist/models/businessBrand.model.js');
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 await test('Phase 2B actual HTTP financial writers with isolated MongoDB transactions',{skip:!existsSync(binary)},async t=>{
