@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 import {useState} from 'react';
 import { useLoad } from "../../api/hooks";
-import { Empty, Notice } from "../../components/Common";
+import { Empty, Notice, Pagination } from "../../components/Common";
+import {usePageParam} from "../../api/paging";
 import {query} from '../../api/client';
 import {cashBankTotal} from '../../api/financialReports';
 import {pkr,pakistanTime} from '../../api/purchases';
@@ -27,7 +28,8 @@ export function DashboardSummary({result,range}){
   </section>;
 }
 export default function Dashboard() {
-  const stock = useLoad("/products/low-stock");
+  const [lowPage, setLowPage] = usePageParam("lowPage");
+  const stock = useLoad("/products/low-stock" + query({ page: lowPage, limit: 10 }));
   const [range]=useState(()=>{
     const today=new Date().toISOString().slice(0,10);
     return {from:today.slice(0,8)+'01T00:00:00.000Z',to:new Date(Date.parse(today+'T00:00:00.000Z')+86400000).toISOString()};
@@ -82,6 +84,7 @@ export default function Dashboard() {
         ) : (
           stock.data && <Empty>No products need restocking.</Empty>
         )}
+        <Pagination label="Stock needing attention" pagination={stock.data?.pagination} rows={stock.data?.Products.length} onPage={setLowPage} />
       </section>
     </>
   );

@@ -7,6 +7,7 @@ import { generateSlug } from "../utils/generateSlug.js";
 import { Category } from "../models/category.model.js";
 import { StockLog } from "../models/stockLog.model.js";
 import mongoose from "mongoose";
+import { productPage, wantsPage } from "../utils/pagedLists.js";
 
 
 export const createProduct = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
@@ -76,6 +77,10 @@ export const createProduct = asyncHandler(async (req: Request, res: Response, ne
 })
 
 export const searchProduct = asyncHandler(async (req: Request, res: Response) => {
+
+  if (wantsPage(req.query)) {
+    return res.status(200).json(new apiResponse(200, await productPage(req.user, req.query), 'Product is fetched successfully'))
+  }
 
   const {search, category} = req.query
 
@@ -329,6 +334,11 @@ export const lowStock =  asyncHandler(async (req: Request, res: Response) => {
   // check if stockQuantiy go elow the low stock 
   // sedn response
 
+
+  if (wantsPage(req.query)) {
+    const {product, pagination} = await productPage(req.user, req.query, true)
+    return res.status(200).json(new apiResponse(200, {counts: pagination.recordCount, Products: product, pagination}, 'Stock is Checked Successfully'))
+  }
 
   const {shopId} = req.user
   const isStockLow = await Product.find({

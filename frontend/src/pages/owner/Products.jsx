@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { api } from "../../api/client";
 import { useLoad } from "../../api/hooks";
-import {useProductSearch} from '../../api/productSearch';
+import {usePagedProducts} from '../../api/productSearch';
+import {usePageParam,useQueryParam} from '../../api/paging';
 import ProductFilters from '../../components/ProductFilters';
 import {
   Empty,
@@ -10,15 +11,17 @@ import {
   money,
   Notice,
   PageTitle,
+  Pagination,
 } from "../../components/Common";
 export default function Products() {
-  const [search, setSearch] = useState(""),
-    [category, setCategory] = useState(""),
-    [brand, setBrand] = useState(""),
+  const [search, setSearch] = useQueryParam("search"),
+    [category, setCategory] = useQueryParam("category"),
+    [brand, setBrand] = useQueryParam("brand"),
+    [page, setPage] = usePageParam(),
     [editing, setEditing] = useState(null),
     [showCategories, setShowCategories] = useState(false),
     [success, setSuccess] = useState("");
-  const products = useProductSearch({search,category,brand}),
+  const products = usePagedProducts({search,category,brand,page}),
     categories = useLoad("/categories/");
   return (
     <>
@@ -31,7 +34,7 @@ export default function Products() {
         </button>
       </PageTitle>
       <Notice success={success} />
-      <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={products.brands}>
+      <ProductFilters search={search} onSearch={value=>setSearch(value,["page"])} category={category} onCategory={value=>setCategory(value,["page","brand"])} brand={brand} onBrand={value=>setBrand(value,["page"])} categories={categories.data?.categories} brands={products.brands}>
         <button
           className="btn btn-outline-secondary btn-sm"
           onClick={() => setShowCategories(!showCategories)}
@@ -101,9 +104,10 @@ export default function Products() {
         ) : (
           !products.loading &&
           !products.error && (
-            <Empty>No products found. Add your first product to start.</Empty>
+            <Empty>{search || category || brand ? "No products match these filters." : "No products found. Add your first product to start."}</Empty>
           )
         )}
+        <Pagination label="Products" pagination={products.data?.pagination} rows={products.data?.product.length} onPage={setPage} />
       </section>
       {editing && (
         <ProductForm

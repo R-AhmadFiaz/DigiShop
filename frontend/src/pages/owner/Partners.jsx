@@ -6,15 +6,16 @@ import {useDebounce,useLoad} from '../../api/hooks';
 import {pkr,minorAmount} from '../../api/purchases';
 import {Empty,Field,Modal,Notice,PageTitle,Pagination} from '../../components/Common';
 import SupplierAction from '../../components/SupplierAction';
+import { usePageParam, useQueryParam } from '../../api/paging';
 
 const time=value=>value?new Date(value).toLocaleString('en-PK',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'medium'}):'Unavailable';
 const root='/accounts/partners';
 export default function Partners(){
   const {user}=useAuth();
-  const [search,setSearch]=useState(''),[page,setPage]=useState(1),[creating,setCreating]=useState(false),[editing,setEditing]=useState(null);
+  const [search,setSearch]=useQueryParam('search'),[page,setPage]=usePageParam(),[creating,setCreating]=useState(false),[editing,setEditing]=useState(null);
   const [existing,setExisting]=useState(false),[businessSearch,setBusinessSearch]=useState(''),[businessPage,setBusinessPage]=useState(1),[business,setBusiness]=useState(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(''),[partnerKey,setPartnerKey]=useState('');
-  const [movement,setMovement]=useState(null),[selected,setSelected]=useState(''),[historyPage,setHistoryPage]=useState(1),[historySearch,setHistorySearch]=useState(''),[detailId,setDetailId]=useState(null);
+  const [movement,setMovement]=useState(null),[selected,setSelected]=useQueryParam('partner'),[historyPage,setHistoryPage]=usePageParam('historyPage'),[historySearch,setHistorySearch]=useQueryParam('historySearch'),[detailId,setDetailId]=useState(null);
   const setup=useLoad(root+'/setup'),list=useLoad(root+query({q:useDebounce(search),page,limit:20}));
   const businesses=useLoad('/accounts/entities'+query({q:useDebounce(businessSearch),page:businessPage,limit:10}));
   const history=useLoad('/accounts/capital'+query({partnerId:selected,q:useDebounce(historySearch),page:historyPage,limit:20}));
@@ -41,7 +42,7 @@ export default function Partners(){
       <Field label="Find partner"><input className="form-control" value={search} maxLength={100} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Name or phone"/></Field>
       <Notice loading={list.loading} error={list.error}/>
       <div className="table-responsive"><table className="table table-sm record-table"><thead><tr><th>Partner</th><th>Contact</th><th className="text-end">Money added</th><th className="text-end">Money taken out</th><th className="text-end">Remaining capital</th><th>Actions</th></tr></thead><tbody>{list.data?.entries.map(row=><tr key={row._id}><td>{row.name}{row.partnerActive===false&&<small className="d-block text-body-secondary">Archived</small>}</td><td>{row.phoneNo||'—'}</td><td className="text-end record-number">{pkr(row.capital?.contributionsMinor)}</td><td className="text-end record-number">{pkr(row.capital?.withdrawalsMinor)}</td><td className="text-end record-number">{pkr(row.capital?.balanceMinor)}</td><td><div className="d-flex flex-wrap gap-1"><button className="btn btn-sm btn-outline-secondary" onClick={()=>{setEditing(row);setError('');}}>Manage</button><button className="btn btn-sm btn-outline-secondary" onClick={()=>{setSelected(row._id);setHistoryPage(1);}}>History</button>{['CONTRIBUTION','WITHDRAWAL'].map(direction=><button key={direction} className="btn btn-sm btn-outline-primary" disabled={locked||!available||row.partnerActive===false} onClick={()=>{setMovement({partner:row,direction});setError('');}}>{direction==='CONTRIBUTION'?'Add money':'Take money out'}</button>)}</div></td></tr>)}</tbody></table></div>
-      {list.data?.entries.length===0&&<Empty>No partners found.</Empty>}<Pagination pagination={list.data?.pagination} onPage={setPage}/>
+      {list.data?.entries.length===0&&<Empty>No partners found.</Empty>}<Pagination label="Partners" pagination={list.data?.pagination} rows={list.data?.entries?.length} onPage={setPage}/>
       <section className="panel mt-4"><div className="d-flex flex-wrap justify-content-between gap-2"><h2 className="h5">Partner money history</h2>{selected&&<button className="btn btn-outline-secondary btn-sm" onClick={()=>{setSelected('');setHistoryPage(1);}}>Show all partners</button>}</div>
         <Field label="Find money added or taken out"><input className="form-control" maxLength={100} value={historySearch} onChange={e=>{setHistorySearch(e.target.value);setHistoryPage(1);}} placeholder="Partner, account, note or reference"/></Field><Notice loading={history.loading} error={history.error}/>
         {history.data&&<><RecordTable label="Partner capital register" rows={history.data.entries} columns={[
@@ -50,7 +51,7 @@ export default function Partners(){
  {key:'added',label:'Capital added (+)',numeric:true,render:r=>(r.kind==='CAPITAL_REVERSAL'?r.direction==='WITHDRAWAL':r.direction==='CONTRIBUTION')?pkr(r.amountMinor):'—'},
  {key:'reduced',label:'Capital reduced (−)',numeric:true,render:r=>(r.kind==='CAPITAL_REVERSAL'?r.direction==='CONTRIBUTION':r.direction==='WITHDRAWAL')?pkr(r.amountMinor):'—'},
  {key:'accountName',label:'Cash / bank'},{key:'reference',label:'Reference',render:r=>r.reference||'—'}
- ]} onOpen={r=>setDetailId(r._id)} empty="No capital transactions recorded."/><Pagination pagination={history.data.pagination} onPage={setHistoryPage}/></>}
+ ]} onOpen={r=>setDetailId(r._id)} empty="No capital transactions recorded."/><Pagination label="Partner money history" pagination={history.data.pagination} rows={history.data.entries?.length} onPage={setHistoryPage}/></>}
       </section>
       {movement&&<Modal title={movement.direction==='CONTRIBUTION'?'Record money added':'Record money taken out'} busy={locked} onClose={()=>setMovement(null)}><p><strong>{movement.partner.name}</strong> · Remaining capital: {pkr(movement.partner.capital?.balanceMinor)}</p><form onSubmit={event=>{
         event.preventDefault();if(locked)return;const values=Object.fromEntries(new FormData(event.currentTarget));try{const amountMinor=minorAmount(values.amount);if(amountMinor<=0)throw new Error('Enter a positive amount.');const account=setup.data.accounts.find(a=>a._id===values.accountId);if(!account)throw new Error('Choose a payment account.');

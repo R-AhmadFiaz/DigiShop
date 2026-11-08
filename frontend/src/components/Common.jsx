@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { clampedPage, pageRange } from "../api/paging";
 export const money = (value) =>
   Number(value || 0).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -38,30 +39,49 @@ export function Field({ label, children, hint }) {
     </label>
   );
 }
-export function Pagination({ pagination, onPage }) {
-  if (!pagination || pagination.totalPages < 2) return null;
+export function Pagination({ pagination, onPage, label = "List", rows }) {
+  const ref = useRef(null);
+  const correction = clampedPage(pagination);
+  // A page past the end (old link, rows removed) moves to the last real page
+  // instead of showing an empty list with no controls.
+  useEffect(() => {
+    if (correction !== null) onPage(correction);
+  }, [correction, onPage]);
+  if (!pagination || correction !== null) return null;
+  const range = pageRange(pagination, rows);
+  if (pagination.totalPages < 2) return null;
+  const go = (page) => {
+    onPage(page);
+    requestAnimationFrame(() => {
+      const region = ref.current?.closest("section, .panel, dialog, details") || ref.current;
+      if (region && region.getBoundingClientRect().top < 0) region.scrollIntoView({ block: "start" });
+    });
+  };
+  const first = pagination.currentPage <= 1,
+    last = pagination.currentPage >= pagination.totalPages;
   return (
-    <div className="d-flex flex-wrap align-items-center gap-3 mt-3">
-      <button
-        className="btn btn-outline-secondary btn-sm"
-        type="button"
-        disabled={pagination.currentPage <= 1}
-        onClick={() => onPage(pagination.currentPage - 1)}
-      >
+    <nav ref={ref} className="list-pagination d-flex flex-wrap align-items-center gap-2 mt-3" aria-label={label + " pages"}>
+      <button className="btn btn-outline-secondary btn-sm" type="button" disabled={first} onClick={() => go(1)} aria-label={"First page of " + label}>
+        First
+      </button>
+      <button className="btn btn-outline-secondary btn-sm" type="button" disabled={first} onClick={() => go(pagination.currentPage - 1)}>
         Previous
       </button>
-      <span>
+      <span aria-live="polite">
         Page {pagination.currentPage} of {pagination.totalPages}
+        {range && (
+          <span className="text-body-secondary">
+            {" "}· {range.first}–{range.last} of {range.total}
+          </span>
+        )}
       </span>
-      <button
-        className="btn btn-outline-secondary btn-sm"
-        type="button"
-        disabled={pagination.currentPage >= pagination.totalPages}
-        onClick={() => onPage(pagination.currentPage + 1)}
-      >
+      <button className="btn btn-outline-secondary btn-sm" type="button" disabled={last} onClick={() => go(pagination.currentPage + 1)}>
         Next
       </button>
-    </div>
+      <button className="btn btn-outline-secondary btn-sm" type="button" disabled={last} onClick={() => go(pagination.totalPages)} aria-label={"Last page of " + label}>
+        Last
+      </button>
+    </nav>
   );
 }
 export function Modal({ title, onClose, children, busy = false, wide = false, trapFocus = false }) {

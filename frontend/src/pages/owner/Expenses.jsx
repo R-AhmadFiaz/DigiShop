@@ -5,12 +5,14 @@ import { useDebounce, useLoad } from '../../api/hooks';
 import { pkr, pakistanTime, minorAmount } from '../../api/purchases';
 import { Empty, Field, Modal, Notice, PageTitle, Pagination } from '../../components/Common';
 import SupplierAction from '../../components/SupplierAction';
+import { usePageParam, useQueryParam } from '../../api/paging';
 
 const root = '/accounts/expenses';
 const expenseTime = value => value ? new Date(value).toLocaleString('en-PK',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'medium'}) : 'Unavailable';
 export default function Expenses() {
-  const [month,setMonth]=useState(()=>new Date(Date.now()+5*3600000).toISOString().slice(0,7));
-  const [search,setSearch]=useState(''),[page,setPage]=useState(1),[creating,setCreating]=useState(false),[selected,setSelected]=useState(null);
+  const [currentMonth]=useState(()=>new Date(Date.now()+5*3600000).toISOString().slice(0,7));
+  const [month,setMonth]=useQueryParam('month',currentMonth);
+  const [search,setSearch]=useQueryParam('search'),[page,setPage]=usePageParam(),[creating,setCreating]=useState(false),[selected,setSelected]=useState(null);
   const [categoryName,setCategoryName]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');
   const setup=useLoad(root+'/setup'),categories=useLoad(root+'/categories');
   const term=useDebounce(search),list=useLoad(root+query({month,q:term,page,limit:20}));
@@ -38,7 +40,7 @@ export default function Expenses() {
  {key:'restored',label:'Money restored (+)',numeric:true,render:r=>r.kind==='EXPENSE_REVERSAL'?pkr(r.amountMinor):'—'},
  {key:'account',label:'Paid from',render:r=>r.accountName+' ('+(r.accountKind==='CASH'?'Cash':'Bank')+')'},
  {key:'reference',label:'Reference',render:r=>r.reference||'—'}
- ]} onOpen={r=>setSelected(r._id)} empty="No expenses for this selection."/><Pagination pagination={list.data.pagination} onPage={setPage}/></>}
+ ]} onOpen={r=>setSelected(r._id)} empty="No expenses for this selection."/><Pagination label="Expenses" pagination={list.data.pagination} rows={list.data.entries?.length} onPage={setPage}/></>}
       {creating&&<Modal title="Record expense" busy={locked} onClose={()=>setCreating(false)}><form onSubmit={event=>{
         event.preventDefault();if(locked)return;setError('');const values=Object.fromEntries(new FormData(event.currentTarget));
         try{const amountMinor=minorAmount(values.amount);if(amountMinor<=0)throw new Error('Enter a positive amount.');const occurredAt=new Date(values.date+'+05:00').toISOString();

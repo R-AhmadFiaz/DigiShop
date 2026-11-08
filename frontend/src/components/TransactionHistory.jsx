@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { query } from '../api/client';
 import { useDebounce, useLoad } from '../api/hooks';
+import { usePageParam, useQueryParam } from '../api/paging';
 import { activity, pakistanTime, pkr } from '../api/purchases';
 import { Empty, Field, Modal, Notice, Pagination } from './Common';
 import RecordTable, {RecordFacts} from './RecordTable';
@@ -21,7 +22,8 @@ function Detail({eventId,accountId,onClose}){
   </>}</Modal>;
 }
 export default function TransactionHistory({accountId,name,supplier=false,sourceId}){
-  const [search,setSearch]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[type,setType]=useState(''),[page,setPage]=useState(1),[selected,setSelected]=useState(null);
+  // Statement filters and page live in the URL (st* keys) so Back and reload keep the position.
+  const [search,setSearch]=useQueryParam('stSearch'),[from,setFrom]=useQueryParam('stFrom'),[to,setTo]=useQueryParam('stTo'),[type,setType]=useQueryParam('stType'),[page,setPage]=usePageParam('stPage'),[selected,setSelected]=useState(null);
   const term=useDebounce(search),filters={q:term,page,limit:20,from:from?from+'T00:00:00.000Z':undefined,to:to?to+'T00:00:00.000Z':undefined,type,sourceId:sourceId||undefined};
   const result=useLoad((accountId?'/accounts/financial/'+accountId+'/history':'/accounts/transactions')+query(filters));
   const data=result.data,entries=accountId?data?.transactions:data?.entries;
@@ -42,7 +44,7 @@ export default function TransactionHistory({accountId,name,supplier=false,source
         ]:[{key:'amount',label:'Event amount',numeric:true,render:e=>pkr(e.amountMinor)}]),
         ...(!supplier?[{key:'actor',label:'Recorded by',render:e=>e.actor?.name||'Unavailable'}]:[])
       ]} onOpen={e=>setSelected(e.eventId)} detailLabel={supplier?'Details':'View transaction'} empty="No posted transactions found."/>
-      <Pagination pagination={data.pagination} onPage={setPage}/>
+      <Pagination label={supplier?'Supplier transactions':'Transactions'} pagination={data.pagination} rows={entries?.length} onPage={setPage}/>
     </>}{selected&&<Detail eventId={selected} accountId={accountId} onClose={()=>setSelected(null)}/>}
   </section>;
 }

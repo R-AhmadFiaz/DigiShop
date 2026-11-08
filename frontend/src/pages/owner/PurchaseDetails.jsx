@@ -10,6 +10,7 @@ import SupplierReturn from '../../components/SupplierReturn';
 import PurchaseStatus from '../../components/PurchaseStatus';
 import PurchaseReceivingSetup from '../../components/PurchaseReceivingSetup';
 import {receivingSetup,receivingError} from '../../api/purchaseReceiving';
+import { usePageParam } from '../../api/paging';
 
 function Receiving({po,prepare,locked}){
   const availability=useLoad('/orders/payment-accounts');
@@ -23,7 +24,7 @@ function Receiving({po,prepare,locked}){
   </fieldset></form>;
 }
 export default function PurchaseDetails(){
-  const {purchaseId}=useParams(),[page,setPage]=useState(1),[returning,setReturning]=useState(null),[cancelReason,setCancelReason]=useState(''),[setupVersion,setSetupVersion]=useState(0);
+  const {purchaseId}=useParams(),[page,setPage]=usePageParam('activityPage'),[returning,setReturning]=useState(null),[cancelReason,setCancelReason]=useState(''),[setupVersion,setSetupVersion]=useState(0);
   const detail=useLoad('/purchases/'+purchaseId),po=detail.data?.purchaseOrder;
   const purchases=useMemo(()=>po?[po]:[],[po]);
   const records=usePurchaseRecords(purchases),record=po?records[po._id]:null,summary=record?.summary;
@@ -74,7 +75,7 @@ export default function PurchaseDetails(){
           <RecordFacts items={[["Delivery",r.receipt?.reference||'Unavailable'],["Recorded by",r.createdByName||'Unavailable'],["Supplier document",r.supplierDocumentNo||'Not recorded'],["Notes / reason",r.notes||r.reason||'Not recorded'],["Correction of",r.reversalOf?record.events.find(e=>String(e._id)===String(r.reversalOf))?.reference||r.reversalOf:'—'],["Accounting",r.accountingStatus==='DEFERRED'?'Deferred — not confirmed supplier debt':r.accountingStatus?activity(r.accountingStatus):'See Supplier Khata']]}/>
           <RecordTable label={'Activity products '+r.reference} rows={r.items} rowKey={i=>i.productId} columns={[{key:'name',label:'Product'},{key:'quantity',label:'Quantity',numeric:true},{key:'cost',label:'Original unit cost',numeric:true,render:i=>pkr(i.unitCostMinor)}]}/>
         </>} empty={record?.error?'Complete activity unavailable.':'No deliveries or returns recorded.'}/>
-        <Pagination pagination={pagination} onPage={setPage}/>
+        <Pagination label="Purchase activity" pagination={pagination} rows={activities.slice((page-1)*20,page*20).length} onPage={setPage}/>
       </section>
       {returning&&<SupplierReturn key={returning._id} receipt={returning} onClose={()=>setReturning(null)} onChanged={refresh}/>}
     </>}

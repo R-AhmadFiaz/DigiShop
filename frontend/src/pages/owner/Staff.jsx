@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { api } from "../../api/client";
+import { api, query } from "../../api/client";
 import { useLoad } from "../../api/hooks";
+import { usePageParam } from "../../api/paging";
 import {
   AvatarInput,
   Field,
@@ -8,13 +9,15 @@ import {
   Modal,
   Notice,
   PageTitle,
+  Pagination,
   validateAvatar,
 } from "../../components/Common";
 export default function Staff() {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [success, setSuccess] = useState("");
-  const cashiers = useLoad("/users/cashiers");
+  const [page, setPage] = usePageParam();
+  const cashiers = useLoad("/users/cashiers" + query({ page, limit: 20 }));
   const [editing, setEditing] = useState(null),
     [resetting, setResetting] = useState(false),
     [saving, setSaving] = useState(false),
@@ -137,6 +140,7 @@ export default function Staff() {
             </table>
           </div>
         ) : !cashiers.loading && !cashiers.error && <Empty>No cashier accounts yet.</Empty>}
+        <Pagination label="Cashiers" pagination={cashiers.data?.pagination} rows={cashiers.data?.cashiers.length} onPage={setPage} />
       </section>
       {editing && (
         <Modal title={(resetting ? "Reset password: " : "Edit cashier: ") + editing.username} busy={saving} onClose={() => setEditing(null)}>

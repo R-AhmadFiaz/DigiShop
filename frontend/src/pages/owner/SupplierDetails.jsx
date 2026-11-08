@@ -10,6 +10,7 @@ import SupplierAction from '../../components/SupplierAction';
 import SupplierPayment from '../../components/SupplierPayment';
 import SupplierOpening from '../../components/SupplierOpening';
 import SupplierBalanceStatus from '../../components/SupplierBalanceStatus';
+import { usePageParam } from '../../api/paging';
 import TransactionHistory from '../../components/TransactionHistory';
 
 function SupplierCredit({supplierId,supplierName,balance,onChanged}){
@@ -40,7 +41,7 @@ function Correction({event,supplierId,onChanged,onClose}){
   return <SupplierAction operation={'supplier-correction-'+supplierId} onChanged={()=>{onClose();onChanged();}}>{({prepare,locked})=><form className="mt-3" onSubmit={e=>submit(e,prepare)}><fieldset disabled={locked}><h3 className="h6">Correct {event.reference}</h3><Field label="Correction reason"><input name="reason" className="form-control" required maxLength={300}/></Field><button className="btn btn-outline-danger me-2" type="submit">Review correction</button><button className="btn btn-outline-secondary" type="button" onClick={onClose}>Close correction</button></fieldset></form>}</SupplierAction>;
 }
 export default function SupplierDetails(){
-  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=useState(1),[historyPage,setHistoryPage]=useState(1),[correction,setCorrection]=useState(null),[statementVersion,setStatementVersion]=useState(0);
+  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=usePageParam('purchasesPage'),[historyPage,setHistoryPage]=usePageParam('settlementsPage'),[correction,setCorrection]=useState(null),[statementVersion,setStatementVersion]=useState(0);
   const entity=useLoad('/accounts/entities/'+supplierId),reconciliation=useLoad('/accounts/suppliers/'+supplierId+'/reconciliation');
   const balance=reconciliation;
   const purchases=useLoad('/purchases/'+query({supplierId,page:purchasePage,limit:10}));

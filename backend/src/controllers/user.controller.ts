@@ -11,6 +11,7 @@ import { Shop } from "../models/shop.model.js"
 import { Order } from "../models/order.model.js"
 import { getShopSession } from "../middleware/role.middleware.js"
 import { unlink } from "node:fs/promises"
+import { cashierPage, wantsPage } from "../utils/pagedLists.js"
 
 const withAvatarCleanup = (handler: Parameters<typeof asyncHandler>[0]) =>
     asyncHandler(async (req, res, next) => {
@@ -450,6 +451,7 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
 })
 
 export const listCashiers = asyncHandler(async (req: Request, res: Response) => {
+    if (wantsPage(req.query)) return res.status(200).json(new apiResponse(200, await cashierPage(req.user, req.query), 'Cashiers fetched successfully'))
     const cashiers = await User.find({shopId: req.user.shopId, role: 'CASHIER'}).select('username email').sort({username: 1})
     return res.status(200).json(new apiResponse(200, {cashiers}, 'Cashiers fetched successfully'))
 })

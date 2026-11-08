@@ -37,7 +37,8 @@ function PaymentEntry({account,balance,prepare,locked,onChanged}){
 export default function SupplierPayment({supplierId,supplierName,balance,onChanged,inline=false,onLockedChange,onRefresh=onChanged}){
   const controlId=useId();
   const [search,setSearch]=useState(''),[page,setPage]=useState(1),[selected,setSelected]=useState(null);
-  const accounts=useLoad('/accounts/financial'+query({q:useDebounce(search),page,limit:20}),balance!==null&&balance>0);
+  // Only usable cash/bank accounts (active and prepared), filtered before paging.
+  const accounts=useLoad('/accounts/financial'+query({q:useDebounce(search),kind:'CASH,BANK',ready:'true',page,limit:20}),balance!==null&&balance>0);
   async function beforeConfirm(request){
     const [current,funds]=await Promise.all([api('/accounts/suppliers/'+supplierId+'/reconciliation'),api('/accounts/financial/'+request.body.accountId)]);
     if(!samePayable(current,request.snapshot)||funds.balanceMinor!==request.availableMinor)throw new ApiError('The supplier or account balance changed. Refresh current data and review the payment again.',409);
@@ -48,9 +49,9 @@ export default function SupplierPayment({supplierId,supplierName,balance,onChang
       <details className="border rounded p-2"><summary aria-labelledby={controlId+'-pay-from'} aria-disabled={locked} onClick={e=>{if(locked)e.preventDefault();}}>{selected?selected.name+' ('+selected.kind+')':'Choose cash or bank'}</summary>
         <div className="pt-2"><input aria-label="Search payment accounts" placeholder="Search account name" className="form-control mb-2" maxLength={100} disabled={locked} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} onKeyDown={e=>{if(e.key==='Enter')e.preventDefault();}}/><Notice loading={accounts.loading} error={accounts.error}/>
           {accounts.error&&<button type="button" className="btn btn-outline-secondary btn-sm" onClick={accounts.reload}>Retry account list</button>}
-          {!accounts.loading&&!accounts.error&&accounts.data?.entries.filter(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId).map(a=><button type="button" key={a._id} className="btn btn-outline-secondary w-100 text-start mb-1" aria-pressed={selected?._id===a._id} disabled={locked} onClick={e=>{setSelected(a);e.currentTarget.closest('details').open=false;}}>{a.name} ({a.kind})</button>)}
-          {!accounts.loading&&accounts.data&&!accounts.data.entries.some(a=>['CASH','BANK'].includes(a.kind)&&a.isActive!==false&&a.cashCutoverId)&&<p className="mb-2">No prepared cash or bank accounts found. Try another search or page, or prepare an account in Cash &amp; Bank.</p>}
-          <Pagination pagination={accounts.data?.pagination} onPage={setPage}/>
+          {!accounts.loading&&!accounts.error&&accounts.data?.entries.map(a=><button type="button" key={a._id} className="btn btn-outline-secondary w-100 text-start mb-1" aria-pressed={selected?._id===a._id} disabled={locked} onClick={e=>{setSelected(a);e.currentTarget.closest('details').open=false;}}>{a.name} ({a.kind})</button>)}
+          {!accounts.loading&&accounts.data&&!accounts.data.entries.length&&<p className="mb-2">{search?'No prepared cash or bank account matches this search.':'No prepared cash or bank accounts yet. Prepare an account in Cash & Bank.'}</p>}
+          <Pagination label="Payment accounts" pagination={accounts.data?.pagination} rows={accounts.data?.entries.length} onPage={setPage}/>
         </div>
       </details>
     </div>
