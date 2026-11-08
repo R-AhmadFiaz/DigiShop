@@ -23,6 +23,7 @@ import {PurchaseOrder} from '../models/purchaseOrder.model.js';
 import {SupplierSettlement} from '../models/supplierSettlement.model.js';
 import {SupplierCutover} from '../models/supplierCutover.model.js';
 import {GoodsReceipt} from '../models/goodsReceipt.model.js';
+import {shopPage, wantsPage} from '../utils/pagedLists.js';
 
 export const deleteShop = asyncHandler(async (req, res) => {
     const { id } = req.params;
@@ -87,6 +88,10 @@ export const deactivateShop = setShopAccess(false);
 export const reactivateShop = setShopAccess(true);
 
 export const getAllShops = asyncHandler(async (req, res) => {
+
+    if (wantsPage(req.query)) {
+        return res.status(200).json(new apiResponse(200, await shopPage(req.query), "Shops fetched successfully"));
+    }
 
     const shops = await Shop.find()
         .populate("ownerId", "username email");

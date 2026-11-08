@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import { useLoad } from "../../api/hooks";
+import { api, query } from "../../api/client";
+import { useDebounce, useLoad } from "../../api/hooks";
+import { usePageParam, useQueryParam } from "../../api/paging";
 import { adminShopRows, shopSubscription } from "../../api/subscription";
-import { dateText, Empty, Modal, Notice, PageTitle } from "../../components/Common";
+import { dateText, Empty, Modal, Notice, PageTitle, Pagination } from "../../components/Common";
 
 export default function Shops() {
-  const shops = useLoad("/admin/shops");
-  const [search, setSearch] = useState(""),
-    [updates, setUpdates] = useState({}),
+  const [search, setSearch] = useQueryParam("search"),
+    [page, setPage] = usePageParam();
+  const term = useDebounce(search.trim());
+  const shops = useLoad("/admin/shops" + query({ page, limit: 20, search: term }));
+  const [updates, setUpdates] = useState({}),
     [now, setNow] = useState(Date.now),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
@@ -92,6 +95,8 @@ export default function Shops() {
       await api("/admin/shops/" + deleting._id, { method: "DELETE" });
       setUpdates((current) => ({ ...current, [deleting._id]: null }));
       setSuccess(deleting.name + " permanently deleted.");
+      // Refill the page from the server so the next shop moves up.
+      shops.reload();
       setDeleting(null);
       setConfirmation("");
     } catch (e) {
@@ -100,11 +105,13 @@ export default function Shops() {
       setBusy("");
     }
   }
+  // The server searches, orders and pages; this keeps a changed row in its
+  // current page, re-sorted with the same rules, until the next refresh.
   const rows = adminShopRows(
     (shops.data?.shops || [])
       .filter((shop) => updates[shop._id] !== null)
       .map((shop) => updates[shop._id] || shop),
-    search,
+    "",
     now,
   );
   return (
@@ -126,8 +133,9 @@ export default function Shops() {
         className="form-control search-input mb-3"
         aria-label="Search shops"
         placeholder="Shop, contact or owner"
+        maxLength={100}
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => setSearch(e.target.value, ["page"])}
       />
       <Notice error={error} success={success} />
       <section className="panel">
@@ -251,6 +259,7 @@ export default function Shops() {
         ) : (
           !shops.loading && !shops.error && <Empty>No shops found.</Empty>
         )}
+        <Pagination label="Shops" pagination={shops.data?.pagination} rows={shops.data?.shops.length} onPage={setPage} />
       </section>
       {deleting && (
         <Modal title="Permanently delete shop" busy={Boolean(busy)} onClose={() => setDeleting(null)}>

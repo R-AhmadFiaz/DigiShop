@@ -8,6 +8,7 @@ import {BusinessEntity, businessRoles} from '../models/businessEntity.model.js';
 import {BusinessBrand,ProductBrandLink} from '../models/businessBrand.model.js';
 import {Product} from '../models/product.model.js';
 import {FinancialAccount} from '../models/financialAccount.model.js';
+import {accountKinds} from '../utils/businessAccounting.js';
 import {Customer} from '../models/customer.model.js';
 import {accountingContext,developmentAccountingPermitted,productionPostingActive} from '../utils/accountingActivation.js';
 
@@ -126,6 +127,17 @@ export const businessAccounts = (operation: string) => asyncHandler(async (req, 
                 const filter: any = {shopId: actor.shopId};
                 if (pattern) filter.$or = [{name: pattern}, {code: pattern}];
                 if (req.query.entityId !== undefined) filter.entityId = recordId(req.query.entityId);
+                // Filter by kind in the query so pages are never thinned after counting.
+                if (req.query.kind !== undefined) {
+                    const kinds = typeof req.query.kind === 'string' ? req.query.kind.split(',').map(k => k.trim()).filter(Boolean) : [];
+                    if (!kinds.length || kinds.length > 20 || kinds.some(k => !Object.hasOwn(accountKinds, k))) throw new apiError(400, 'Invalid account kind');
+                    filter.kind = {$in: kinds};
+                }
+                if (req.query.ready !== undefined) {
+                    if (req.query.ready !== 'true') throw new apiError(400, 'Invalid ready filter');
+                    filter.isActive = {$ne: false};
+                    filter.cashCutoverId = {$exists: true, $ne: null};
+                }
                 const count = await FinancialAccount.countDocuments(filter).session(session);
                 // Metadata only; never present incomplete journal money as a balance.
                 return {entries: await FinancialAccount.find(filter).sort({code: 1}).skip((page - 1) * limit).limit(limit).session(session).lean(), pagination: {currentPage: page, limit, recordCount: count, totalPages: Math.ceil(count / limit)}, livePostingEnabled: productionPostingActive()};

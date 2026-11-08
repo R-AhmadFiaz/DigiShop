@@ -8,7 +8,7 @@ import SupplierAction from './SupplierAction';
 
 const root='/accounts/activation';
 export default function AccountingActivation({onChanged}){
-  const status=useLoad(root),accounts=useLoad('/accounts/financial?limit=100');
+  const status=useLoad(root),accounts=useLoad('/accounts/financial?kind=CASH,BANK&limit=100');
   const [strategy,setStrategy]=useState(''),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState('');
   const [preview,setPreview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const state=status.data?.state,revision=status.data?.revision;
@@ -39,6 +39,7 @@ export default function AccountingActivation({onChanged}){
         {['PREPARING','PAUSED'].includes(state)&&<button className="btn btn-primary" disabled={!preview?.ready||!status.data.permitted} onClick={()=>prepareAction(prepare,state==='PAUSED'?'resume':'confirm','ACTIVATE ACCOUNTING',{previewToken:preview.previewToken,expiresAt:preview.expiresAt})}>{state==='PAUSED'?'Resume accounting':'Activate accounting'}</button>}
       </fieldset>
       {state==='ACTIVE'&&<Enrollment accounts={accounts.data?.entries??[]} revision={revision} onChanged={changed}/>}
+      {state==='ACTIVE'&&accounts.data?.pagination?.totalPages>1&&<p role="status" className="alert alert-warning mt-2">Only the first 100 cash/bank accounts are listed here. Prepare the others from a narrower list before enrolling more.</p>}
       <details className="mt-3"><summary>Setup and pause history</summary><ul>{status.data.history.map(event=><li key={event._id}>{pakistanTime(event.recordedAt)} · {event.operation} · {event.actorName} · {event.reason}</li>)}</ul></details>
     </>}</SupplierAction>}
   </section>;

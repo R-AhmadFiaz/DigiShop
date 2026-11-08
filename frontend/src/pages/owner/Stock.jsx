@@ -3,7 +3,8 @@ import { activity } from '../../api/purchases';
 import { useState } from "react";
 import { api, query } from "../../api/client";
 import { useLoad } from "../../api/hooks";
-import {matchingProducts,productBrands,useProductSearch} from '../../api/productSearch';
+import {usePagedProducts,useProductSearch} from '../../api/productSearch';
+import {usePageParam,useQueryParam} from '../../api/paging';
 import ProductFilters from '../../components/ProductFilters';
 import {
   dateText,
@@ -15,17 +16,20 @@ import {
   Pagination,
 } from "../../components/Common";
 export default function Stock() {
-  const products = useProductSearch(),
-    categories = useLoad("/categories/"),
-    [tab, setTab] = useState("overview"),
-    [search, setSearch] = useState(""),
-    [category, setCategory] = useState(""),
-    [brand, setBrand] = useState(""),
-    [lowOnly, setLowOnly] = useState(false),
+  const [tabParam, setTabParam] = useQueryParam("tab", "overview"),
+    tab = tabParam === "history" ? "history" : "overview",
+    setTab = (value) => setTabParam(value),
+    [search, setSearch] = useQueryParam("search"),
+    [category, setCategory] = useQueryParam("category"),
+    [brand, setBrand] = useQueryParam("brand"),
+    [low, setLow] = useQueryParam("low"),
+    lowOnly = low === "1",
+    [page, setPage] = usePageParam(),
     [adjusting, setAdjusting] = useState(null),
     [success, setSuccess] = useState("");
-  const all = products.data?.product || [],
-    filtered = matchingProducts(all,{search,category,brand}).filter(p=>!lowOnly||p.stockQuantity<=p.minStockThreshold);
+  const products = usePagedProducts({search,category,brand,lowStock:lowOnly,page}),
+    categories = useLoad("/categories/");
+  const filtered = products.data?.product || [];
   return (
     <>
       <PageTitle title="Stock" />
@@ -46,13 +50,13 @@ export default function Stock() {
       <Notice success={success} />
       {tab === "overview" ? (
         <>
-          <ProductFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} brand={brand} onBrand={setBrand} categories={categories.data?.categories} brands={productBrands(all,category)} searchLabel="Search stock" categoryLabel="Stock category filter" brandLabel="Stock brand filter">
+          <ProductFilters search={search} onSearch={value=>setSearch(value,["page"])} category={category} onCategory={value=>setCategory(value,["page","brand"])} brand={brand} onBrand={value=>setBrand(value,["page"])} categories={categories.data?.categories} brands={products.brands} searchLabel="Search stock" categoryLabel="Stock category filter" brandLabel="Stock brand filter">
             <label className="form-check-label">
               <input
                 className="form-check-input me-2"
                 type="checkbox"
                 checked={lowOnly}
-                onChange={(e) => setLowOnly(e.target.checked)}
+                onChange={(e) => setLow(e.target.checked ? "1" : "", ["page"])}
               />
               Low stock only
             </label>
@@ -116,10 +120,11 @@ export default function Stock() {
               !products.loading &&
               !products.error && <Empty>No matching stock.</Empty>
             )}
+            <Pagination label="Stock levels" pagination={products.data?.pagination} rows={filtered.length} onPage={setPage} />
           </section>
         </>
       ) : (
-        <StockHistory products={all} />
+        <StockHistory />
       )}
       {adjusting && (
         <Adjustment
@@ -201,10 +206,19 @@ function Adjustment({ product, onClose, onSaved }) {
     </Modal>
   );
 }
-function StockHistory({ products }) {
-  const [filters, setFilters] = useState({}),
-    [page, setPage] = useState(1),
+function StockHistory() {
+  // The product filter needs every product; it is loaded only when this tab is open.
+  const products = useProductSearch().data?.product || [];
+  const [productId, setProductId] = useQueryParam("product"),
+    [from, setFrom] = useQueryParam("from"),
+    [to, setTo] = useQueryParam("to"),
+    [page, setPage] = usePageParam("historyPage"),
     [filterError, setFilterError] = useState("");
+  const filters = {
+    productId,
+    startDate: from ? new Date(from + "T00:00:00").toISOString() : "",
+    endDate: to ? new Date(to + "T23:59:59.999").toISOString() : "",
+  };
   const logs = useLoad(
     "/orders/stocklogs" + query({ ...filters, page, limit: 20 }),
   );
@@ -220,19 +234,16 @@ function StockHistory({ products }) {
       setFilterError("The end date must be on or after the start date.");
       return;
     }
-    if (values.startDate)
-      values.startDate = new Date(values.startDate + "T00:00:00").toISOString();
-    if (values.endDate)
-      values.endDate = new Date(values.endDate + "T23:59:59.999").toISOString();
-    setPage(1);
-    setFilters(values);
+    setProductId(values.productId, ["historyPage"]);
+    setFrom(values.startDate);
+    setTo(values.endDate);
   }
   return (
     <section className="panel">
-      <form className="row g-2 mb-3 align-items-end" onSubmit={filter}>
+      <form key={productId + from + to + products.length} className="row g-2 mb-3 align-items-end" onSubmit={filter}>
         <div className="col-md-4">
           <Field label="Product">
-            <select name="productId" className="form-select">
+            <select name="productId" className="form-select" defaultValue={productId}>
               <option value="">All products</option>
               {products.map((p) => (
                 <option key={p._id} value={p._id}>
@@ -244,12 +255,12 @@ function StockHistory({ products }) {
         </div>
         <div className="col-md-3">
           <Field label="From">
-            <input name="startDate" type="date" className="form-control" />
+            <input name="startDate" type="date" className="form-control" defaultValue={from} />
           </Field>
         </div>
         <div className="col-md-3">
           <Field label="To">
-            <input name="endDate" type="date" className="form-control" />
+            <input name="endDate" type="date" className="form-control" defaultValue={to} />
           </Field>
         </div>
         <div className="col-md-2">
@@ -271,7 +282,7 @@ function StockHistory({ products }) {
  {key:'action',label:'Action',render:l=>activity(l.reason)},
  {key:'invoice',label:'Reference',render:l=>l.reference||l.invoiceNo||'—'}
  ]} details={l=><RecordFacts items={[["Reason",l.reason],["Stock change",l.quantityDelta],["Purchase",l.purchaseReference||'—'],["Delivery",l.receivingReference||'—'],["Return handling",l.disposition||'—'],["Returned units",l.returnedQuantity??'Unavailable']]}/>} empty="No stock history found."/>}
-      <Pagination pagination={logs.data?.pagination} onPage={setPage} />
+      <Pagination label="Stock history" pagination={logs.data?.pagination} rows={logs.data?.logs?.length} onPage={setPage} />
     </section>
   );
 }

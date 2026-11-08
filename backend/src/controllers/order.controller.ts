@@ -1131,9 +1131,20 @@ export const getInvoices = asyncHandler(async (req: Request, res: Response) => {
         Order.find(filter).sort({createdAt: -1, _id: -1}).skip(skip).limit(limit),
         Order.countDocuments(filter)
     ]);
+    const includeCustomer = req.query.includeCustomer;
+    if (includeCustomer !== undefined && includeCustomer !== 'true') throw new apiError(400, 'Invalid includeCustomer option');
+    const rows: any[] = await Promise.all(orders.map(withCreatorName));
+    // Opt-in, additive: name and phone of each row's customer, read from this shop only,
+    // so lists never depend on a separately loaded (and capped) customer page.
+    if (includeCustomer === 'true') {
+        const ids = [...new Set(rows.map(row => row.customerId ? String(row.customerId) : '').filter(Boolean))];
+        const customers = ids.length ? await Customer.find({_id: {$in: ids}, shopId: req.user.shopId}).select('name phoneNo').lean() : [];
+        const byId = new Map(customers.map(customer => [String(customer._id), {name: customer.name, phoneNo: customer.phoneNo}]));
+        for (const row of rows) row.customerSummary = row.customerId ? byId.get(String(row.customerId)) ?? null : null;
+    }
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json(new apiResponse(200, {
-        orders: await Promise.all(orders.map(withCreatorName)),
+        orders: rows,
         pagination: {orderCount, totalPages: Math.ceil(orderCount / limit), currentPage: page, limit}
     }, 'Invoices fetched successfully'));
 });

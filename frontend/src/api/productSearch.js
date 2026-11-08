@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 import {api,query} from './client';
+import {useDebounce,useLoad} from './hooks';
 
 const key=value=>typeof value==='string'?value.trim().toLowerCase():'';
 const categoryId=p=>String(p.category?._id??p.category??'');
@@ -19,6 +20,13 @@ export function completeProducts(result){
   // This existing endpoint is unpaginated. Never mistake a partial page for its full list.
   if(!Array.isArray(result?.product)||(result.pagination&&(result.pagination.totalPages>1||result.pagination.recordCount!==result.product.length)))throw Error('Complete product results unavailable. Refresh or narrow the category.');
   return result.product;
+}
+// Server-paged product lists (Products, Stock levels). POS, invoice editing and
+// purchase creation keep useProductSearch below because they need the full catalogue.
+export function usePagedProducts({search='',category='',brand='',lowStock=false,page=1,limit=20}={}){
+  const term=useDebounce(search.trim());
+  const result=useLoad('/products/search-product'+query({page,limit,search:term,category,brand,lowStock:lowStock?'true':''}));
+  return {...result,brands:result.data?.brands??[]};
 }
 export function useProductSearch({search='',category='',brand=''}={}){
   const url='/products/search-product'+query({category});

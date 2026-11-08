@@ -5,6 +5,7 @@ import CustomerActivityDetails from '../components/CustomerActivityDetails';
 import {formatBalanceChange,formatCustomerDate} from '../components/customerActivityFormat';
 import { query } from "../api/client";
 import { useDebounce, useLoad } from "../api/hooks";
+import { usePageParam, useQueryParam } from "../api/paging";
 import {
   Empty,
   Modal,
@@ -52,8 +53,8 @@ export default function Customers() {
   const {user} = useAuth();
   const [selected,setSelected] = useState(null);
   const detailOpener=useRef(null);
-  const [search, setSearch] = useState(""),
-    [page, setPage] = useState(1),
+  const [search, setSearch] = useQueryParam("search"),
+    [page, setPage] = usePageParam(),
     [creating, setCreating] = useState(false),
     [success, setSuccess] = useState(""),
     [saving, setSaving] = useState(false);
@@ -80,10 +81,7 @@ export default function Customers() {
         placeholder="Customer name or phone"
         maxLength={100}
         value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setPage(1);
-        }}
+        onChange={(e) => setSearch(e.target.value, ["page"])}
       />
       <section className="panel">
         <Notice error={customers.error} loading={customers.loading} />
@@ -92,7 +90,7 @@ export default function Customers() {
  {key:'debt',label:'Customer owes us',numeric:true,render:c=>money(c.remainingMoney)},
  {key:'credit',label:'Store credit',numeric:true,render:c=>money((c.storeCreditBalanceMinor??0)/100)}
  ]} onOpen={user.role==='OWNER'?openDetails:undefined} detailLabel={c=>c.remainingMoney>0?'Receive Payment':'Balance details'} empty="No customers found."/>}
-        <Pagination pagination={customers.data?.pagination} onPage={setPage} />
+        <Pagination label="Customers" pagination={customers.data?.pagination} rows={customers.data?.customers.length} onPage={setPage} />
       </section>
       {creating && (
         <Modal

@@ -1,6 +1,7 @@
 import RecordTable from '../../components/RecordTable';
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { usePageParam, useQueryParam } from '../../api/paging';
 import { api, query } from '../../api/client';
 import { useDebounce, useLoad } from '../../api/hooks';
 import { Empty, Field, Modal, Notice, PageTitle, Pagination } from '../../components/Common';
@@ -73,9 +74,11 @@ function EntityDetails({id,onBusy,onChanged}) {
   return <><Notice loading={entity.loading} error={entity.error || error}/>{entity.data && <><h2 className="h5">{entity.data.name}</h2><p>{entity.data.phoneNo || 'No phone saved'}<br/>{entity.data.address || 'No address saved'}</p>{entity.data.roles.includes('SUPPLIER')&&<p><Link className="btn btn-outline-primary btn-sm" to={'/owner/accounts/suppliers/'+entity.data._id}>Open supplier Khata</Link></p>}<button className="btn btn-outline-secondary btn-sm mb-3" aria-expanded={advanced} onClick={()=>setAdvanced(!advanced)} disabled={busy}>Business setup &amp; brand links</button>{advanced&&<><p className="small text-body-secondary">Keep one identity for this business. Brand links identify product companies, not who supplied a purchase.</p>{entity.data.customerId?<p>Linked to an existing customer. View debt and store credit under Accounts → Customers.</p>:<><button className="btn btn-outline-secondary btn-sm" onClick={()=>setLinking(!linking)} disabled={busy}>{linking?'Hide customer search':'Link existing customer'}</button>{linking && <div className="mt-3"><ExistingCustomer value={customer} onChange={setCustomer}/><button className="btn btn-primary btn-sm" disabled={!customer || busy} onClick={linkCustomer}>Confirm customer link</button></div>}</>}<RoleEditor key={entity.data.revision} entity={entity.data} onBusy={onBusy} onChanged={()=>{entity.reload();onChanged();}}/><BrandLinks entity={entity.data} onBusy={onBusy}/><CompanyProducts entityId={id}/></>}</>}</>;
 }
 export default function Companies() {
-  const navigate=useNavigate(),[params,setParams]=useSearchParams();
-  const [search,setSearch]=useState(''),[page,setPage]=useState(1),[creating,setCreating]=useState(''),[scope,setScope]=useState('SUPPLIER'),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');
-  const selected=params.get('business');
+  const navigate=useNavigate();
+  const [search,setSearch]=useQueryParam('search'),[page,setPage]=usePageParam(),[scopeParam,setScopeParam]=useQueryParam('scope','SUPPLIER'),[creating,setCreating]=useState(''),[busy,setBusy]=useState(false),[success,setSuccess]=useState('');
+  // Suppliers ('SUPPLIER') or all businesses (''), kept in the URL with page and search.
+  const scope=scopeParam==='ALL'?'':'SUPPLIER',setScope=value=>setScopeParam(value?'SUPPLIER':'ALL');
+  const [selected,setSelected]=useQueryParam('business');
   const term=useDebounce(search), list=useLoad('/accounts/entities'+query({q:term,role:scope,page,limit:20}));
   return <><PageTitle title="Suppliers"><button className="btn btn-primary btn-sm" onClick={()=>setCreating('supplier')}>Add supplier</button></PageTitle>
     <Notice success={success}/><div className="d-flex flex-wrap gap-2 mb-3"><input className="form-control search-input" aria-label="Search businesses" placeholder="Supplier name or phone" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/><select className="form-select w-auto" aria-label="Business list filter" value={scope} onChange={e=>{setScope(e.target.value);setPage(1);}}><option value="SUPPLIER">Suppliers</option><option value="">All existing businesses (Advanced)</option></select></div>
@@ -83,9 +86,9 @@ export default function Companies() {
       {key:'name',label:scope?'Supplier':'Business'},...(!scope?[{key:'roles',label:'Roles',render:e=>e.roles.map(r=>roles[r]||r).join(', ')}]:[]),
       {key:'phoneNo',label:'Phone',render:e=>e.phoneNo||'—'},{key:'address',label:'Address',render:e=>e.address||'—'},
       ...(!scope?[{key:'supplier',label:'Supplier records',render:e=>e.roles.includes('SUPPLIER')?<Link className="btn btn-outline-primary btn-sm" to={'/owner/accounts/suppliers/'+e._id}>Supplier history</Link>:'—'}]:[])
-    ]} onOpen={e=>scope&&e.roles.includes('SUPPLIER')?navigate('/owner/accounts/suppliers/'+e._id):setParams({business:e._id})} detailLabel={scope?'View supplier':'Business details'} empty={scope?'No suppliers found.':'No businesses found.'}/><Pagination pagination={list.data.pagination} onPage={setPage}/></>}</section>
+    ]} onOpen={e=>scope&&e.roles.includes('SUPPLIER')?navigate('/owner/accounts/suppliers/'+e._id):setSelected(e._id)} detailLabel={scope?'View supplier':'Business details'} empty={scope?'No suppliers found.':'No businesses found.'}/><Pagination label={scope?'Suppliers':'Businesses'} pagination={list.data.pagination} rows={list.data.entries.length} onPage={setPage}/></>}</section>
     <details className="context-help mt-3"><summary>Other business records (Advanced)</summary><p>Already registered? Find the existing business and add Supplier in Business setup. Keep customer accounts in Customers and investments in Partners &amp; Capital.</p><button className="btn btn-sm btn-outline-secondary me-2" onClick={()=>{setScope('');setPage(1);}}>Show all businesses</button><button className="btn btn-sm btn-outline-secondary" onClick={()=>setCreating('legacy')}>Add other business</button></details>
     {creating&&<Modal title={creating==='supplier'?'Add supplier':'Add other business'} busy={busy} onClose={()=>setCreating('')}><EntityForm supplier={creating==='supplier'} onBusy={setBusy} onSaved={e=>{setCreating('');list.reload();if(creating==='supplier')navigate('/owner/accounts/suppliers/'+e._id);else setSuccess(e.name||'Business saved.');}}/></Modal>}
-    {selected&&<Modal title="Business information & setup" busy={busy} onClose={()=>setParams({})}><EntityDetails key={selected} id={selected} onBusy={setBusy} onChanged={list.reload}/></Modal>}
+    {selected&&<Modal title="Business information & setup" busy={busy} onClose={()=>setSelected('')}><EntityDetails key={selected} id={selected} onBusy={setBusy} onChanged={list.reload}/></Modal>}
   </>;
 }

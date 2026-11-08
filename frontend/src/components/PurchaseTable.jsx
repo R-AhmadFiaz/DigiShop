@@ -19,6 +19,6 @@ export default function PurchaseTable({result,onPage,history=false}) {
       {key:'open',label:history?'View':'Purchase',render:po=><Link className="btn btn-sm btn-outline-secondary" to={'/owner/purchases/'+po._id}>{history?'View':'Open purchase'}</Link>}
     ]} details={history?undefined:po=><RecordFacts items={[["Supplier document",po.supplierDocumentNo||'—'],["Notes",po.notes||'—']]}/>} empty="No purchase orders found."/>
     {history&&Object.values(records).some(r=>r.error)&&<p className="small text-body-secondary mt-2 mb-0">Some return totals are unavailable. Open the purchase to review its history.</p>}
-    <Pagination pagination={result.data.pagination} onPage={onPage}/>
+    <Pagination label={history?'Purchases':'Supplier purchases'} pagination={result.data.pagination} rows={result.data.entries.length} onPage={onPage}/>
   </>}</>;
 }

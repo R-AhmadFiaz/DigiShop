@@ -3,11 +3,20 @@ import {Link} from 'react-router-dom';
 import {api} from '../../api/client';
 import {useLoad} from '../../api/hooks';
 import {pkr,minorAmount,pakistanTime} from '../../api/purchases';
-import {Field,Notice,PageTitle} from '../../components/Common';
+import {Field,Notice,PageTitle,Pagination} from '../../components/Common';
+import {usePageParam} from '../../api/paging';
 import SupplierAction from '../../components/SupplierAction';
 import AccountingActivation from '../../components/AccountingActivation';
 
 const root='/accounts/existing-setup';
+// The review snapshot is complete and capped by the server (it must hold every row
+// for its totals and integrity check), so it is paged on screen only.
+function SnapshotTable({label,pageKey,rows,head,row,size=20}){
+  const [page,setPage]=usePageParam(pageKey);
+  const pagination={currentPage:page,limit:size,recordCount:rows.length,totalPages:Math.ceil(rows.length/size)};
+  const shown=rows.slice((page-1)*size,page*size);
+  return <><div className="table-responsive"><table className="table table-sm"><thead>{head}</thead><tbody>{shown.map(row)}</tbody></table></div><Pagination label={label} pagination={pagination} rows={shown.length} onPage={setPage}/></>;
+}
 function Draft({setup,evidence,locked,onSaved,onEdit,success}){
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[errors,setErrors]=useState({});
   const input=setup?.input;
@@ -59,8 +68,8 @@ function Review({evidence,confirmed,saved,reviewed}){
     <p className="text-body-secondary">These are starting amounts, not current stock value or profit. Customer balances ({pkr(t.legacyNetCustomerMinor)}) stay in the existing customer records and are not added again. Starting stock, money and supplier debt do not create partner investments.</p>
     <p>Stock: {confirmed?'Confirmed':reviewed?'Reviewed — awaiting confirmation':saved?'Ready for your review':'Not reviewed yet'} · Customer review: {evidence.customerStatus.toLowerCase()}</p>
     {!evidence.inventory.length&&<p>No products are recorded. Opening stock quantity and value are 0. You can review and confirm this empty inventory; do not add a dummy product.</p>}
-    <details className="mb-3"><summary>Review existing stock ({evidence.inventory.length} products)</summary><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Product</th><th>Existing quantity</th><th>Cost per unit</th><th>Opening value</th></tr></thead><tbody>{evidence.inventory.map(row=><tr key={row._id}><td>{row.name}</td><td>{row.quantity}</td><td>{pkr(row.unitCostMinor)}</td><td>{pkr(row.valueMinor)}</td></tr>)}</tbody></table></div><p>No stock quantities are added by this setup. Correct product details or stock in their existing screens before reviewing again.</p></details>
-    <details className="mb-3"><summary>Customer debt and store-credit review ({evidence.customers.length})</summary><div className="table-responsive"><table className="table table-sm"><thead><tr><th>Customer</th><th>Debt</th><th>Store credit</th><th>Review</th></tr></thead><tbody>{evidence.customers.map(row=><tr key={row._id}><td>{row.name}</td><td>{pkr(row.debtMinor)}</td><td>{pkr(row.storeCreditMinor)}</td><td>{row.reconciled?'Preserved / reconciled':'Blocked — history needs review'}</td></tr>)}</tbody></table></div></details>
+    <details className="mb-3"><summary>Review existing stock ({evidence.inventory.length} products)</summary><SnapshotTable label="Existing stock review" pageKey="stockPage" rows={evidence.inventory} head={<tr><th>Product</th><th>Existing quantity</th><th>Cost per unit</th><th>Opening value</th></tr>} row={row=><tr key={row._id}><td>{row.name}</td><td>{row.quantity}</td><td>{pkr(row.unitCostMinor)}</td><td>{pkr(row.valueMinor)}</td></tr>}/><p>No stock quantities are added by this setup. Correct product details or stock in their existing screens before reviewing again.</p></details>
+    <details className="mb-3"><summary>Customer debt and store-credit review ({evidence.customers.length})</summary><SnapshotTable label="Customer balance review" pageKey="customerPage" rows={evidence.customers} head={<tr><th>Customer</th><th>Debt</th><th>Store credit</th><th>Review</th></tr>} row={row=><tr key={row._id}><td>{row.name}</td><td>{pkr(row.debtMinor)}</td><td>{pkr(row.storeCreditMinor)}</td><td>{row.reconciled?'Preserved / reconciled':'Blocked — history needs review'}</td></tr>}/></details>
     {!confirmed&&evidence.blockers.length>0&&<div className="alert alert-warning"><strong>Setup is incomplete or blocked</strong><ul className="mb-0">{evidence.blockers.map(message=><li key={message}>{message}</li>)}</ul></div>}
   </>;
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { query } from '../../api/client';
 import { useDebounce, useLoad } from '../../api/hooks';
 import {useProductSearch} from '../../api/productSearch';
@@ -7,6 +7,7 @@ import ProductFilters from '../../components/ProductFilters';
 import { purchaseItems } from '../../api/purchases';
 import { Empty, Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import PurchaseTable from '../../components/PurchaseTable';
+import {usePageParam,useQueryParam} from '../../api/paging';
 import SupplierAction from '../../components/SupplierAction';
 
 function CreatePurchase({prepare,locked,onClose}) {
@@ -36,12 +37,12 @@ function CreatePurchase({prepare,locked,onClose}) {
   </fieldset></form></section>;
 }
 export default function Purchases(){
-  const [params]=useSearchParams();
-  const [search,setSearch]=useState(params.get('reference')||''),[status,setStatus]=useState(''),[page,setPage]=useState(1),[creating,setCreating]=useState(false);
+  // Existing links pass ?reference=; filters and page stay in the URL.
+  const [search,setSearch]=useQueryParam('reference'),[status,setStatus]=useQueryParam('status'),[page,setPage]=usePageParam(),[creating,setCreating]=useState(false);
   const list=useLoad('/purchases/'+query({q:useDebounce(search),status,page,limit:20}));
   return <><PageTitle title="Purchases"><button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>Create purchase order</button></PageTitle>
     <SupplierAction onChanged={()=>{setCreating(false);list.reload();}}>{({prepare,locked})=><>{creating&&<CreatePurchase prepare={prepare} locked={locked} onClose={()=>setCreating(false)}/>}</>}</SupplierAction>
-    <div className="row g-2 mb-3"><div className="col-md-8"><Field label="Search purchases"><input className="form-control" placeholder="Reference or supplier" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/></Field></div><div className="col-md-4"><Field label="Purchase status"><select className="form-select" value={status} onChange={e=>{setStatus(e.target.value);setPage(1);}}><option value="">All statuses</option>{['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED'].map(s=><option key={s} value={s}>{s.replaceAll('_',' ').toLowerCase()}</option>)}</select></Field></div></div>
+    <div className="row g-2 mb-3"><div className="col-md-8"><Field label="Search purchases"><input className="form-control" placeholder="Reference or supplier" maxLength={100} value={search} onChange={e=>setSearch(e.target.value,['page'])}/></Field></div><div className="col-md-4"><Field label="Purchase status"><select className="form-select" value={status} onChange={e=>setStatus(e.target.value,['page'])}><option value="">All statuses</option>{['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED'].map(s=><option key={s} value={s}>{s.replaceAll('_',' ').toLowerCase()}</option>)}</select></Field></div></div>
     <section className="panel"><PurchaseTable result={list} onPage={setPage} history/>{list.data?.entries.length===0&&<Empty>Create an order when you agree a purchase with a supplier. Receive stock only when goods arrive.</Empty>}</section>
   </>;
 }
