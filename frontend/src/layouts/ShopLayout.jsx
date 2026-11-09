@@ -109,6 +109,12 @@ export default function ShopLayout() {
         </div>
         <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{
           const details=e.target.closest('details');
+          // Purchases is a native disclosure, not a menu-button widget.
+          // Leave Tab, Shift+Tab, Enter and Space to the browser.
+          if(details?.classList.contains('purchase-nav')){
+            if(e.key==='Escape'){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();}
+            return;
+          }
           if(e.key==='Escape'&&details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();return;}
           if(e.key===' '&&e.target.matches('.navigation-overflow a, .navigation-overflow button')){e.preventDefault();e.target.click();return;}
           if(details?.classList.contains('more-nav')&&['ArrowDown','ArrowUp'].includes(e.key)){
@@ -120,8 +126,8 @@ export default function ShopLayout() {
         }} onClick={e=>{if(e.target.closest('a'))setMenuOpen(false);}}>
           {links[user.role].filter(([to])=>mainSections.includes(to)).map(([to, label]) => (
             to==='purchases'?<details key={to} className="more-nav purchase-nav">
-              <summary ref={purchaseTrigger} aria-label="Purchases menu" aria-current={pathname.startsWith('/owner/purchases')?'page':undefined}>Purchases</summary>
-              <div className="navigation-overflow">
+              <summary ref={purchaseTrigger} aria-label="Purchases menu" aria-controls="purchase-dropdown-items" aria-current={pathname.startsWith('/owner/purchases')?'page':undefined}>Purchases</summary>
+              <div id="purchase-dropdown-items" className="navigation-overflow">
                 <NavLink to="purchases">Purchase orders</NavLink>
                 <button type="button" className="btn w-100 text-start" onClick={openSupplierPayment}>Pay supplier</button>
               </div>

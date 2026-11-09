@@ -84,11 +84,17 @@ export function Modal({ title, onClose, children, busy = false, wide = false, tr
       }}
       onKeyDown={event=>{
         if(!trapFocus||event.key!=='Tab'||event.target.closest('dialog')!==event.currentTarget)return;
-        const dialog=event.currentTarget,items=[...dialog.querySelectorAll('button,a[href],input,select,textarea,[tabindex]')].filter(e=>e.tabIndex>=0&&!e.matches(':disabled')&&e.getClientRects().length);
+        const dialog=event.currentTarget,items=[...dialog.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex]')].filter(e=>{
+          if(e.tabIndex<0||e.matches(':disabled')||!e.getClientRects().length||e.closest('dialog')!==dialog||e.closest('[inert]'))return false;
+          for(let parent=e.closest('details');parent&&dialog.contains(parent);parent=parent.parentElement.closest('details')){
+            if(!parent.open&&!parent.querySelector('summary')?.contains(e))return false;
+          }
+          return true;
+        });
         const index=items.indexOf(document.activeElement);
         if(!items.length){event.preventDefault();dialog.focus();return;}
-        if(event.shiftKey&&(index<=0)){event.preventDefault();items.at(-1).focus();}
-        else if(!event.shiftKey&&(index<0||index===items.length-1)){event.preventDefault();items[0].focus();}
+        if(event.shiftKey&&index===0){event.preventDefault();items.at(-1).focus();}
+        else if(!event.shiftKey&&index===items.length-1){event.preventDefault();items[0].focus();}
       }}
       aria-labelledby={headingId}
     >
