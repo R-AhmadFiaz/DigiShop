@@ -43,7 +43,7 @@ export default function Quotations() {
           This session ({quotations.length})
         </button>
       </div>
-      <div hidden={tab !== "new"}>
+      <div className="quotation-workspace" hidden={tab !== "new"}>
         <POS
           quotation
           onConvertQuotation={(id) =>
@@ -68,7 +68,7 @@ export default function Quotations() {
               </button>
             </>
           ) : (
-            <section className="panel">
+            <section className="panel fill-panel">
               {quotations.length === 0 ? (
                 <Empty>No quotations created in this session.</Empty>
               ) : (

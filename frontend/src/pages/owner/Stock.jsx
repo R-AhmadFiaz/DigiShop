@@ -68,7 +68,7 @@ export default function Stock() {
               Refresh
             </button>
           </ProductFilters>
-          <section className="panel">
+          <section className="panel fill-panel">
             <Notice error={categories.error} />
             <Notice error={products.error} loading={products.loading} />
             {filtered.length > 0 ? (
@@ -239,7 +239,7 @@ function StockHistory() {
     setTo(values.endDate);
   }
   return (
-    <section className="panel">
+    <section className="panel fill-panel">
       <form key={productId + from + to + products.length} className="row g-2 mb-3 align-items-end" onSubmit={filter}>
         <div className="col-md-4">
           <Field label="Product">

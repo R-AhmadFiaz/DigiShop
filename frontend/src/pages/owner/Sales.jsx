@@ -88,7 +88,7 @@ function InvoiceHistory({customerModule=false}) {
           );
         }}
       />
-      <section className="panel">
+      <section className="panel fill-panel">
         <Notice error={invoices.error} loading={invoices.loading} />
         {invoices.data&&<RecordTable label="Sales invoice register" rows={invoices.data.orders} columns={[
  {key:'date',label:'Date',render:o=>dateText(o.createdAt)},

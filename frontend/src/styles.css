@@ -811,7 +811,9 @@ p, td, th { overflow-wrap: break-word; }
 .customer-history-main .record-register { min-height:0; max-height:400px; overflow:auto; }
 .customer-account-history .customer-history-main .record-register { flex:1; max-height:none; }
 .customer-history-main .record-table thead { position:sticky; top:0; z-index:1; background:#fff; }
-.record-table.customer-activity-table { width:100%; min-width:1120px; table-layout:fixed; }
+/* Was 1120px, which forced sideways scrolling on laptops; dates may wrap instead. */
+.record-table.customer-activity-table { width:100%; min-width:760px; table-layout:fixed; }
+.customer-activity-table th:nth-child(1),.customer-activity-table td:nth-child(1) { white-space:normal !important; }
 .customer-activity-table th:nth-child(1),.customer-activity-table td:nth-child(1) { width:18%; }
 .customer-activity-table th:nth-child(2),.customer-activity-table td:nth-child(2) { width:24%; }
 .customer-activity-table th:nth-child(3),.customer-activity-table td:nth-child(3) { width:17%; }
@@ -1094,9 +1096,135 @@ p, td, th { overflow-wrap: break-word; }
  .smart-review-changes { order:1; }
 }
 
-@media screen and (min-width:1100px) {
+@media screen and (min-width:1000px) {
  .app-shell { position:relative; }
  .navigation-drawer .sidebar { padding-right:200px; }
  .app-header .header-actions { position:absolute; top:8px; right:16px; z-index:6; }
  .app-header:has(> .header-actions:only-child) { margin:0; }
+}
+
+/* ===== Single-viewport shell (desktop and laptop screens only) =====
+   The app is exactly one screen tall: the navigation bar stays put and the workspace
+   takes the remaining height. Pages mark their main list with .fill-panel so filters stay
+   at the top, rows scroll inside the panel and the pager stays visible. Nothing is hidden:
+   if a page cannot fit, the workspace itself scrolls (measured and reported, never masked).
+   Phones (<=768px), very short windows and printing keep normal document flow. */
+@media screen and (min-width:769px) and (min-height:500px) {
+ html { overflow-y:auto; scrollbar-gutter:auto; }
+ .app-shell { display:flex; flex-direction:column; height:100vh; height:100dvh; }
+ .app-shell > .navigation-drawer { flex:none; }
+ .workspace { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; display:flex; flex-direction:column; padding:10px 16px 12px; }
+ .workspace > * { flex-shrink:0; min-width:0; }
+ .workspace > [hidden] { display:none; }
+ .page-title { margin-bottom:8px !important; }
+ .page-title h1 { font-size:20px; }
+ .panel { padding:10px 12px; }
+ .fill-panel { flex:1 1 0; min-height:13rem; display:flex; flex-direction:column; }
+ /* Only the designated scroll region shrinks; headings, filters and button rows keep their height. */
+ .fill-panel > * { flex-shrink:0; }
+ .fill-panel > .table-responsive,.fill-panel > .record-register,.fill-panel .fill-scroll { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; }
+ .fill-panel > .table-responsive thead th,.fill-panel > .record-register thead th,.fill-panel .fill-scroll thead th { position:sticky; top:0; z-index:1; background:#f7faf9; }
+ .fill-panel > .list-pagination,.fill-panel > .fill-footer { flex:none; margin-top:8px !important; }
+ .fill-panel > .alert,.fill-panel > p,.fill-panel > h2 { flex:none; }
+ /* Dashboard: compact identity; cards stay visible, low stock fills the rest. */
+ .owner-welcome { margin-bottom:0; }
+ .owner-welcome .welcome-line { font-size:15px; margin-bottom:0; }
+ .owner-welcome h1 { font-size:20px; margin:0; }
+ .owner-welcome p { font-size:14px; }
+ .dashboard-finances { margin-bottom:10px !important; }
+ /* Create purchase order: the form scrolls inside its panel; the register below keeps its pager. */
+ .create-purchase { flex-grow:2; }
+ .create-purchase > form { flex:1 1 auto; min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:4px; }
+ .create-purchase fieldset { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:12px; }
+ .create-purchase fieldset > * { grid-column:1/-1; }
+ .create-purchase fieldset > label.form-label:nth-of-type(1),.create-purchase fieldset > label.form-label:nth-of-type(2) { grid-column:auto; }
+ /* Dense detail pages: two registers share the height, each with a smaller minimum. */
+ .fill-panel.fill-compact { min-height:8.5rem; }
+ .fill-panel > details { flex:none; }
+ /* Cashier POS: one-line welcome and a tighter heading so billing gets the height. */
+ .cashier-welcome { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; margin-bottom:0; }
+ .cashier-welcome p { margin:0; }
+ .workspace > h1.h4 { margin-bottom:6px !important; }
+ /* Account: forms side by side. */
+ .account-forms { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; align-items:start; }
+ .account-forms > .panel { max-width:none; margin:0 !important; }
+ /* Customer activity and services: the register and record panel share the panel height. */
+ .customer-service-panel.fill-panel > .customer-history-layout { flex:1 1 auto; min-height:0; }
+ .customer-service-panel.fill-panel .customer-history-main .record-register { flex:1 1 auto; max-height:none; }
+ .customer-service-panel.fill-panel .customer-record-inspector { max-height:none; }
+ /* Quotations: the quotation entry fills the remaining height so its product list scrolls inside. */
+ .quotation-workspace { flex:1 1 0; min-height:20rem; display:flex; flex-direction:column; }
+ .quotation-workspace > .pos-unified { flex:1 1 0; min-height:0; }
+ /* Reports: compact summary figures so the selected report has room. */
+ .report-filters { margin-bottom:8px; gap:8px; }
+ .report-period { padding-bottom:6px; margin-bottom:6px; }
+ .report-metric dd { font-size:16px; margin-top:0; }
+ .report-metric dt { font-size:12.5px; }
+ .report-tabs { padding-bottom:4px; margin-bottom:6px; }
+ .balance-strip { padding:6px 0; margin-bottom:8px; gap:8px 28px; }
+ .balance-strip dd { font-size:18px; }
+}
+/* Laptop widths below the side-by-side POS (769-1099px): the stacked POS keeps its layout,
+   with shorter internal lists so search, lines, totals and checkout share one screen. */
+@media screen and (min-width:1000px) and (max-width:1099px) and (min-height:600px) {
+ .sales-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+ .sales-toolbar .page-title,.sales-toolbar .screen-tabs { margin:0 !important; border:0; }
+}
+@media screen and (min-width:769px) and (max-width:1099px) and (min-height:700px) {
+ /* Same measured height as the side-by-side POS (POS.jsx sets --pos-height); the cart
+    takes the remaining space and scrolls, so totals and checkout stay on screen. */
+ .pos-billing { height:var(--pos-height,65dvh); min-height:0; }
+ .pos-billing .pos-lines { flex:1 1 auto; min-height:4.5rem; max-height:none; }
+ .pos-unified .pos-search-panel .product-results { max-height:19dvh; }
+}
+/* Purchase details: order, delivery and cancel actions left; activity and returns right. */
+@media screen and (min-width:1200px) and (min-height:600px) {
+ .purchase-layout { flex:1 1 0; min-height:16rem; display:grid; grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); gap:12px; }
+ .purchase-main,.purchase-side { min-height:0; overflow:auto; overscroll-behavior:contain; }
+ .purchase-side > .panel:first-child { margin-top:0 !important; }
+}
+/* Starting Balances: activation and review left, opening details and confirmation right. */
+@media screen and (min-width:1000px) and (min-height:600px) {
+ .setup-layout { flex:1 1 0; min-height:16rem; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
+ .setup-check,.setup-enter { min-height:0; overflow:auto; overscroll-behavior:contain; padding-right:2px; }
+ .setup-check > :first-child,.setup-enter > :first-child { margin-top:0 !important; }
+}
+/* Supplier Khata: opening, payment and credit forms left; statement and registers right. */
+@media screen and (min-width:1200px) and (min-height:600px) {
+ .khata-layout { flex:1 1 0; min-height:16rem; display:grid; grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr); gap:12px; }
+ .khata-actions,.khata-registers { min-height:0; overflow:auto; overscroll-behavior:contain; }
+ .khata-registers > :first-child,.khata-actions > :first-child { margin-top:0 !important; }
+}
+/* Registers inside half-width columns: narrower numeric minimums and padding so every
+   column and its row actions stay visible without sideways scrolling. */
+@media screen and (min-width:1200px) and (min-height:600px) {
+ :is(.purchase-layout,.invoice-side,.khata-layout) .record-table th.record-number { min-width:4.5rem; }
+ :is(.purchase-layout,.invoice-side,.khata-layout) .record-table .record-description { min-width:6rem; }
+ :is(.purchase-layout,.invoice-side,.khata-layout) .record-table td,:is(.purchase-layout,.invoice-side,.khata-layout) .record-table th { padding-left:5px; padding-right:5px; }
+ :is(.purchase-layout,.invoice-side,.khata-layout) .record-table .btn { padding:2px 6px; }
+ :is(.purchase-layout,.invoice-side,.khata-layout) .record-table .record-date { white-space:normal; min-width:6.5rem; }
+}
+/* Laptop widths where the detail columns would be too narrow (769-1199px): pages stay stacked.
+   Purchase details uses tighter spacing; Supplier Khata gives its long setup form its own
+   scrolling box so the registers below stay on screen. Every field and button stays reachable. */
+@media screen and (min-width:769px) and (max-width:1199px) and (min-height:600px) {
+ .purchase-layout .panel { padding:8px 10px; }
+ .purchase-layout .panel.mb-3 { margin-bottom:8px !important; }
+ .purchase-layout .panel > h2.h5 { margin-bottom:4px; }
+ .purchase-layout .record-table > :not(caption) > * > * { padding-top:3px; padding-bottom:3px; }
+ .purchase-layout .record-table .btn { min-height:28px; padding:2px 8px; }
+ .purchase-layout .action-disclosure > summary { padding:6px 0; }
+ .purchase-layout .context-help { margin-bottom:6px; }
+ .khata-layout { flex:1 1 0; min-height:16rem; display:flex; flex-direction:column; gap:10px; }
+ .khata-actions { flex:1 1 0; min-height:10rem; overflow:auto; overscroll-behavior:contain; }
+ .khata-actions:empty { display:none; }
+ .khata-registers { flex:0 1 auto; min-height:8rem; max-height:60%; overflow:auto; overscroll-behavior:contain; }
+ .khata-registers > :first-child,.khata-actions > :first-child { margin-top:0 !important; }
+}
+/* Invoice details: printable invoice left, actions and history right, each scrolling on its own. */
+@media screen and (min-width:1000px) and (min-height:600px) {
+ .invoice-layout { flex:1 1 0; min-height:16rem; display:grid; grid-template-columns:minmax(0,760px) minmax(320px,1fr); gap:12px; }
+ .invoice-document,.invoice-side { min-height:0; overflow:auto; overscroll-behavior:contain; }
+ .invoice-document .receipt { padding:16px 20px; }
+ .invoice-side > .panel:first-child,.invoice-side > section:first-child { margin-top:0 !important; }
 }

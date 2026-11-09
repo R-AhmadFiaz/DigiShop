@@ -83,20 +83,30 @@ export default function ExistingSetup(){
   function changed(){setSnapshot(null);setSuccess('');setDirty(false);setPreview(null);setConfirmation('');setInventoryReviewed(false);view.reload();}
   return <>
     <PageTitle title="Starting Balances"/>
+    {/* Wide screens: activation and the review (check) left, opening details and confirmation (enter) right.
+        Narrow screens keep the original order. Each column scrolls on its own. */}
+    <div className="setup-layout">
+    <div className="setup-check">
     <AccountingActivation onChanged={changed}/>
     <p className="text-body-secondary">For new shops and shops that already trade. A new shop can start with no products and PKR 0 in every account. Never create fake sales, purchases or investments for setup.</p>
     <p>1. Enter and save opening details. 2. Review and confirm the setup. 3. Check setup above and activate separately when ready.</p>
     <Notice loading={view.loading&&!snapshot} error={view.error}/>
-    {current&&<SupplierAction operation="existing-setup-confirmation" onChanged={changed}>{({prepare,locked})=><>
+    {current&&<>
       {confirmed&&<div className="alert alert-success">Opening setup confirmed by {current.setup.confirmedByName} on {pakistanTime(current.setup.confirmedAt)}. These are preserved opening values, not current balances. Accounting activation is a separate step above. Corrections require separate reconciliation; do not repeat this setup.</div>}
-      {!confirmed&&current.setup&&!success&&<p className="text-body-secondary">{dirty?'You have unsaved changes. Save the draft before reviewing.':preview?'Review the stock and balances below, then confirm if correct.':'A draft is saved, but setup is not confirmed. Next: Review for confirmation below.'}</p>}
+      {!confirmed&&current.setup&&!success&&<p className="text-body-secondary">{dirty?'You have unsaved changes. Save the draft before reviewing.':preview?'Review the stock and balances in the review, then confirm if correct.':'A draft is saved, but setup is not confirmed. Next: Review for confirmation in the opening details.'}</p>}
       <Review evidence={preview?.evidence||current.evidence} confirmed={confirmed} saved={!!current.setup} reviewed={inventoryReviewed}/>
+    </>}
+    </div>
+    <div className="setup-enter">
+    {current&&<SupplierAction operation="existing-setup-confirmation" onChanged={changed}>{({prepare,locked})=><>
       {!confirmed&&<section className="panel"><Draft key={current.setup?.revision??'new'} setup={current.setup} evidence={current.evidence} locked={locked||busy} onSaved={saved} onEdit={edited} success={success}/>
         <Notice error={error}/>
         {current.setup&&<button className="btn btn-outline-primary mt-3" disabled={busy||locked||dirty} onClick={review}>{busy?'Reviewing...':'Review for confirmation'}</button>}
-        {preview&&<div className="border-top mt-3 pt-3"><p>Preview expires after 5 minutes. Any relevant record change requires a fresh review. Confirmation saves the starting balances together and cannot be undone here. Activation is a separate step.</p><label className="d-block mb-3"><input type="checkbox" name="inventoryReviewed" className="form-check-input me-2" checked={inventoryReviewed} disabled={locked} onChange={e=>setInventoryReviewed(e.target.checked)}/>I reviewed the opening stock shown above{preview.evidence.inventory.length?'':': no products, quantity 0 and value PKR 0'}.</label><Field label="Type CONFIRM EXISTING BUSINESS SETUP"><input className="form-control" value={confirmation} disabled={locked} onChange={e=>setConfirmation(e.target.value)}/></Field><button className="btn btn-primary" disabled={locked||!inventoryReviewed||preview.evidence.blockers.length>0||confirmation!=='CONFIRM EXISTING BUSINESS SETUP'} onClick={()=>prepare({path:root+'/confirm',title:'Confirm existing business openings',summary:`Net opening value: ${pkr(preview.evidence.totals.netAssetsMinor)}.\nStock and existing customer balances will not be added again. Cash/bank and supplier starting balances become permanent.\nThis starting value is not assigned to any partner and is not a new investment.`,body:{expectedRevision:preview.expectedRevision,previewToken:preview.previewToken,requestKey:crypto.randomUUID(),confirmation}})}>Confirm reviewed setup</button></div>}
+        {preview&&<div className="border-top mt-3 pt-3"><p>Preview expires after 5 minutes. Any relevant record change requires a fresh review. Confirmation saves the starting balances together and cannot be undone here. Activation is a separate step.</p><label className="d-block mb-3"><input type="checkbox" name="inventoryReviewed" className="form-check-input me-2" checked={inventoryReviewed} disabled={locked} onChange={e=>setInventoryReviewed(e.target.checked)}/>I reviewed the opening stock shown in the review{preview.evidence.inventory.length?'':': no products, quantity 0 and value PKR 0'}.</label><Field label="Type CONFIRM EXISTING BUSINESS SETUP"><input className="form-control" value={confirmation} disabled={locked} onChange={e=>setConfirmation(e.target.value)}/></Field><button className="btn btn-primary" disabled={locked||!inventoryReviewed||preview.evidence.blockers.length>0||confirmation!=='CONFIRM EXISTING BUSINESS SETUP'} onClick={()=>prepare({path:root+'/confirm',title:'Confirm existing business openings',summary:`Net opening value: ${pkr(preview.evidence.totals.netAssetsMinor)}.\nStock and existing customer balances will not be added again. Cash/bank and supplier starting balances become permanent.\nThis starting value is not assigned to any partner and is not a new investment.`,body:{expectedRevision:preview.expectedRevision,previewToken:preview.previewToken,requestKey:crypto.randomUUID(),confirmation}})}>Confirm reviewed setup</button></div>}
       </section>}
       <p className="mt-3"><Link to="/owner/products">Products</Link> · <Link to="/owner/stock">Stock</Link> · <Link to="/owner/customers">Customers</Link> · <Link to="/owner/accounts/cash-bank">Cash &amp; Bank</Link> · <Link to="/owner/accounts/companies">Companies &amp; Suppliers</Link> · <Link to="/owner/partners">Partners &amp; Capital</Link></p>
     </>}</SupplierAction>}
+    </div>
+    </div>
   </>;
 }
