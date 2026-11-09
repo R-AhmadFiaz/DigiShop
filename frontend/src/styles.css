@@ -422,6 +422,16 @@ a:focus-visible {
   outline: 2px solid #0f766e;
   outline-offset: 3px;
 }
+/* Match links and Bootstrap buttons inside shared navigation disclosures. */
+.navigation-overflow :is(a, button):focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+  border-radius: 4px;
+  box-shadow: none;
+  background-color: #e6f5f1;
+  color: #115e59;
+}
+
 @media (max-width: 1100px) {
   .pos-grid {
     grid-template-columns: 1fr;
