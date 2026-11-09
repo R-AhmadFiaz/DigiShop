@@ -138,7 +138,7 @@ export default function Shops() {
         onChange={(e) => setSearch(e.target.value, ["page"])}
       />
       <Notice error={error} success={success} />
-      <section className="panel">
+      <section className="panel fill-panel">
         <Notice error={shops.error} loading={shops.loading} />
         {rows.length ? (
           <div className="table-responsive">

@@ -25,7 +25,8 @@ const {InvoiceAdjustment}=await import('../dist/models/invoiceAdjustment.model.j
 const {BusinessTransaction}=await import('../dist/models/businessTransaction.model.js');
 const {FinancialAccount}=await import('../dist/models/financialAccount.model.js');
 const {AccountingActivationEvent}=await import('../dist/models/accountingActivationEvent.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 await test('production activation: actual HTTP and disposable loopback replica set',{skip:!existsSync(binary)},async t=>{

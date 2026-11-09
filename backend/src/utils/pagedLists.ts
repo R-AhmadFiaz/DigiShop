@@ -48,7 +48,9 @@ export async function productPage(user: IUser, query: Record<string, unknown>, l
     const hidden = user.role === "CASHIER" ? "-costPrice" : "";
     const [recordCount, product, brandValues] = await Promise.all([
         Product.countDocuments(filter),
-        Product.find(filter).sort({ _id: 1 }).skip(skip).limit(limit).populate("category").select(hidden),
+        // The legacy unsorted queries were answered by the {shopId, slug} index, so users saw
+        // slug (name/brand) order. Keep that order explicitly; _id makes pages stable.
+        Product.find(filter).sort({ slug: 1, _id: 1 }).skip(skip).limit(limit).populate("category").select(hidden),
         Product.distinct("brand", base),
     ]);
     const brands = new Map<string, string>();

@@ -21,7 +21,8 @@ const {BusinessTransaction}=await import('../dist/models/businessTransaction.mod
 const {Order}=await import('../dist/models/order.model.js');
 const {InvoiceAdjustment}=await import('../dist/models/invoiceAdjustment.model.js');
 const {BusinessBrand,ProductBrandLink}=await import('../dist/models/businessBrand.model.js');
-const binary='C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 // Fresh loopback-only replica set. Never loads environment files or an existing URI.
 await test('business accounts: real isolated MongoDB transactions', {skip:!existsSync(binary)}, async t=>{

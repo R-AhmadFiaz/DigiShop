@@ -53,8 +53,13 @@ export function Pagination({ pagination, onPage, label = "List", rows }) {
   const go = (page) => {
     onPage(page);
     requestAnimationFrame(() => {
+      // Return to the top of the list. On desktop the workspace (not the window) scrolls,
+      // so compare with its top edge; lists inside a fill panel scroll their own rows.
       const region = ref.current?.closest("section, .panel, dialog, details") || ref.current;
-      if (region && region.getBoundingClientRect().top < 0) region.scrollIntoView({ block: "start" });
+      const rows = ref.current?.closest(".fill-panel")?.querySelector(":scope > .record-register, :scope > .table-responsive, .fill-scroll");
+      if (rows) rows.scrollTop = 0;
+      const top = ref.current?.closest(".workspace")?.getBoundingClientRect().top ?? 0;
+      if (region && region.getBoundingClientRect().top < top) region.scrollIntoView({ block: "start" });
     });
   };
   const first = pagination.currentPage <= 1,

@@ -95,9 +95,9 @@ export default function VoiceStock() {
   return (
     <>
       <PageTitle title="AI Assistant" />
-      <section className="panel assistant">
+      <section className="panel assistant fill-panel">
         <p className="text-body-secondary">Ask questions about your shop using text or voice.</p>
-        <div className="assistant-conversation" role="log" aria-label="Assistant conversation" aria-live="polite">
+        <div className="assistant-conversation fill-scroll" role="log" aria-label="Assistant conversation" aria-live="polite">
           {!messages.length && <p className="text-body-secondary small">Ask about product stock, selling prices or a customer balance.</p>}
           {messages.map((message, index) => (
             <div className="assistant-exchange" key={index}>

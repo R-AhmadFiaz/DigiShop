@@ -48,7 +48,7 @@ export default function PurchaseDetails(){
       </dl>
       <p className="small text-body-secondary">Kept uses recorded deliveries minus returns, not current stock. Order value is not supplier debt.</p>
       {record?.error&&<p className="alert alert-warning" role="alert">{record.error}</p>}
-      <section className="panel mb-3"><h2 className="h5">Products</h2>
+      {/* Wide screens: order and actions left, activity and returns right; each column scrolls. */}<div className="purchase-layout"><div className="purchase-main"><section className="panel mb-3"><h2 className="h5">Products</h2>
         <RecordTable label="Purchase products" rows={po.items} rowKey={r=>r.productId} columns={[
           {key:'name',label:'Product'},{key:'quantity',label:'Ordered',numeric:true},
           {key:'receivedQuantity',label:'Received',numeric:true},
@@ -61,7 +61,7 @@ export default function PurchaseDetails(){
         {po.status==='DRAFT'&&<button className="btn btn-primary mb-3" disabled={locked} onClick={()=>prepare({path:'/purchases/'+po._id+'/confirm',title:'Confirm purchase order',summary:po.reference+' — '+po.supplierName+'\nConfirmation does not receive stock or make a payment.',body:{requestKey:crypto.randomUUID(),expectedRevision:po.revision}})}>Confirm order</button>}
         {['CONFIRMED','PARTIALLY_RECEIVED'].includes(po.status)&&<details className="action-disclosure"><summary>Receive delivery — remaining goods</summary><Receiving key={po.revision+'-'+setupVersion} po={po} prepare={prepare} locked={locked}/></details>}
         {['DRAFT','CONFIRMED','PARTIALLY_RECEIVED'].includes(po.status)&&<details className="context-help"><summary>Cancel remaining order</summary><Field label="Reason for cancelling remaining order"><input className="form-control" maxLength={300} value={cancelReason} disabled={locked} onChange={e=>setCancelReason(e.target.value)}/></Field><button className="btn btn-sm btn-outline-danger mb-2" disabled={locked||!cancelReason.trim()} onClick={()=>prepare({path:'/purchases/'+po._id+'/cancel',title:'Cancel remaining purchase order',summary:po.reference+'\nAlready received deliveries and stock will remain unchanged.\n'+cancelReason,body:{requestKey:crypto.randomUUID(),expectedRevision:po.revision,reason:cancelReason.trim()}})}>Cancel remaining order</button></details>}
-      </>}</SupplierAction>
+      </>}</SupplierAction></div><div className="purchase-side">
       <section className="panel" id="purchase-activity"><h2 className="h5">Purchase activity</h2>
         <Notice loading={!record}/>
         <RecordTable label="Purchase activity register" rows={activities.slice((page-1)*20,page*20)} columns={[
@@ -77,7 +77,7 @@ export default function PurchaseDetails(){
         </>} empty={record?.error?'Complete activity unavailable.':'No deliveries or returns recorded.'}/>
         <Pagination label="Purchase activity" pagination={pagination} rows={activities.slice((page-1)*20,page*20).length} onPage={setPage}/>
       </section>
-      {returning&&<SupplierReturn key={returning._id} receipt={returning} onClose={()=>setReturning(null)} onChanged={refresh}/>}
+      {returning&&<SupplierReturn key={returning._id} receipt={returning} onClose={()=>setReturning(null)} onChanged={refresh}/>}</div></div>
     </>}
   </>;
 }

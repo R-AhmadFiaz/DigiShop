@@ -56,7 +56,7 @@ export default function Products() {
           onSaved={categories.reload}
         />
       )}
-      <section className="panel">
+      <section className="panel fill-panel">
         <Notice error={products.error} loading={products.loading} />
         {products.data?.product.length > 0 ? (
           <div className="table-responsive">

@@ -82,7 +82,7 @@ export default function Companies() {
   const term=useDebounce(search), list=useLoad('/accounts/entities'+query({q:term,role:scope,page,limit:20}));
   return <><PageTitle title="Suppliers"><button className="btn btn-primary btn-sm" onClick={()=>setCreating('supplier')}>Add supplier</button></PageTitle>
     <Notice success={success}/><div className="d-flex flex-wrap gap-2 mb-3"><input className="form-control search-input" aria-label="Search businesses" placeholder="Supplier name or phone" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/><select className="form-select w-auto" aria-label="Business list filter" value={scope} onChange={e=>{setScope(e.target.value);setPage(1);}}><option value="SUPPLIER">Suppliers</option><option value="">All existing businesses (Advanced)</option></select></div>
-    <section className="panel"><Notice loading={list.loading} error={list.error}/>{list.data&&<><RecordTable label="Supplier accounts" rows={list.data.entries} columns={[
+    <section className="panel fill-panel"><Notice loading={list.loading} error={list.error}/>{list.data&&<><RecordTable label="Supplier accounts" rows={list.data.entries} columns={[
       {key:'name',label:scope?'Supplier':'Business'},...(!scope?[{key:'roles',label:'Roles',render:e=>e.roles.map(r=>roles[r]||r).join(', ')}]:[]),
       {key:'phoneNo',label:'Phone',render:e=>e.phoneNo||'—'},{key:'address',label:'Address',render:e=>e.address||'—'},
       ...(!scope?[{key:'supplier',label:'Supplier records',render:e=>e.roles.includes('SUPPLIER')?<Link className="btn btn-outline-primary btn-sm" to={'/owner/accounts/suppliers/'+e._id}>Supplier history</Link>:'—'}]:[])

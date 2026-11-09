@@ -101,10 +101,15 @@ export default function Invoice() {
         {original && <button className={`btn btn-sm ${view === "original" && !document ? "btn-primary" : "btn-outline-secondary"}`} onClick={() => { setView("original"); setDocument(null); }}>{original.source === "LEGACY_BASELINE" ? "Recorded legacy baseline" : "Original invoice"}</button>}
       </div>
       <InvoiceCustomerName key={`${orderId}-customer-name`} order={order} reload={invoice.reload} />
+      {/* Wide screens: printable invoice left, actions and history right; each column scrolls on its own. */}
+      <div className="invoice-layout">
+      <div className="invoice-document">
       <Receipt receipt={receiptFrom(shown)} documentTitle={document ? "Adjustment / payment record" : view === "original" ? (original?.source === "LEGACY_BASELINE" ? "Recorded legacy baseline" : "Original invoice") : undefined}>
         {document && <EventDocument event={document} order={order} />}
       </Receipt>
-      <div className="panel mt-3 no-print">
+      </div>
+      <div className="invoice-side">
+      <div className="panel no-print invoice-actions">
         {order.customerId && <InvoiceCustomerBalance key={`${orderId}-${eligibility?.revision}`} customer={order.customerId} />}
         <div className="d-flex flex-wrap gap-2">
           {eligibility?.adjustmentEligible && <button ref={editButton} className="btn btn-primary" disabled={busy || !!mode} onClick={() => setMode("adjustments")}>Edit Invoice</button>}
@@ -117,7 +122,9 @@ export default function Invoice() {
         {!original && <p className="small text-body-secondary mt-2 mb-0">No original snapshot was recorded for this earlier invoice.</p>}
       </div>
       {mode && <InvoiceAdjustment key={`${orderId}-${mode}-${eligibility?.revision}`} order={order} mode={mode} onClose={() => { setMode(null); invoice.reload(); }} onSaved={() => { setMode(null); setDocument(null); setView("current"); setSuccess("Invoice updated. Financial and stock movements recorded."); invoice.reload(); }} />}
-      <InvoiceHistory key={`${orderId}-${eligibility?.revision}`} order={order} onPrint={event => { setDocument(event); setView("current"); window.scrollTo(0, 0); }} />
+      <InvoiceHistory key={`${orderId}-${eligibility?.revision}`} order={order} onPrint={event => { setDocument(event); setView("current"); window.scrollTo(0, 0); window.document.querySelector(".invoice-document")?.scrollTo(0, 0); window.document.querySelector(".workspace")?.scrollTo(0, 0); }} />
+      </div>
+      </div>
     </>}</>}
   </>;
 }

@@ -32,7 +32,7 @@ export default function CashBank() {
     <details className="context-help"><summary>Account setup</summary>Confirm starting balances and activate money records before using these accounts. <Link to="/owner/existing-setup">Open starting balances and account setup</Link>.</details>
     <Notice success={success} />
     <input aria-label="Search accounts" className="form-control search-input mb-3" placeholder="Account name or reference" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value,['page']);setSelected(null);}} />
-    <section className="panel"><Notice loading={list.loading} error={list.error}/>
+    <section className="panel fill-panel"><Notice loading={list.loading} error={list.error}/>
       {selected&&<><h2 className="h6 mt-3">{selected.name}</h2><Balance key={selected._id} account={selected}/></>}
       {list.data&&<><RecordTable label="Cash and bank accounts" rows={list.data.entries} columns={[
  {key:'name',label:'Account'},{key:'kind',label:'Type',render:a=>a.kind==='CASH'?'Cash':'Bank'},

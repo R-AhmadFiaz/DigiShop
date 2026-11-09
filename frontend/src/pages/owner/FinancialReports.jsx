@@ -120,10 +120,10 @@ export default function FinancialReports(){
       <small className="text-body-secondary">Each report day runs from 5 am to 5 am Pakistan time (UTC dates). Record times use Pakistan time.</small>
     </form><Notice loading={result.loading} error={result.error}/>
     {d&&<><ReportOverview d={d} range={range}/>
-      <section className="panel mb-3" aria-label="Explore Reports"><h2 className="h6">Explore Reports</h2>
+      <section className="panel mb-3 fill-panel fill-compact" aria-label="Explore Reports"><h2 className="h6">Explore Reports</h2>
         <nav className="report-tabs" aria-label="Report categories">{reportCategories.map(name=><button key={name} type="button" aria-pressed={selected===name} aria-controls="selected-report" className={'btn btn-sm '+(selected===name?'btn-primary':'btn-outline-secondary')} onClick={()=>setSelected(name)}>{name}</button>)}</nav>
         <select className="form-select report-select" aria-label="Choose report" aria-controls="selected-report" value={selected} onChange={event=>setSelected(event.target.value)}>{reportCategories.map(name=><option key={name}>{name}</option>)}</select>
-        <div id="selected-report"><ReportContent d={d} selected={selected} onCustomer={setCustomer}/></div>
+        <div id="selected-report" className="fill-scroll"><ReportContent d={d} selected={selected} onCustomer={setCustomer}/></div>
       </section><ReportNotes d={d}/>
     </>}
     {customer&&<Modal wide title={customer.name+' — Customer Khata'} onClose={()=>setCustomer(null)}><CustomerAccountHistory customer={{...customer,_id:customer.id}}/></Modal>}

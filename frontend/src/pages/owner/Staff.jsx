@@ -120,7 +120,7 @@ export default function Staff() {
           </fieldset>
         </form>
       </section>
-      <section className="panel mt-3">
+      <section className="panel mt-3 fill-panel fill-compact">
         <h2 className="h6">Your Cashiers</h2>
         <Notice loading={cashiers.loading} error={cashiers.error || manageError} success={manageSuccess} />
         {cashiers.data?.cashiers.length ? (

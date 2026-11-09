@@ -83,7 +83,7 @@ export default function Customers() {
         value={search}
         onChange={(e) => setSearch(e.target.value, ["page"])}
       />
-      <section className="panel">
+      <section className="panel fill-panel">
         <Notice error={customers.error} loading={customers.loading} />
         {customers.data&&<RecordTable label="Customer Khata accounts" rows={customers.data.customers} columns={[
  {key:'name',label:'Name'},{key:'phoneNo',label:'Phone'},{key:'address',label:'Address',render:c=>c.address||'—'},

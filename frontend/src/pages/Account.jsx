@@ -58,6 +58,8 @@ export default function Account() {
         {user.username} | {user.email}
       </p>
       <Notice error={detailsError} success={detailsSuccess} />
+      {/* Desktop: the account forms sit side by side; phones keep them stacked. */}
+      <div className="account-forms">
       <section className="panel narrow mb-3">
         <h2 className="h6">Account details</h2>
         <form onSubmit={saveDetails} key={user.username + user.email}>
@@ -119,6 +121,7 @@ export default function Account() {
           </fieldset>
         </form>
       </section>
+      </div>
     </>
   );
 }

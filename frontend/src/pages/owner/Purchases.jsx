@@ -23,7 +23,7 @@ function CreatePurchase({prepare,locked,onClose}) {
       prepare({path:'/purchases/',title:'Confirm purchase order',confirmationType:'purchase-order',supplierName:supplier.name,items:reviewedItems,totalMinor:reviewedItems.reduce((total,item)=>total+item.totalMinor,0),body:{...(form.get('notes')?{notes:form.get('notes')}:{}),...(form.get('supplierDocumentNo')?{supplierDocumentNo:form.get('supplierDocumentNo')}:{}),supplierId:supplier._id,items,requestKey:crypto.randomUUID()}});
     }catch(e){setError(e.message);}
   }
-  return <section className="panel mb-3"><h2 className="h5">Create purchase order</h2><form onSubmit={submit}><fieldset disabled={locked}><Notice error={error}/>
+  return <section className="panel mb-3 fill-panel create-purchase"><h2 className="h5">Create purchase order</h2><form onSubmit={submit}><fieldset disabled={locked}><Notice error={error}/>
     <p className="text-body-secondary">DigiShop assigns the purchase number after saving.</p>
     <Field label="Supplier invoice / challan (Optional)"><input name="supplierDocumentNo" className="form-control" maxLength={100}/></Field><Field label="Purchase notes (Optional)"><input name="notes" className="form-control" maxLength={500}/></Field>
     <Field label="Find supplier"><input className="form-control" value={supplierSearch} maxLength={100} onChange={e=>{setSupplierSearch(e.target.value);setSupplierPage(1);}}/></Field><Notice loading={suppliers.loading} error={suppliers.error}/>
@@ -43,6 +43,6 @@ export default function Purchases(){
   return <><PageTitle title="Purchases"><button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>Create purchase order</button></PageTitle>
     <SupplierAction onChanged={()=>{setCreating(false);list.reload();}}>{({prepare,locked})=><>{creating&&<CreatePurchase prepare={prepare} locked={locked} onClose={()=>setCreating(false)}/>}</>}</SupplierAction>
     <div className="row g-2 mb-3"><div className="col-md-8"><Field label="Search purchases"><input className="form-control" placeholder="Reference or supplier" maxLength={100} value={search} onChange={e=>setSearch(e.target.value,['page'])}/></Field></div><div className="col-md-4"><Field label="Purchase status"><select className="form-select" value={status} onChange={e=>setStatus(e.target.value,['page'])}><option value="">All statuses</option>{['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED'].map(s=><option key={s} value={s}>{s.replaceAll('_',' ').toLowerCase()}</option>)}</select></Field></div></div>
-    <section className="panel"><PurchaseTable result={list} onPage={setPage} history/>{list.data?.entries.length===0&&<Empty>Create an order when you agree a purchase with a supplier. Receive stock only when goods arrive.</Empty>}</section>
+    <section className="panel fill-panel"><PurchaseTable result={list} onPage={setPage} history/>{list.data?.entries.length===0&&<Empty>Create an order when you agree a purchase with a supplier. Receive stock only when goods arrive.</Empty>}</section>
   </>;
 }

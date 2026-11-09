@@ -37,13 +37,13 @@ export default function Dashboard() {
   const reports=useLoad('/accounts/reports'+query(range));
   return (
     <>
-      <div className="d-flex gap-2 mb-4">
+      <div className="d-flex gap-2 mb-2">
         <Link className="btn btn-primary" to="sales">
           New sale
         </Link>
       </div>
       <DashboardSummary result={reports} range={range}/>
-      <section className="panel">
+      <section className="panel fill-panel">
         <div className="d-flex justify-content-between mb-3">
           <h2 className="h6 mb-0">
             Stock needing attention{" "}

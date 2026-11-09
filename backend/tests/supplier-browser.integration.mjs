@@ -11,7 +11,8 @@ import {spawn} from 'node:child_process';
 import mongoose from 'mongoose';
 import http from 'node:http';
 
-const binary = 'C:/Program Files/MongoDB/Server/8.3/bin/mongod.exe';
+import {mongodBinary} from './mongod-binary.mjs';
+const binary=mongodBinary;
 const chromeBinary = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 assert.ok(existsSync(binary) && existsSync(chromeBinary), 'Local MongoDB and Chrome are required; no remote fallback');
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'digishop-supplier-integration-'));

@@ -36,7 +36,7 @@ export default function CustomerServices(){
   ];
   return <>
     <PageTitle title={config.title}/>
-    <section className="panel customer-service-panel">
+    <section className="panel customer-service-panel fill-panel">
       <div className="row g-2 align-items-end mb-3">
         {service==='activity'&&<div className="col-md-3"><Field label="Record type"><select className="form-select" aria-label="Filter customer record type" value={recordType} onChange={event=>update({type:event.target.value,page:'1'})}><option value="HISTORY">All customer activity</option><option value="INVOICES">Invoices</option><option value="PAYMENTS">Payments</option><option value="RETURNS">Returns</option><option value="REFUNDS">Refunds</option><option value="CREDIT">Store credit</option></select></Field></div>}
         <div className="col-md-4"><Field label="Search customer, invoice or reference"><input className="form-control" aria-label="Search customer records" maxLength={100} value={search} onChange={event=>update({search:event.target.value,page:'1'})}/></Field></div>

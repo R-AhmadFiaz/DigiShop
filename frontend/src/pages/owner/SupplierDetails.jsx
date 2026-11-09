@@ -54,12 +54,14 @@ export default function SupplierDetails(){
       {ready?<dl className="balance-strip"><div><dt>We owe supplier</dt><dd>Outstanding: {pkr(balance.data.balanceMinor)}</dd></div><div><dt>Supplier credit</dt><dd>{pkr(balance.data.creditMinor)}</dd></div><div><dt>Starting balance</dt><dd className="fs-6">{reconciliation.data?.cutover?'Confirmed':'Checking...'}</dd></div></dl>:null}
       <SupplierBalanceStatus result={reconciliation.data} loading={reconciliation.loading} error={reconciliation.error}/>
     </section>
-    {ready&&<TransactionHistory key={balance.data.accountId+'-'+statementVersion} accountId={balance.data.accountId} name={entity.data?.name} supplier/>}
-
+    {/* Wide screens: setup and money actions left; statement and registers right. Each column scrolls. */}
+    <div className="khata-layout"><div className="khata-actions">
     {ready&&<SupplierPayment supplierId={supplierId} supplierName={entity.data?.name} balance={balance.data.balanceMinor} onChanged={refresh}/>}
     {!ready&&reconciliation.data?.cutover===null&&entity.data?.roles.includes('SUPPLIER')&&<SupplierOpening supplierId={supplierId} onChanged={refresh} defaultOpen/>}
     {ready&&<><SupplierCredit supplierId={supplierId} supplierName={entity.data?.name} balance={balance.data} onChanged={refresh}/>
       <details className="context-help"><summary>Starting balance and credit history</summary><RecordFacts items={[["Starting balance",reconciliation.data?.cutover?'Confirmed at '+pakistanTime(reconciliation.data.cutover.cutoffAt)+' (Pakistan)':'Owner-confirmed setup required'],["Refunds received (net of corrections)",pkr(balance.data.refundsReceivedMinor)],["Credit applied (net of corrections)",pkr(balance.data.creditAppliedMinor)]]}/><p>Supplier credit is separate from what we owe them. It is not cash until a refund is received.</p>{balance.data.creditAccountId&&<Link to={'/owner/accounts/transactions?account='+balance.data.creditAccountId}>Supplier credit statement</Link>}</details></>}
+    </div><div className="khata-registers">
+    {ready&&<TransactionHistory key={balance.data.accountId+'-'+statementVersion} accountId={balance.data.accountId} name={entity.data?.name} supplier/>}
     <section className="panel mb-3" id="supplier-purchases"><h2 className="h5">Purchases</h2><PurchaseTable result={purchases} onPage={setPurchasePage}/></section>
     {ready&&<details className="action-disclosure supplier-settlements" id="supplier-settlements"><summary>Payments, returns and corrections</summary><Notice loading={history.loading}/>{history.error&&<p className="alert alert-warning">Payment history unavailable: {history.error}</p>}{history.data&&<><RecordTable label="Supplier settlement register" rows={history.data.entries} columns={[
  {key:'date',label:'Date (Pakistan)',render:e=>pakistanTime(e.occurredAt)},
@@ -69,5 +71,6 @@ export default function SupplierDetails(){
  {key:'correct',label:'Correction',render:e=>e.kind!=='REVERSAL'&&<button className="btn btn-outline-secondary btn-sm" onClick={()=>setCorrection(e)}>Correct</button>}
  ]} details={e=><RecordFacts items={[["Recorded by",e.createdByName||'Unavailable'],["Note",e.reason],["Part for what we owe",pkr(e.payableReductionMinor)],["Supplier credit portion",pkr(e.creditMovementMinor)],["Original action",e.originalKind?activity('SUPPLIER_'+e.originalKind):'—'],["Correction of",e.reversalOf||'—']]}/>} empty="No payments or returns recorded."/><Pagination pagination={history.data.pagination} onPage={setHistoryPage}/></>}</details>}
     {ready&&correction&&<Correction event={correction} supplierId={supplierId} onChanged={refresh} onClose={()=>setCorrection(null)}/>}
+    </div></div>
   </>;
 }
