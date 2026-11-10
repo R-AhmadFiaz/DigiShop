@@ -51,7 +51,7 @@ export const supplierSearchChecks=String.raw`
   assert.equal((await Product.findById(searchCoil._id)).stockQuantity,10);
   pass('Shared POS: case-insensitive partial model/category text, category-scoped brands, retail/wholesale and manual paid amount/cart unchanged, draft restores brand/category and literal regex text is safe');
 
-  await navigation('/owner/purchases');await click('Create purchase order');await searchFill('[aria-label="Purchase category filter"]',searchCableCategory._id);await label('Find purchase products','Search');
+  await navigation('/owner/purchases?create=1');await searchFill('[aria-label="Purchase category filter"]',searchCableCategory._id);await label('Find purchase products','Search');
   await wait('document.body.innerText.includes("Page 1 of 2")');const beforePaging=await PurchaseOrder.countDocuments({shopId:shop._id});
   await evaluate('(()=>{const buttons=[...document.querySelectorAll("form button")].filter(b=>b.textContent.trim()==="Next");buttons.at(-1).click();})()');await wait('document.body.innerText.includes("Page 2 of 2")');assert.equal(await PurchaseOrder.countDocuments({shopId:shop._id}),beforePaging);
   await click('Add Search Page Product 24');assert.equal(await searchValue('Quantity for Search Page Product 24'),'1');

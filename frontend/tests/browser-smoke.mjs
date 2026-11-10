@@ -1474,7 +1474,7 @@ try {
   // Supplier purchasing and accounting are contract fixtures only; never sent to a database.
   const stockBeforePurchases=product.stockQuantity;
   await click('Purchases');await wait('document.body.innerText.includes("No purchase orders found")');
-  await click('Create purchase order');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
+  await click('Purchases');await click('Create Order');await fillLabel('Find supplier','Eagle');await sleep(300);await click('Eagle Cables');
   await click('Add Copper Cable');await fill('[aria-label="Quantity for Copper Cable"]','5');await fill('[aria-label="Unit cost for Copper Cable"]','10.00');
   await fillLabel('Find purchase products','Fiber');await click('Add Fiber Spool');await fill('[aria-label="Quantity for Fiber Spool"]','2');await fill('[aria-label="Unit cost for Fiber Spool"]','3.25');
   const purchasePosts=()=>calls.filter(c=>c.endpoint==='/purchases/'&&c.method==='POST').length;
