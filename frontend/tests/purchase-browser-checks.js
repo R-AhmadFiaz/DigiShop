@@ -4,7 +4,7 @@ export const purchaseChecks=String.raw`
   const reviewOpening=ok(await get('/accounts/suppliers/'+supplier._id+'/balance')).balanceMinor;
   const reviewCoil=ok(await browserHttp('POST','/products/create-product',{name:'Purchase Review Copper Cable 3/29 Black Coil 90 metre pack',brand:'Review Wire',category:category._id,unit:'coil',costPrice:3000,retailPrice:4000,wholesalePrice:3900,stockQuantity:0,minStockThreshold:1})).product;
   const reviewBulb=ok(await browserHttp('POST','/products/create-product',{name:'Purchase Review LED Bulb',brand:'Review Lighting',category:category._id,unit:'pcs',costPrice:500,retailPrice:650,wholesalePrice:600,stockQuantity:0,minStockThreshold:1})).product;
-  await navigation('/owner/purchases');await click('Create purchase order');await label('Find supplier','Integration Supplier');await sleep(300);await click('Integration Supplier');
+  await navigation('/owner/purchases?create=1');await label('Find supplier','Integration Supplier');await sleep(300);await click('Integration Supplier');
   for(const [p,quantity,cost] of [[reviewCoil,10,'3000'],[reviewBulb,4,'500']]){
     await label('Find purchase products',p.name);await sleep(300);await click('Add '+p.name);
     await fill('[aria-label="Quantity for '+p.name+'"]',quantity);await fill('[aria-label="Unit cost for '+p.name+'"]',cost);

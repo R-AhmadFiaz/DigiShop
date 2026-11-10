@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Notice } from "../components/Common";
 import SupplierQuickPayment from "../components/SupplierQuickPayment";
@@ -31,7 +31,13 @@ const links = {
 };
 export default function ShopLayout() {
   const { user, logout, subscriptionExpiry } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  // "Create Order" opens the purchase form on the Purchases page; on that page it keeps the current list filters.
+  const createOrderSearch = (() => {
+    const params = new URLSearchParams(pathname.replace(/\/$/, "") === "/owner/purchases" ? search : "");
+    params.set("create", "1");
+    return "?" + params;
+  })();
   const ownerDashboard =
     user.role === "OWNER" && pathname.replace(/\/$/, "") === "/owner";
   const cashierPOS =
@@ -123,6 +129,7 @@ export default function ShopLayout() {
               <summary ref={purchaseTrigger} aria-label="Purchases menu" aria-current={pathname.startsWith('/owner/purchases')?'page':undefined}>Purchases</summary>
               <div className="navigation-overflow">
                 <NavLink to="purchases">Purchase orders</NavLink>
+                <Link to={{pathname:"purchases",search:createOrderSearch}} onClick={e=>{const menu=e.currentTarget.closest('details');if(menu)menu.open=false;}}>Create Order</Link>
                 <button type="button" className="btn w-100 text-start" onClick={openSupplierPayment}>Pay supplier</button>
               </div>
             </details>:to==='customers' ? <details key={to} className="more-nav customer-nav">

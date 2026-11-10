@@ -1126,6 +1126,12 @@ p, td, th { overflow-wrap: break-word; }
  .fill-panel > .table-responsive thead th,.fill-panel > .record-register thead th,.fill-panel .fill-scroll thead th { position:sticky; top:0; z-index:1; background:#f7faf9; }
  .fill-panel > .list-pagination,.fill-panel > .fill-footer { flex:none; margin-top:8px !important; }
  .fill-panel > .alert,.fill-panel > p,.fill-panel > h2 { flex:none; }
+ /* Transactions page only: keep its original (pre single-viewport) register layout. The shared
+    TransactionHistory component and Supplier Khata keep the fill-panel behaviour. */
+ .transactions-accounts ~ .fill-panel { display:block; flex:0 0 auto; min-height:0; }
+ .transactions-accounts ~ .fill-panel > .record-register { overflow-x:auto; overflow-y:hidden; overscroll-behavior:auto; min-height:auto; }
+ .transactions-accounts ~ .fill-panel > .record-register thead th { position:relative; z-index:auto; }
+ .transactions-accounts ~ .fill-panel > .list-pagination { margin-top:12px !important; }
  /* Dashboard: compact identity; cards stay visible, low stock fills the rest. */
  .owner-welcome { margin-bottom:0; }
  .owner-welcome .welcome-line { font-size:15px; margin-bottom:0; }
@@ -1155,12 +1161,6 @@ p, td, th { overflow-wrap: break-word; }
  /* Quotations: the quotation entry fills the remaining height so its product list scrolls inside. */
  .quotation-workspace { flex:1 1 0; min-height:20rem; display:flex; flex-direction:column; }
  .quotation-workspace > .pos-unified { flex:1 1 0; min-height:0; }
- /* Reports: compact summary figures so the selected report has room. */
- .report-filters { margin-bottom:8px; gap:8px; }
- .report-period { padding-bottom:6px; margin-bottom:6px; }
- .report-metric dd { font-size:16px; margin-top:0; }
- .report-metric dt { font-size:12.5px; }
- .report-tabs { padding-bottom:4px; margin-bottom:6px; }
  .balance-strip { padding:6px 0; margin-bottom:8px; gap:8px 28px; }
  .balance-strip dd { font-size:18px; }
 }
