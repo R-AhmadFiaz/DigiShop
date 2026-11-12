@@ -8,7 +8,7 @@ export const reportChecks=String.raw`
   const reportCalls=()=>requests.filter(r=>r.method==='GET'&&r.path.startsWith('/api/v2/accounts/reports')).length;
   const reportCallsBefore=reportCalls();
   const reportFormats=n=>'PKR '+(n/100).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const reportMetric=label=>'(()=>{const dt=[...document.querySelectorAll(".report-metric dt")].find(e=>e.textContent==='+JSON.stringify(label)+');return dt?.nextElementSibling.textContent;})()';
+  const reportMetric=label=>'(()=>{const dt=[...document.querySelectorAll(".report-metric dt")].find(e=>e.firstChild.textContent==='+JSON.stringify(label)+');return dt?.nextElementSibling.textContent;})()';
   assert.equal(await evaluate(reportMetric('Net Sales')),reportFormats(reportEvidence.sales.revenueMinor));
   assert.equal(await evaluate(reportMetric('Operating Expenses')),reportFormats(reportEvidence.expenses.netMinor));
   const cashReady=reportEvidence.cashBank.status!=='UNAVAILABLE'&&reportEvidence.cashBank.entries.every(a=>Number.isSafeInteger(a.currentBalanceMinor)&&a.status!=='UNAVAILABLE');
@@ -16,10 +16,10 @@ export const reportChecks=String.raw`
   const reportDir=path.join(frontend,'tests/artifacts/report-review');await fs.mkdir(reportDir,{recursive:true});
   const reportLayouts=[];
   for(const category of ['Sales','Expenses','Cash & Bank','Customers','Suppliers','Capital','Inventory']){
-    await wait('(()=>{const b=[...document.querySelectorAll(".report-tabs button")].find(e=>e.textContent==='+JSON.stringify(category)+');if(!b)return false;b.click();return true;})()');
+    await wait('(()=>{const b=[...document.querySelectorAll(".report-tabs [role=tab]")].find(e=>e.querySelector(".report-tab-label").textContent==='+JSON.stringify(category)+');if(!b)return false;b.click();return true;})()');
     assert.equal(await evaluate('document.querySelectorAll(".report-content").length'),1);
-    assert.equal(await evaluate('document.querySelectorAll(".report-tabs [aria-pressed=true]").length'),1);
-    assert.equal(await evaluate('document.querySelector(".report-tabs [aria-pressed=true]").textContent'),category);
+    assert.equal(await evaluate('document.querySelectorAll(".report-tabs [aria-selected=true]").length'),1);
+    assert.equal(await evaluate('document.querySelector(".report-tabs [aria-selected=true] .report-tab-label").textContent'),category);
     const headings=await evaluate('[...document.querySelectorAll("#selected-report th")].map(e=>e.textContent)');
     if(category==='Capital'){assert.ok(headings.includes('Withdrawal'));assert.ok(!headings.includes('Money taken out'));}
     if(category==='Inventory'){assert.ok(await evaluate('document.querySelector("#selected-report").innerText.includes("Provisional")'));}
@@ -46,7 +46,7 @@ export const reportChecks=String.raw`
     }
   }
   assert.equal(reportCalls(),reportCallsBefore,'Switching reports and resizing never refetches financial data');
-  await evaluate('document.querySelector("#report-notes").open=true');
+  await evaluate('document.getElementById("report-notes")||document.querySelector(".reports-notes-toggle").click()');await wait('!!document.getElementById("report-notes")');
   for(const phrase of ['Profit & Loss','UTC day boundaries','not used as historical cost'])assert.ok(await evaluate('document.querySelector("#report-notes").innerText.includes('+JSON.stringify(phrase)+')'));
   pass('Financial dashboard: seven exclusive report views, authoritative overview amounts, Customer Khata, Withdrawal, notes and provisional inventory; no category refetch');
   const statusRows=await PurchaseOrder.find({shopId:shop._id}).sort({_id:1}).lean();

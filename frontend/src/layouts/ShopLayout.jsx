@@ -62,6 +62,20 @@ export default function ShopLayout() {
     const close=event=>{if(!navigation.current?.contains(event.target))navigation.current?.querySelectorAll('details[open]').forEach(d=>d.open=false);};
     document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close);
   },[]);
+  // Only one navigation dropdown open at a time: opening one closes the others (a nested menu such as
+  // Accounts inside More keeps its parent open). Escape closes an open dropdown even without focus in it.
+  useEffect(()=>{
+    const nav=navigation.current;if(!nav)return;
+    const closeOthers=opened=>nav.querySelectorAll('details[open]').forEach(d=>{if(d!==opened&&!d.contains(opened))d.open=false;});
+    // Close the others as soon as a summary is activated (click, Enter or Space). The toggle event fires
+    // later, after the menu may already have been closed again, so it is only a fallback.
+    const activate=event=>{const opening=event.target.closest?.('summary')?.parentElement;if(opening?.tagName==='DETAILS'&&!opening.open)closeOthers(opening);};
+    const exclusive=event=>{const opened=event.target;if(opened.tagName==='DETAILS'&&opened.open)closeOthers(opened);};
+    const escape=event=>{if(event.key!=='Escape'||event.defaultPrevented||nav.closest('dialog[open]'))return;const open=[...nav.querySelectorAll('details[open]')];if(!open.length)return;
+      event.preventDefault();const focused=open.find(d=>d.contains(document.activeElement));open.forEach(d=>d.open=false);if(focused)focused.querySelector('summary')?.focus();};
+    nav.addEventListener('click',activate,true);nav.addEventListener('toggle',exclusive,true);document.addEventListener('keydown',escape);
+    return()=>{nav.removeEventListener('click',activate,true);nav.removeEventListener('toggle',exclusive,true);document.removeEventListener('keydown',escape);};
+  },[]);
   useEffect(()=>{navigation.current?.querySelectorAll('details[open]').forEach(d=>{const restore=d.contains(document.activeElement);d.open=false;if(restore)d.querySelector('summary')?.focus();});},[pathname]);
   useEffect(()=>{
     if(!menuOpen)return;
@@ -115,13 +129,12 @@ export default function ShopLayout() {
         </div>
         <nav ref={navigation} aria-label="Main navigation" onKeyDown={e=>{
           const details=e.target.closest('details');
+          // Escape closes the nearest open menu (never an already closed one, e.g. Accounts inside More).
+          const openMenu=e.target.closest('details[open]');
+          if(e.key==='Escape'&&openMenu){e.preventDefault();openMenu.open=false;openMenu.querySelector('summary')?.focus();return;}
           // Purchases is a native disclosure, not a menu-button widget.
           // Leave Tab, Shift+Tab, Enter and Space to the browser.
-          if(details?.classList.contains('purchase-nav')){
-            if(e.key==='Escape'){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();}
-            return;
-          }
-          if(e.key==='Escape'&&details){e.preventDefault();details.open=false;details.querySelector('summary')?.focus();return;}
+          if(details?.classList.contains('purchase-nav'))return;
           if(e.key===' '&&e.target.matches('.navigation-overflow a, .navigation-overflow button')){e.preventDefault();e.target.click();return;}
           if(details?.classList.contains('more-nav')&&['ArrowDown','ArrowUp'].includes(e.key)){
             const summary=e.target.closest('summary');
