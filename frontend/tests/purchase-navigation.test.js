@@ -14,6 +14,7 @@ test('Purchases menu offers Create Order, which opens the purchase form by URL',
 test('navigation dropdowns are exclusive and close on Escape',()=>{
   const layout=read('layouts/ShopLayout.jsx');
   assert.match(layout,/nav\.addEventListener\('toggle',exclusive,true\)/);
+  assert.match(layout,/nav\.addEventListener\('click',activate,true\)/,'others close at activation, not only on the later toggle event');
   assert.match(layout,/if\(d!==opened&&!d\.contains\(opened\)\)d\.open=false/,'nested Accounts keeps More open');
   assert.match(layout,/event\.key!=='Escape'\|\|event\.defaultPrevented\|\|nav\.closest\('dialog\[open\]'\)/,'phone drawer keeps its own Escape');
   assert.match(layout,/document\.addEventListener\('pointerdown',close\)/,'outside click still closes');
