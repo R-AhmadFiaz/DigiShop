@@ -81,6 +81,23 @@ try{
     const html=render(ReportNotes,{d});
     for(const text of ['Report Notes','Old demo sales excluded.','Before confirmed coverage.','Opening not confirmed.','Current-cost estimate only.','Cost at sale unavailable.','not used as historical cost','/owner/existing-setup','UTC day boundaries','Quantity-only stock records: 4'])assert.ok(html.includes(text),text);
   });
+  await test('one-screen reports: quick ranges, two overview cards and notes as a closable side panel',async()=>{
+    const {quickRange}=await server.ssrLoadModule('/src/pages/owner/FinancialReports.jsx');
+    assert.deepEqual(quickRange('today','2026-11-12'),['2026-11-12','2026-11-12']);
+    assert.deepEqual(quickRange('month','2026-11-12'),['2026-11-01','2026-11-12']);
+    assert.deepEqual(quickRange('last','2026-11-12'),['2026-10-01','2026-10-31']);
+    assert.deepEqual(quickRange('last','2026-01-15'),['2025-12-01','2025-12-31']);
+    assert.deepEqual(quickRange('last','2028-03-31'),['2028-02-01','2028-02-29']);
+    const overview=render(ReportOverview,{d,range:{from:'2026-10-01T00:00:00Z',to:'2026-10-19T00:00:00Z'},onNotes:()=>{}});
+    assert.equal((overview.match(/class="panel report-card"/g)||[]).length,2);
+    assert.equal((overview.match(/class="report-metric report-balance"/g)||[]).length,5);
+    assert.match(overview,/Estimated Stock Value<span class="badge report-badge">Provisional<\/span>/);
+    assert.match(overview,/class="report-amber-note">Only sales after/);
+    assert.match(overview,/<button type="button" class="btn btn-link" aria-controls="report-notes">View limitations<\/button>/);
+    const notes=render(ReportNotes,{d,onClose:()=>{}});
+    assert.match(notes,/^<aside class="report-notes report-notes-panel" id="report-notes"/);assert.ok(notes.includes('Close <kbd'));
+    assert.ok(!render(ReportNotes,{d}).includes('Close <kbd'));
+  });
   await test('all actual purchase states get prominent badges without changing state values',()=>{
     for(const [status,label,tone] of [['DRAFT','Pending · Draft','warning'],['CONFIRMED','Pending · Confirmed','warning'],['PARTIALLY_RECEIVED','Partially Received','primary'],['RECEIVED','Received','success'],['CANCELLED','Cancelled','danger']]){
       const html=render(PurchaseStatus,{status});assert.ok(html.includes(label));assert.ok(html.includes('text-bg-'+tone));assert.ok(html.includes('purchase-status'));
