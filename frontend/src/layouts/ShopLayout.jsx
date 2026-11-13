@@ -40,6 +40,11 @@ export default function ShopLayout() {
   })();
   const ownerDashboard =
     user.role === "OWNER" && pathname.replace(/\/$/, "") === "/owner";
+  // Sales > New sale moves the subscription warning into the header as a pill, so the sale screen keeps its height.
+  const saleScreen =
+    user.role === "OWNER" &&
+    pathname.replace(/\/$/, "") === "/owner/sales" &&
+    new URLSearchParams(search).get("view") !== "history";
   const cashierPOS =
     user.role === "CASHIER" && pathname.replace(/\/$/, "") === "/cashier/pos";
   const drawer=useRef(null),menuButton=useRef(null);
@@ -198,6 +203,9 @@ export default function ShopLayout() {
             </div>
           )}
           <div className="header-actions">
+            {saleScreen && (
+              <SubscriptionWarning expiry={subscriptionExpiry} compact />
+            )}
             <NavLink className="btn btn-outline-secondary btn-sm" to="account">
               Account
             </NavLink>
@@ -211,7 +219,7 @@ export default function ShopLayout() {
           </div>
         </header>
         <div className="no-print">
-          {user.role === "OWNER" && (
+          {user.role === "OWNER" && !saleScreen && (
             <SubscriptionWarning expiry={subscriptionExpiry} />
           )}
           <Notice error={error} />
