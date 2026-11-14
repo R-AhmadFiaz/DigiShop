@@ -7,11 +7,9 @@ import { activity, minorAmount, pakistanTime, pkr } from '../../api/purchases';
 import { Field, Notice, PageTitle, Pagination } from '../../components/Common';
 import PurchaseTable from '../../components/PurchaseTable';
 import SupplierAction from '../../components/SupplierAction';
-import SupplierPayment from '../../components/SupplierPayment';
 import SupplierOpening from '../../components/SupplierOpening';
 import SupplierBalanceStatus from '../../components/SupplierBalanceStatus';
 import { usePageParam } from '../../api/paging';
-import TransactionHistory from '../../components/TransactionHistory';
 
 function SupplierCredit({supplierId,supplierName,balance,onChanged}){
   const [mode,setMode]=useState('REFUND'),[error,setError]=useState('');
@@ -41,14 +39,14 @@ function Correction({event,supplierId,onChanged,onClose}){
   return <SupplierAction operation={'supplier-correction-'+supplierId} onChanged={()=>{onClose();onChanged();}}>{({prepare,locked})=><form className="mt-3" onSubmit={e=>submit(e,prepare)}><fieldset disabled={locked}><h3 className="h6">Correct {event.reference}</h3><Field label="Correction reason"><input name="reason" className="form-control" required maxLength={300}/></Field><button className="btn btn-outline-danger me-2" type="submit">Review correction</button><button className="btn btn-outline-secondary" type="button" onClick={onClose}>Close correction</button></fieldset></form>}</SupplierAction>;
 }
 export default function SupplierDetails(){
-  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=usePageParam('purchasesPage'),[historyPage,setHistoryPage]=usePageParam('settlementsPage'),[correction,setCorrection]=useState(null),[statementVersion,setStatementVersion]=useState(0);
+  const {supplierId}=useParams(),[purchasePage,setPurchasePage]=usePageParam('purchasesPage'),[historyPage,setHistoryPage]=usePageParam('settlementsPage'),[correction,setCorrection]=useState(null);
   const entity=useLoad('/accounts/entities/'+supplierId),reconciliation=useLoad('/accounts/suppliers/'+supplierId+'/reconciliation');
   const balance=reconciliation;
   const purchases=useLoad('/purchases/'+query({supplierId,page:purchasePage,limit:10}));
   const ready=!!(entity.data?.roles.includes('SUPPLIER')&&balance.data?.authoritative===true&&balance.data?.cutover&&balance.data?.issues?.length===0&&Number.isSafeInteger(balance.data.balanceMinor));
   const history=useLoad('/accounts/suppliers/'+supplierId+'/settlements'+query({page:historyPage,limit:20}),ready);
-  const refresh=()=>{setStatementVersion(v=>v+1);reconciliation.reload();history.reload();purchases.reload();};
-  return <><PageTitle title={entity.data?.name||'Supplier Khata'}>{ready&&balance.data.balanceMinor>0&&<a className="btn btn-primary btn-sm" href="#supplier-payment" onClick={()=>{document.getElementById('supplier-payment').open=true;}}>Pay supplier</a>}{ready&&balance.data.creditMinor>0&&<a className="btn btn-outline-primary btn-sm" href="#supplier-credit" onClick={()=>{document.getElementById('supplier-credit').open=true;}}>Use supplier credit</a>}<a className="btn btn-outline-secondary btn-sm" href="#supplier-purchases">Purchases / Return Goods</a><Link className="btn btn-sm btn-outline-secondary" to="/owner/accounts/companies">Suppliers</Link></PageTitle><Notice loading={entity.loading||balance.loading} error={entity.error}/>
+  const refresh=()=>{reconciliation.reload();history.reload();purchases.reload();};
+  return <><PageTitle title={entity.data?.name||'Supplier Khata'}>{ready&&balance.data.creditMinor>0&&<a className="btn btn-outline-primary btn-sm" href="#supplier-credit" onClick={()=>{document.getElementById('supplier-credit').open=true;}}>Use supplier credit</a>}<a className="btn btn-outline-secondary btn-sm" href="#supplier-purchases">Purchases / Return Goods</a><Link className="btn btn-sm btn-outline-secondary" to="/owner/accounts/companies">Suppliers</Link></PageTitle><Notice loading={entity.loading||balance.loading} error={entity.error}/>
     {entity.data&&<div className="d-flex flex-wrap justify-content-between gap-2 mb-3"><span>{entity.data.phoneNo||'Phone not recorded'} · {entity.data.address||'Address not recorded'}</span><Link to={'/owner/accounts/companies?business='+supplierId}>Business setup (Advanced)</Link></div>}
     <section aria-label="Supplier balances">
       {ready?<dl className="balance-strip"><div><dt>We owe supplier</dt><dd>Outstanding: {pkr(balance.data.balanceMinor)}</dd></div><div><dt>Supplier credit</dt><dd>{pkr(balance.data.creditMinor)}</dd></div><div><dt>Starting balance</dt><dd className="fs-6">{reconciliation.data?.cutover?'Confirmed':'Checking...'}</dd></div></dl>:null}
@@ -56,12 +54,10 @@ export default function SupplierDetails(){
     </section>
     {/* Wide screens: setup and money actions left; statement and registers right. Each column scrolls. */}
     <div className="khata-layout"><div className="khata-actions">
-    {ready&&<SupplierPayment supplierId={supplierId} supplierName={entity.data?.name} balance={balance.data.balanceMinor} onChanged={refresh}/>}
     {!ready&&reconciliation.data?.cutover===null&&entity.data?.roles.includes('SUPPLIER')&&<SupplierOpening supplierId={supplierId} onChanged={refresh} defaultOpen/>}
     {ready&&<><SupplierCredit supplierId={supplierId} supplierName={entity.data?.name} balance={balance.data} onChanged={refresh}/>
       <details className="context-help"><summary>Starting balance and credit history</summary><RecordFacts items={[["Starting balance",reconciliation.data?.cutover?'Confirmed at '+pakistanTime(reconciliation.data.cutover.cutoffAt)+' (Pakistan)':'Owner-confirmed setup required'],["Refunds received (net of corrections)",pkr(balance.data.refundsReceivedMinor)],["Credit applied (net of corrections)",pkr(balance.data.creditAppliedMinor)]]}/><p>Supplier credit is separate from what we owe them. It is not cash until a refund is received.</p>{balance.data.creditAccountId&&<Link to={'/owner/accounts/transactions?account='+balance.data.creditAccountId}>Supplier credit statement</Link>}</details></>}
     </div><div className="khata-registers">
-    {ready&&<TransactionHistory key={balance.data.accountId+'-'+statementVersion} accountId={balance.data.accountId} name={entity.data?.name} supplier/>}
     <section className="panel mb-3" id="supplier-purchases"><h2 className="h5">Purchases</h2><PurchaseTable result={purchases} onPage={setPurchasePage}/></section>
     {ready&&<details className="action-disclosure supplier-settlements" id="supplier-settlements"><summary>Payments, returns and corrections</summary><Notice loading={history.loading}/>{history.error&&<p className="alert alert-warning">Payment history unavailable: {history.error}</p>}{history.data&&<><RecordTable label="Supplier settlement register" rows={history.data.entries} columns={[
  {key:'date',label:'Date (Pakistan)',render:e=>pakistanTime(e.occurredAt)},

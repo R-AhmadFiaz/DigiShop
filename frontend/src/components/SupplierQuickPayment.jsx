@@ -8,7 +8,7 @@ import {Field,Modal,Notice,Pagination} from './Common';
 import SupplierBalanceStatus from './SupplierBalanceStatus';
 import SupplierPayment from './SupplierPayment';
 
-function SupplierSearch({onSelect}){
+export function SupplierSearch({onSelect}){
   const [search,setSearch]=useState(''),[page,setPage]=useState(1),[active,setActive]=useState(-1),id=useId(),term=useDebounce(search);
   const result=useLoad('/accounts/entities'+query({role:'SUPPLIER',q:term,page,limit:8}));
   const waiting=result.loading||term!==search,entries=waiting?[]:(result.data?.entries||[]).filter(e=>e.roles?.includes('SUPPLIER'));
@@ -25,7 +25,7 @@ function SupplierSearch({onSelect}){
     {!waiting&&<Pagination pagination={result.data?.pagination} onPage={p=>{setPage(p);setActive(-1);}}/>}
   </>;
 }
-function SelectedSupplier({supplier,onClose,onLockedChange}){
+export function SelectedSupplier({supplier,onClose,onLockedChange}){
   const result=useLoad('/accounts/suppliers/'+supplier._id+'/reconciliation'),[success,setSuccess]=useState(false),status=useRef(null),heading=useRef(null);
   useEffect(()=>{heading.current?.focus();},[]);
   const ready=verifiedPayable(result.data);

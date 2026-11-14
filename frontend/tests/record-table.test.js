@@ -67,8 +67,10 @@ try{
     // Both disclosures must stay open while a confirmation is pending (locked).
     const payment=fs.readFileSync(new URL('../src/components/SupplierPayment.jsx',import.meta.url),'utf8');
     assert.match(source,/balance.creditMinor>0\|\|locked/);assert.equal((source.match(/open=\{locked\|\|undefined\}/g)||[]).length,1);
-    assert.match(source,/<SupplierPayment /);assert.match(payment,/open=\{inline\|\|locked\|\|undefined\}/);
-    assert.match(source,/accountId=\{balance.data.accountId\}[^>]*supplier/);
+    assert.doesNotMatch(source,/<SupplierPayment /);assert.match(payment,/open=\{inline\|\|locked\|\|undefined\}/);
+    assert.doesNotMatch(source,/<TransactionHistory /);
+    const transactions=fs.readFileSync(new URL('../src/pages/owner/SupplierTransactionsPage.jsx',import.meta.url),'utf8');
+    assert.match(transactions,/accountId=\{balance.data.accountId\}[^>]*supplier/);
     assert.match(source,/CONFIRM SUPPLIER REFUND RECEIVED/);assert.match(source,/CONFIRM SUPPLIER REVERSAL/);
   });
   await test('report summaries use supplied current amounts without aggregating incomplete account pages',()=>{
