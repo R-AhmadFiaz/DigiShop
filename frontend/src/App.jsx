@@ -29,6 +29,8 @@ import Transactions from './pages/owner/Transactions';
 import Purchases from './pages/owner/Purchases';
 import PurchaseDetails from './pages/owner/PurchaseDetails';
 import SupplierDetails from './pages/owner/SupplierDetails';
+import SupplierPaymentPage from './pages/owner/SupplierPaymentPage';
+import SupplierTransactionsPage from './pages/owner/SupplierTransactionsPage';
 import CustomerServices from './pages/owner/CustomerServices';
 function Guard({ role }) {
   const { user } = useAuth();
@@ -88,6 +90,8 @@ export default function App() {
           <Route path="existing-setup" element={<ExistingSetup />} />
           <Route path="reports" element={<FinancialReports />} />
           <Route path="purchases/:purchaseId" element={<PurchaseDetails />} />
+          <Route path="accounts/suppliers/pay" element={<SupplierPaymentPage />} />
+          <Route path="accounts/suppliers/transactions" element={<SupplierTransactionsPage />} />
           <Route path="accounts/suppliers/:supplierId" element={<SupplierDetails />} />
           <Route path="sales" element={<Sales />} />
           <Route path="sales/:orderId" element={<Invoice />} />

@@ -31,7 +31,10 @@ const links = {
 };
 export default function ShopLayout() {
   const { user, logout, subscriptionExpiry } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const currentSupplier=new URLSearchParams(search).get('supplierId')||pathname.match(/^\/owner\/accounts\/suppliers\/([a-f\d]{24})$/i)?.[1];
+  const supplierTransactionsPath='accounts/suppliers/transactions'+(currentSupplier?'?'+new URLSearchParams({supplierId:currentSupplier}):'');
+  const supplierPaymentPath='accounts/suppliers/pay'+(currentSupplier?'?'+new URLSearchParams({supplierId:currentSupplier}):'');
   const ownerDashboard =
     user.role === "OWNER" && pathname.replace(/\/$/, "") === "/owner";
   const cashierPOS =
@@ -146,7 +149,12 @@ export default function ShopLayout() {
           {user.role === "OWNER" && (
             <details className="accounts-nav">
               <summary>Accounts</summary>
-              <NavLink to="accounts/companies">Suppliers</NavLink>
+              <details className="accounts-nav supplier-nav">
+                <summary aria-label="Supplier menu">Suppliers</summary>
+                <NavLink to="accounts/companies">Supplier accounts</NavLink>
+                <NavLink to={supplierPaymentPath}>Pay Supplier</NavLink>
+                <NavLink to={supplierTransactionsPath}>Supplier Transactions</NavLink>
+              </details>
               <NavLink to="accounts/cash-bank">Cash &amp; Bank</NavLink>
               <NavLink to="accounts/transactions">Transactions</NavLink>
             </details>
