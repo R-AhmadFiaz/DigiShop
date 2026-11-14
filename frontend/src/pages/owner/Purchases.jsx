@@ -38,9 +38,11 @@ function CreatePurchase({prepare,locked,onClose}) {
 }
 export default function Purchases(){
   // Existing links pass ?reference=; filters and page stay in the URL.
-  const [search,setSearch]=useQueryParam('reference'),[status,setStatus]=useQueryParam('status'),[page,setPage]=usePageParam(),[creating,setCreating]=useState(false);
+  const [search,setSearch]=useQueryParam('reference'),[status,setStatus]=useQueryParam('status'),[page,setPage]=usePageParam(),[createParam,setCreateParam]=useQueryParam('create');
+  // Opened from Purchases > Create Order in the top navigation (?create=1); closing or saving clears it.
+  const creating=createParam==='1',setCreating=open=>setCreateParam(open?'1':'');
   const list=useLoad('/purchases/'+query({q:useDebounce(search),status,page,limit:20}));
-  return <><PageTitle title="Purchases"><button className="btn btn-primary btn-sm" onClick={()=>setCreating(true)}>Create purchase order</button></PageTitle>
+  return <><PageTitle title="Purchases"/>
     <SupplierAction onChanged={()=>{setCreating(false);list.reload();}}>{({prepare,locked})=><>{creating&&<CreatePurchase prepare={prepare} locked={locked} onClose={()=>setCreating(false)}/>}</>}</SupplierAction>
     <div className="row g-2 mb-3"><div className="col-md-8"><Field label="Search purchases"><input className="form-control" placeholder="Reference or supplier" maxLength={100} value={search} onChange={e=>setSearch(e.target.value,['page'])}/></Field></div><div className="col-md-4"><Field label="Purchase status"><select className="form-select" value={status} onChange={e=>setStatus(e.target.value,['page'])}><option value="">All statuses</option>{['DRAFT','CONFIRMED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED'].map(s=><option key={s} value={s}>{s.replaceAll('_',' ').toLowerCase()}</option>)}</select></Field></div></div>
     <section className="panel fill-panel"><PurchaseTable result={list} onPage={setPage} history/>{list.data?.entries.length===0&&<Empty>Create an order when you agree a purchase with a supplier. Receive stock only when goods arrive.</Empty>}</section>

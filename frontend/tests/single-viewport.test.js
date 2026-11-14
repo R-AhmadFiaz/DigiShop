@@ -32,6 +32,14 @@ test('scrolling helpers target the workspace and the real document',()=>{
   assert.doesNotMatch(invoice,/[^.]document\.querySelector\(/,'the Invoice page shadows document with state');
   assert.match(read('components/Common.jsx'),/closest\("\.workspace"\)/);
 });
+test('Transactions keeps its original register layout without changing the shared component',()=>{
+  assert.match(read('pages/owner/Transactions.jsx'),/<section className="panel transactions-accounts">/);
+  assert.match(read('components/TransactionHistory.jsx'),/<section className="panel mt-3 fill-panel">/,'shared component unchanged (Supplier Khata)');
+  const overrides=css.match(/^[ \t]*\.transactions-accounts[^{]*\{/gm)||[];
+  assert.equal(overrides.length,4);
+  for(const rule of overrides)assert.match(rule,/^\s*\.transactions-accounts ~ \.fill-panel/,'override is scoped to the register after the Transactions account panel');
+  assert.doesNotMatch(read('pages/owner/SupplierDetails.jsx'),/transactions-accounts/);
+});
 test('POS keeps its tested layout switch and keyboard shortcuts',()=>{
   assert.match(css,/@media \(min-width:1100px\) and \(min-height:600px\) \{\s*\.pos-unified #sale-form > fieldset \{ display:grid;/);
   const pos=read('components/POS.jsx');for(const key of ['F2','F4','F6','F10'])assert.match(pos,new RegExp("e\\.key==='"+key+"'"),key);

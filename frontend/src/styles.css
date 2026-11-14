@@ -1136,6 +1136,12 @@ p, td, th { overflow-wrap: break-word; }
  .fill-panel > .table-responsive thead th,.fill-panel > .record-register thead th,.fill-panel .fill-scroll thead th { position:sticky; top:0; z-index:1; background:#f7faf9; }
  .fill-panel > .list-pagination,.fill-panel > .fill-footer { flex:none; margin-top:8px !important; }
  .fill-panel > .alert,.fill-panel > p,.fill-panel > h2 { flex:none; }
+ /* Transactions page only: keep its original (pre single-viewport) register layout. The shared
+    TransactionHistory component and Supplier Khata keep the fill-panel behaviour. */
+ .transactions-accounts ~ .fill-panel { display:block; flex:0 0 auto; min-height:0; }
+ .transactions-accounts ~ .fill-panel > .record-register { overflow-x:auto; overflow-y:hidden; overscroll-behavior:auto; min-height:auto; }
+ .transactions-accounts ~ .fill-panel > .record-register thead th { position:relative; z-index:auto; }
+ .transactions-accounts ~ .fill-panel > .list-pagination { margin-top:12px !important; }
  /* Dashboard: compact identity; cards stay visible, low stock fills the rest. */
  .owner-welcome { margin-bottom:0; }
  .owner-welcome .welcome-line { font-size:15px; margin-bottom:0; }
@@ -1165,12 +1171,6 @@ p, td, th { overflow-wrap: break-word; }
  /* Quotations: the quotation entry fills the remaining height so its product list scrolls inside. */
  .quotation-workspace { flex:1 1 0; min-height:20rem; display:flex; flex-direction:column; }
  .quotation-workspace > .pos-unified { flex:1 1 0; min-height:0; }
- /* Reports: compact summary figures so the selected report has room. */
- .report-filters { margin-bottom:8px; gap:8px; }
- .report-period { padding-bottom:6px; margin-bottom:6px; }
- .report-metric dd { font-size:16px; margin-top:0; }
- .report-metric dt { font-size:12.5px; }
- .report-tabs { padding-bottom:4px; margin-bottom:6px; }
  .balance-strip { padding:6px 0; margin-bottom:8px; gap:8px 28px; }
  .balance-strip dd { font-size:18px; }
 }
@@ -1237,4 +1237,142 @@ p, td, th { overflow-wrap: break-word; }
  .invoice-document,.invoice-side { min-height:0; overflow:auto; overscroll-behavior:contain; }
  .invoice-document .receipt { padding:16px 20px; }
  .invoice-side > .panel:first-child,.invoice-side > section:first-child { margin-top:0 !important; }
+}
+/* ===== Financial Reports: date bar, two columns and a shortcut bar on one screen =====
+   Only the selected report's panel scrolls; Report Notes slide over the right column. */
+.reports-screen { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.reports-datebar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.reports-datebar h1 { font-size:20px; font-weight:650; margin:0 6px 0 0; white-space:nowrap; }
+.reports-date { display:flex; align-items:center; gap:6px; margin:0; font-weight:500; white-space:nowrap; }
+.reports-date .form-control { width:auto; min-width:148px; }
+.reports-quick { display:flex; gap:4px; }
+.reports-quick .btn[aria-pressed="true"] { background:#e6f5f1; color:#115e59; border-color:#0f766e; }
+.reports-datebar-note { margin-left:auto; font-size:12px; color:#4b5563; white-space:nowrap; }
+.reports-main { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; }
+.reports-side,.report-overview { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.reports-screen .report-card,.reports-screen .reports-detail { margin:0; }
+.report-card-title { font-size:14px; font-weight:600; margin:0 0 6px; }
+.report-card-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 8px; margin-bottom:2px; }
+.report-card .report-period { border:0; padding:0; margin:0; }
+.report-amber-note { display:block; margin:6px 0 0; padding:3px 8px; font-size:12.5px; color:#92400e; background:#fffbeb; border-left:3px solid #f59e0b; border-radius:3px; }
+.report-balances { margin:0; }
+.report-balance { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; column-gap:12px; padding:5px 0; border-bottom:1px solid #eef2f1; }
+.report-balance dt { font-size:14px; font-weight:500; color:#374151; }
+.report-balance dd { margin:0; font-size:15px; font-weight:650; text-align:right; white-space:nowrap; }
+.report-balance > small { grid-column:1/-1; font-size:12px; }
+.report-badge { margin-left:6px; font-size:11px; font-weight:600; color:#92400e; background:#fef3c7; border:1px solid #fcd34d; vertical-align:1px; }
+.report-limits { margin:8px 0 0; font-size:13px; color:#4b5563; }
+.report-limits .btn-link { padding:0; font-size:inherit; vertical-align:baseline; }
+.reports-detail { position:relative; display:flex; flex-direction:column; min-width:0; }
+.reports-tabbar { display:flex; align-items:flex-start; gap:8px; border-bottom:1px solid var(--bs-border-color); padding-bottom:8px; margin-bottom:8px; }
+.reports-tabbar .report-tabs { flex:1 1 auto; flex-wrap:wrap; gap:4px; min-width:0; margin:0; padding:0; overflow:visible; }
+.reports-tabbar .btn-sm { padding:4px 8px; }
+.report-tabs .btn,.reports-notes-toggle { display:inline-flex; align-items:center; gap:6px; }
+.reports-notes-toggle { margin-left:auto; flex-shrink:0; white-space:nowrap; }
+.report-key { display:inline-block; min-width:18px; padding:2px 4px; font:600 11px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace; text-align:center; color:#115e59; background:#e6f5f1; border:1px solid #99d5c9; border-radius:3px; }
+.btn-primary .report-key { color:#0f766e; background:#fff; border-color:#fff; }
+.report-panel { min-width:0; padding:2px 6px 6px; }
+.report-notes-panel { margin-top:8px; padding:10px 12px; font-size:14px; background:#fff; border:1px solid var(--bs-border-color); border-radius:6px; }
+.report-notes-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.reports-shortcuts { display:flex; flex-wrap:wrap; align-items:center; gap:4px 16px; margin:0; padding:6px 2px 0; list-style:none; font-size:12.5px; color:#4b5563; border-top:1px solid var(--bs-border-color); }
+/* Keyboard-only use: a strong amber focus ring on everything focusable on this page, navigation included. */
+.app-shell:has(.reports-screen) :focus-visible { outline:3px solid #f59e0b !important; outline-offset:2px; }
+.reports-screen .report-panel:focus-visible,.reports-screen .report-notes-panel:focus-visible { outline-offset:-3px; }
+@media screen and (min-width:1100px) and (min-height:500px) {
+ .reports-screen { flex:1 1 0; min-height:0; }
+ .reports-main { flex:1 1 0; min-height:0; grid-template-columns:380px minmax(0,1fr); }
+ .reports-side { min-height:0; overflow:auto; overscroll-behavior:contain; }
+ .reports-detail { min-height:0; overflow:hidden; }
+ .report-panel { flex:1 1 0; min-height:0; overflow:auto; overscroll-behavior:contain; }
+ /* Column headings stay visible while a long report scrolls inside the panel. */
+ .report-panel .record-register { overflow:visible; }
+ .report-panel .record-register thead th { position:sticky; top:-2px; z-index:1; background:#f7faf9; }
+ .report-notes-panel { position:absolute; top:0; right:0; bottom:0; z-index:3; width:340px; max-width:100%; margin:0; overflow:auto; overscroll-behavior:contain; border-radius:0 6px 6px 0; box-shadow:-6px 0 16px #0002; animation:report-notes-in .18s ease-out; }
+ .reports-shortcuts { flex:none; min-height:34px; }
+}
+@keyframes report-notes-in { from { transform:translateX(24px); opacity:0; } to { transform:none; opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .report-notes-panel { animation:none; } }
+@media (max-width:650px) {
+ .reports-tabbar .report-select { flex:1 1 auto; margin:0; width:auto; }
+ .reports-datebar-note { margin-left:0; white-space:normal; }
+}
+/* ===== Sales > New sale: one keyboard-first screen =====
+   Search and results on the left, the current sale and payment on the right, shortcuts at the bottom.
+   At 1100px and wider the page never scrolls: only the results list and the sale lines do. */
+.subscription-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; font-size:12.5px; font-weight:600; line-height:1.4; color:#92400e; background:#fef3c7; border:1px solid #f59e0b; border-radius:999px; text-decoration:none; white-space:nowrap; }
+.subscription-pill:hover { color:#78350f; background:#fde68a; }
+.subscription-pill-action { text-decoration:underline; }
+.sale-screen { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.sale-form { display:flex; flex-direction:column; min-width:0; }
+.sale-main { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; margin:0; padding:0; border:0; }
+.sale-right { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.sale-search,.sale-cart,.sale-pay { margin:0; min-width:0; }
+.sale-screen kbd { display:inline-block; min-width:18px; padding:1px 4px; font:600 11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; text-align:center; color:#115e59; background:#e6f5f1; border:1px solid #99d5c9; border-radius:3px; box-shadow:none; vertical-align:1px; }
+.sale-label { display:flex; align-items:center; gap:6px; margin:0; font-size:14px; font-weight:600; }
+.sale-search { display:flex; flex-direction:column; gap:6px; }
+.sale-search .product-filters { margin:0 !important; gap:6px; flex-wrap:wrap; }
+.sale-search .product-filter-search { flex:1 1 100%; }
+.sale-search .product-filter-choice { flex:1 1 0; min-width:0; }
+.sale-search > .alert { margin:0; padding:6px 10px; }
+.sale-results { max-height:40vh; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; border:1px solid var(--bs-border-color); border-radius:4px; }
+.sale-result { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; width:100%; padding:6px 10px; border:0; border-bottom:1px solid #e5e7eb; background:#fff; color:#1f2937; text-align:left; font-size:14.5px; }
+.sale-result:hover:not(:disabled) { background:#f0fdfa; }
+.sale-result.selected { background:#ccfbf1; box-shadow:inset 4px 0 0 #0f766e; }
+/* Out-of-stock rows stay readable; the badge says why they cannot be added. */
+.sale-result:disabled { opacity:1; color:#1f2937; cursor:not-allowed; }
+.sale-result.is-out { background:#f9fafb; }
+.sale-result-name { min-width:0; overflow-wrap:anywhere; }
+.sale-result small { display:block; font-size:13px; color:#4b5563; }
+.sale-result-price { display:flex; flex-direction:column; align-items:flex-end; gap:3px; flex-shrink:0; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.sale-out { font-size:11px; font-weight:600; color:#fff; background:#b91c1c; }
+.sale-cart { display:flex; flex-direction:column; }
+.sale-cart-head { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding-bottom:6px; }
+.sale-count { font-size:13px; color:#4b5563; }
+.sale-pricelist { display:flex; align-items:center; gap:6px; margin:0 0 0 auto; font-size:13px; font-weight:500; white-space:nowrap; }
+.sale-pricelist .form-select { width:auto; }
+.sale-screen .pos-error .alert { margin:0 0 6px; padding:6px 10px; }
+.sale-lines { max-height:50vh; min-height:0; overflow:auto; overscroll-behavior:contain; border:1px solid var(--bs-border-color); border-radius:4px; }
+.sale-table { margin:0; }
+.sale-table th { position:sticky; top:0; z-index:2; font-size:13px; white-space:nowrap; background:#f0fdfa; }
+.sale-table td { vertical-align:middle; }
+.sale-table td:first-child { width:100%; min-width:150px; }
+.sale-table .item-rate { width:92px; min-width:80px; }
+.sale-qty { display:flex; align-items:center; gap:3px; }
+.sale-qty .btn { padding:2px 9px; line-height:1.3; }
+.sale-qty .quantity { width:62px; text-align:center; }
+.sale-amount { white-space:nowrap; font-weight:600; font-variant-numeric:tabular-nums; }
+.sale-line-selected > td { box-shadow:inset 0 0 0 9999px #0f766e14; }
+.sale-lines:focus .sale-line-selected > td { box-shadow:inset 0 0 0 9999px #0f766e24; }
+.sale-lines:focus .sale-line-selected > td:first-child { box-shadow:inset 4px 0 0 #0f766e,inset 0 0 0 9999px #0f766e24; }
+.sale-table [aria-invalid=true] { border-color:#b91c1c; }
+.sale-empty { margin:0; padding:28px 12px; text-align:center; color:#4b5563; }
+.sale-pay { flex:none; }
+.sale-pay-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:8px 12px; }
+.sale-field { display:flex; flex-direction:column; gap:2px; flex:1 1 140px; min-width:0; margin:0; font-size:13px; font-weight:500; }
+.sale-field-narrow { flex:0 1 110px; }
+.sale-customer { overflow:hidden; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+.sale-due,.sale-grand { display:flex; flex-direction:column; align-items:flex-end; flex:none; font-variant-numeric:tabular-nums; }
+.sale-due span,.sale-grand span { font-size:13px; color:#4b5563; }
+.sale-due strong { font-size:18px; line-height:1.4; }
+.sale-due.owing strong { color:#b45309; }
+.sale-grand strong { font-size:28px; line-height:1.15; color:#0f766e; }
+.sale-pay > .alert { margin:6px 0 0; padding:6px 10px; }
+.sale-hint { margin:6px 0; font-size:12.5px; color:#4b5563; }
+.sale-complete { padding:8px; font-size:17px; font-weight:600; }
+.sale-complete kbd { color:#0f766e; background:#fff; border-color:#fff; }
+.sale-shortcuts { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin:0; padding:6px 2px 0; list-style:none; font-size:12px; color:#4b5563; border-top:1px solid var(--bs-border-color); }
+/* Keyboard-only use: a strong amber focus ring on everything focusable while New sale is shown. */
+.app-shell:has(.sales-screen-host:not([hidden]) .sale-screen) :focus-visible { outline:3px solid #f59e0b !important; outline-offset:2px; }
+.sale-screen .sale-lines:focus-visible,.sale-screen .sale-results:focus-visible { outline-offset:-3px; }
+@media screen and (min-width:1100px) and (min-height:500px) {
+ .sales-screen-host { flex:1 1 0; min-height:0; display:flex; flex-direction:column; overflow:auto; }
+ .sales-screen-host > .sale-screen { flex:1 1 0; min-height:0; }
+ .sale-form { flex:1 1 0; min-height:0; }
+ .sale-main { flex:1 1 0; min-height:0; grid-template-columns:480px minmax(0,1fr); }
+ .sale-search { min-height:0; }
+ .sale-results { flex:1 1 0; max-height:none; }
+ .sale-right { min-height:0; }
+ .sale-cart { flex:1 1 0; min-height:0; }
+ .sale-lines { flex:1 1 0; max-height:none; }
+ .sale-shortcuts { flex:none; }
 }

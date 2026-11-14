@@ -10,7 +10,7 @@ export default function Transactions(){
   // Choosing an account keeps the account list position; the statement restarts at its first page.
   const choose=account=>setParams(current=>{const next=new URLSearchParams(current);for(const key of ['account','sourceId','stPage'])next.delete(key);if(account)next.set('account',account);return next;},{replace:true});
   const accounts=useLoad('/accounts/financial'+query({q:useDebounce(search),page,limit:20}));
-  return <><PageTitle title="Transactions"/><section className="panel"><p className="text-body-secondary">View recorded money activity or choose an account. Unchecked old records may be missing.</p>
+  return <><PageTitle title="Transactions"/><section className="panel transactions-accounts"><p className="text-body-secondary">View recorded money activity or choose an account. Unchecked old records may be missing.</p>
     <Field label="Find an account"><input className="form-control" placeholder="Account name or reference" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/></Field><Notice loading={accounts.loading} error={accounts.error}/>
     <div className="d-flex flex-wrap gap-2"><button className={'btn btn-sm '+(!id?'btn-primary':'btn-outline-secondary')} onClick={()=>choose('')}>All recorded activity</button>{accounts.data?.entries.map(a=><button key={a._id} className={'btn btn-sm '+(id===a._id?'btn-primary':'btn-outline-secondary')} onClick={()=>choose(a._id)}>{a.name}</button>)}</div>
     {accounts.data?.entries.length===0&&<Empty>No accounts found.</Empty>}<Pagination label="Accounts" pagination={accounts.data?.pagination} rows={accounts.data?.entries.length} onPage={setPage}/>

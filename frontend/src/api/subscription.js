@@ -30,6 +30,14 @@ export function subscriptionWarning(expiry, now = Date.now()) {
   return "Subscription expires " + when + ". Renew soon to avoid interruption.";
 }
 
+// Short form for the header pill on the New sale screen, e.g. "Subscription ends in 3 days".
+export function subscriptionPill(expiry, now = Date.now()) {
+  const info = expiryDetails(expiry, now);
+  if (!info.soon) return "";
+  return "Subscription ends " +
+    (info.timeLeft === "Today" ? "today" : info.timeLeft === "Tomorrow" ? "tomorrow" : "in " + info.timeLeft);
+}
+
 export function shopSubscription(shop, now = Date.now()) {
   const info = expiryDetails(shop.subscriptionExpiry, now);
   if (info.missing)

@@ -71,7 +71,6 @@ source=source.replaceAll("includes('Sales after discounts and returns')","includ
   .replaceAll("includes('Why profit is not available')","includes('Report Notes')")
   .replaceAll("label('From (UTC)'","label('From'")
   .replaceAll("label('Through (UTC)'","label('To'")
-  .replaceAll("click('Show reports')","click('Show Reports')")
   .replaceAll("'Partially received'","'Partially Received'");
 source=source.replaceAll(/(['"])\.\.\/dist\/([^'"]+)\1/g,(_,quote,file)=>quote+pathToFileURL(path.join(backend,'dist',file)).href+quote)
   .replaceAll("'mongoose'",JSON.stringify(pathToFileURL(path.join(backend,'node_modules/mongoose/index.js')).href))
