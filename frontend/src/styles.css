@@ -1238,7 +1238,7 @@ p, td, th { overflow-wrap: break-word; }
  .invoice-document .receipt { padding:16px 20px; }
  .invoice-side > .panel:first-child,.invoice-side > section:first-child { margin-top:0 !important; }
 }
-/* ===== Financial Reports: date bar, two columns and a shortcut bar on one screen =====
+/* ===== Financial Reports: date bar and two columns on one screen =====
    Only the selected report's panel scrolls; Report Notes slide over the right column. */
 .reports-screen { display:flex; flex-direction:column; gap:10px; min-width:0; }
 .reports-datebar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
@@ -1269,12 +1269,9 @@ p, td, th { overflow-wrap: break-word; }
 .reports-tabbar .btn-sm { padding:4px 8px; }
 .report-tabs .btn,.reports-notes-toggle { display:inline-flex; align-items:center; gap:6px; }
 .reports-notes-toggle { margin-left:auto; flex-shrink:0; white-space:nowrap; }
-.report-key { display:inline-block; min-width:18px; padding:2px 4px; font:600 11px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace; text-align:center; color:#115e59; background:#e6f5f1; border:1px solid #99d5c9; border-radius:3px; }
-.btn-primary .report-key { color:#0f766e; background:#fff; border-color:#fff; }
 .report-panel { min-width:0; padding:2px 6px 6px; }
 .report-notes-panel { margin-top:8px; padding:10px 12px; font-size:14px; background:#fff; border:1px solid var(--bs-border-color); border-radius:6px; }
 .report-notes-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
-.reports-shortcuts { display:flex; flex-wrap:wrap; align-items:center; gap:4px 16px; margin:0; padding:6px 2px 0; list-style:none; font-size:12.5px; color:#4b5563; border-top:1px solid var(--bs-border-color); }
 /* Keyboard-only use: a strong amber focus ring on everything focusable on this page, navigation included. */
 .app-shell:has(.reports-screen) :focus-visible { outline:3px solid #f59e0b !important; outline-offset:2px; }
 .reports-screen .report-panel:focus-visible,.reports-screen .report-notes-panel:focus-visible { outline-offset:-3px; }
@@ -1288,7 +1285,6 @@ p, td, th { overflow-wrap: break-word; }
  .report-panel .record-register { overflow:visible; }
  .report-panel .record-register thead th { position:sticky; top:-2px; z-index:1; background:#f7faf9; }
  .report-notes-panel { position:absolute; top:0; right:0; bottom:0; z-index:3; width:340px; max-width:100%; margin:0; overflow:auto; overscroll-behavior:contain; border-radius:0 6px 6px 0; box-shadow:-6px 0 16px #0002; animation:report-notes-in .18s ease-out; }
- .reports-shortcuts { flex:none; min-height:34px; }
 }
 @keyframes report-notes-in { from { transform:translateX(24px); opacity:0; } to { transform:none; opacity:1; } }
 @media (prefers-reduced-motion:reduce) { .report-notes-panel { animation:none; } }
@@ -1297,7 +1293,7 @@ p, td, th { overflow-wrap: break-word; }
  .reports-datebar-note { margin-left:0; white-space:normal; }
 }
 /* ===== Sales > New sale: one keyboard-first screen =====
-   Search and results on the left, the current sale and payment on the right, shortcuts at the bottom.
+   Search and results on the left, the current sale and payment on the right.
    At 1100px and wider the page never scrolls: only the results list and the sale lines do. */
 .subscription-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; font-size:12.5px; font-weight:600; line-height:1.4; color:#92400e; background:#fef3c7; border:1px solid #f59e0b; border-radius:999px; text-decoration:none; white-space:nowrap; }
 .subscription-pill:hover { color:#78350f; background:#fde68a; }
@@ -1307,7 +1303,6 @@ p, td, th { overflow-wrap: break-word; }
 .sale-main { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; min-width:0; margin:0; padding:0; border:0; }
 .sale-right { display:flex; flex-direction:column; gap:10px; min-width:0; }
 .sale-search,.sale-cart,.sale-pay { margin:0; min-width:0; }
-.sale-screen kbd { display:inline-block; min-width:18px; padding:1px 4px; font:600 11px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; text-align:center; color:#115e59; background:#e6f5f1; border:1px solid #99d5c9; border-radius:3px; box-shadow:none; vertical-align:1px; }
 .sale-label { display:flex; align-items:center; gap:6px; margin:0; font-size:14px; font-weight:600; }
 .sale-search { display:flex; flex-direction:column; gap:6px; }
 .sale-search .product-filters { margin:0 !important; gap:6px; flex-wrap:wrap; }
@@ -1359,8 +1354,6 @@ p, td, th { overflow-wrap: break-word; }
 .sale-pay > .alert { margin:6px 0 0; padding:6px 10px; }
 .sale-hint { margin:6px 0; font-size:12.5px; color:#4b5563; }
 .sale-complete { padding:8px; font-size:17px; font-weight:600; }
-.sale-complete kbd { color:#0f766e; background:#fff; border-color:#fff; }
-.sale-shortcuts { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin:0; padding:6px 2px 0; list-style:none; font-size:12px; color:#4b5563; border-top:1px solid var(--bs-border-color); }
 /* Keyboard-only use: a strong amber focus ring on everything focusable while New sale is shown. */
 .app-shell:has(.sales-screen-host:not([hidden]) .sale-screen) :focus-visible { outline:3px solid #f59e0b !important; outline-offset:2px; }
 .sale-screen .sale-lines:focus-visible,.sale-screen .sale-results:focus-visible { outline-offset:-3px; }
@@ -1374,5 +1367,4 @@ p, td, th { overflow-wrap: break-word; }
  .sale-right { min-height:0; }
  .sale-cart { flex:1 1 0; min-height:0; }
  .sale-lines { flex:1 1 0; max-height:none; }
- .sale-shortcuts { flex:none; }
 }

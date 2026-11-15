@@ -34,7 +34,6 @@ export default function Sales({customerModule=false}) {
         </button>
         <button
           className={tab === "history" ? "active" : ""}
-          aria-keyshortcuts="F6"
           onClick={() => setTab("history")}
         >
           Invoice history
@@ -42,7 +41,7 @@ export default function Sales({customerModule=false}) {
       </div>}
       </div>
       <div hidden={tab !== "sale"} className="sales-screen-host">
-        <POS screen active={tab === "sale"} onHistory={() => setTab("history")} />
+        <POS screen active={tab === "sale"} />
       </div>
       {tab === "history" && <InvoiceHistory customerModule={customerModule}/>}
     </>

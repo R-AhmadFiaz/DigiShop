@@ -104,7 +104,7 @@ export function ReportContent({d,selected,onCustomer}){
 }
 export function ReportNotes({d,onClose}){
   return <aside className="report-notes report-notes-panel" id="report-notes" aria-labelledby="report-notes-title" tabIndex={-1}>
-    <div className="report-notes-head"><h2 className="h6 mb-0" id="report-notes-title">Report Notes</h2>{onClose&&<button type="button" className="btn btn-sm btn-outline-secondary" onClick={onClose} aria-keyshortcuts="Escape">Close <kbd className="report-key">Esc</kbd></button>}</div>
+    <div className="report-notes-head"><h2 className="h6 mb-0" id="report-notes-title">Report Notes</h2>{onClose&&<button type="button" className="btn btn-sm btn-outline-secondary" onClick={onClose}>Close</button>}</div>
     <p>{d.coverage}</p><p>Selected dates use UTC day boundaries: each report day runs from 5 am to 5 am Pakistan time, not local midnight. Record timestamps are shown in Pakistan time.</p>
     <p>Customer debt and store credit are separate balances, not sales or physical cash. Partner money is not sales or profit. Supplier payments, purchases, customer refunds and capital withdrawals are not operating expenses.</p>
     {d.sales.coverageMessage&&<p>Sales cutoff: {pakistanTime(d.sales.financialStartAt)}. {d.sales.coverageMessage}</p>}
@@ -126,19 +126,18 @@ export function quickRange(kind,today){
   return [isoDay(new Date(Date.UTC(y,m-2,1))),isoDay(new Date(Date.UTC(y,m-1,0)))];
 }
 const quickRanges=[['today','Today'],['month','This month'],['last','Last month']];
-const shortcuts=[['Alt+F','From date'],['Alt+T','To date'],['Enter','Show reports'],['1–7','Switch report'],['N','Notes'],['PgUp/PgDn','Scroll report'],['Esc','Close panel']];
 export default function FinancialReports(){
   const today=new Date().toISOString().slice(0,10);
   const [from,setFrom]=useState(today.slice(0,8)+'01'),[to,setTo]=useState(today),[selected,setSelected]=useState('Sales'),[customer,setCustomer]=useState(null);
   const [range,setRange]=useState({from:today.slice(0,8)+'01T00:00:00.000Z',to:new Date(Date.parse(today+'T00:00:00.000Z')+86400000).toISOString()});
   const [notesOpen,setNotesOpen]=useState(false);
   const result=useLoad('/accounts/reports'+query(range)),d=result.data;
-  const fromInput=useRef(null),toInput=useRef(null),panel=useRef(null),notesButton=useRef(null),notesOpener=useRef(null),keys=useRef(null);
+  const panel=useRef(null),notesButton=useRef(null),notesOpener=useRef(null);
   function show(start,end){setRange({from:start+'T00:00:00.000Z',to:new Date(Date.parse(end+'T00:00:00.000Z')+86400000).toISOString()});}
   function apply(event){event.preventDefault();show(from,to);}
   function quick(kind){const [start,end]=quickRange(kind,today);setFrom(start);setTo(end);show(start,end);}
   const shownFrom=range.from.slice(0,10),shownTo=isoDay(new Date(Date.parse(range.to)-86400000));
-  // Switching reports moves focus to the report panel so the next key (PgDn, Tab, a number) works at once.
+  // Switching reports moves focus to the report panel.
   function choose(name,{focusPanel=true}={}){setSelected(name);if(focusPanel)requestAnimationFrame(()=>panel.current?.focus({preventScroll:true}));}
   function openNotes(opener){notesOpener.current=opener||notesButton.current;setNotesOpen(true);}
   function closeNotes(){setNotesOpen(false);const back=notesOpener.current?.isConnected?notesOpener.current:notesButton.current;requestAnimationFrame(()=>back?.focus());}
@@ -150,31 +149,11 @@ export default function FinancialReports(){
   }
   useEffect(()=>{panel.current?.scrollTo?.(0,0);},[selected]);
   useEffect(()=>{if(notesOpen)document.getElementById('report-notes')?.focus();},[notesOpen]);
-  // Page shortcuts. Number keys, N and PgUp/PgDn are ignored while typing in a field; Alt+F/Alt+T work anywhere.
-  useEffect(()=>{
-    keys.current=event=>{
-      if(event.defaultPrevented||event.ctrlKey||event.metaKey||customer)return;
-      if(document.querySelector('dialog[open]:not(.navigation-drawer)')||event.target.closest?.('nav[aria-label="Main navigation"]'))return;
-      if(event.altKey){
-        const target={KeyF:fromInput,KeyT:toInput}[event.code];
-        if(target&&!event.shiftKey){event.preventDefault();target.current?.focus();}
-        return;
-      }
-      if(event.key==='Escape'&&notesOpen){event.preventDefault();closeNotes();return;}
-      if(!d||event.target.closest?.('input,select,textarea,[contenteditable="true"]'))return;
-      if(/^[1-7]$/.test(event.key)){event.preventDefault();choose(reportCategories[Number(event.key)-1]);return;}
-      if(event.key==='n'||event.key==='N'){event.preventDefault();if(notesOpen)closeNotes();else openNotes(notesButton.current);return;}
-      if((event.key==='PageDown'||event.key==='PageUp')&&panel.current&&!event.target.closest?.('#report-notes')){
-        event.preventDefault();const p=panel.current;p.scrollBy({top:(event.key==='PageDown'?1:-1)*Math.max(40,p.clientHeight-40)});
-      }
-    };
-  });
-  useEffect(()=>{const listener=event=>keys.current?.(event);document.addEventListener('keydown',listener);return()=>document.removeEventListener('keydown',listener);},[]);
   return <div className="reports-screen">
     <form className="reports-datebar" onSubmit={apply} aria-label="Report dates">
       <h1>Financial Reports</h1>
-      <label className="reports-date">From <input ref={fromInput} className="form-control form-control-sm" type="date" value={from} onChange={e=>setFrom(e.target.value)} required accessKey="f" aria-keyshortcuts="Alt+F"/></label>
-      <label className="reports-date">To <input ref={toInput} className="form-control form-control-sm" type="date" min={from} value={to} onChange={e=>setTo(e.target.value)} required accessKey="t" aria-keyshortcuts="Alt+T"/></label>
+      <label className="reports-date">From <input className="form-control form-control-sm" type="date" value={from} onChange={e=>setFrom(e.target.value)} required/></label>
+      <label className="reports-date">To <input className="form-control form-control-sm" type="date" min={from} value={to} onChange={e=>setTo(e.target.value)} required/></label>
       <button className="btn btn-primary btn-sm" disabled={result.loading}>Show reports</button>
       <div className="reports-quick" role="group" aria-label="Quick date ranges">{quickRanges.map(([kind,label])=>{const [start,end]=quickRange(kind,today);return <button key={kind} type="button" className="btn btn-sm btn-outline-secondary" aria-pressed={shownFrom===start&&shownTo===end} disabled={result.loading} onClick={()=>quick(kind)}>{label}</button>;})}</div>
       <small className="reports-datebar-note" title="Each report day runs from 5 am to 5 am Pakistan time (UTC dates). Record times use Pakistan time.">Report day runs 5 am–5 am Pakistan time</small>
@@ -184,15 +163,14 @@ export default function FinancialReports(){
       <div className="reports-side"><ReportOverview d={d} range={range} onNotes={openNotes}/></div>
       <section className="panel reports-detail" aria-label="Explore Reports">
         <div className="reports-tabbar">
-          <div className="report-tabs" role="tablist" aria-label="Report categories" onKeyDown={tabKeys}>{reportCategories.map((name,i)=><button key={name} id={'report-tab-'+i} type="button" role="tab" aria-selected={selected===name} aria-controls="selected-report" tabIndex={selected===name?0:-1} aria-keyshortcuts={String(i+1)} className={'btn btn-sm '+(selected===name?'btn-primary':'btn-outline-secondary')} onClick={()=>choose(name)}><span className="report-tab-label">{name}</span><kbd className="report-key" aria-hidden="true">{i+1}</kbd></button>)}</div>
+          <div className="report-tabs" role="tablist" aria-label="Report categories" onKeyDown={tabKeys}>{reportCategories.map((name,i)=><button key={name} id={'report-tab-'+i} type="button" role="tab" aria-selected={selected===name} aria-controls="selected-report" tabIndex={selected===name?0:-1} className={'btn btn-sm '+(selected===name?'btn-primary':'btn-outline-secondary')} onClick={()=>choose(name)}><span className="report-tab-label">{name}</span></button>)}</div>
           <select className="form-select form-select-sm report-select" aria-label="Choose report" aria-controls="selected-report" value={selected} onChange={event=>choose(event.target.value,{focusPanel:false})}>{reportCategories.map(name=><option key={name}>{name}</option>)}</select>
-          <button ref={notesButton} type="button" className={'btn btn-sm reports-notes-toggle '+(notesOpen?'btn-primary':'btn-outline-secondary')} aria-expanded={notesOpen} aria-controls="report-notes" aria-keyshortcuts="N" onClick={e=>notesOpen?closeNotes():openNotes(e.currentTarget)}>Report notes<kbd className="report-key" aria-hidden="true">N</kbd></button>
+          <button ref={notesButton} type="button" className={'btn btn-sm reports-notes-toggle '+(notesOpen?'btn-primary':'btn-outline-secondary')} aria-expanded={notesOpen} aria-controls="report-notes" onClick={e=>notesOpen?closeNotes():openNotes(e.currentTarget)}>Report notes</button>
         </div>
         <div id="selected-report" ref={panel} className="report-panel" role="tabpanel" aria-labelledby={'report-tab-'+reportCategories.indexOf(selected)} tabIndex={0}><ReportContent d={d} selected={selected} onCustomer={setCustomer}/></div>
         {notesOpen&&<ReportNotes d={d} onClose={closeNotes}/>}
       </section>
     </div>}
-    <ul className="reports-shortcuts" aria-label="Keyboard shortcuts">{shortcuts.map(([key,label])=><li key={key}><kbd className="report-key">{key}</kbd> {label}</li>)}</ul>
     {customer&&<Modal wide title={customer.name+' — Customer Khata'} onClose={()=>setCustomer(null)}><CustomerAccountHistory customer={{...customer,_id:customer.id}}/></Modal>}
   </div>;
 }

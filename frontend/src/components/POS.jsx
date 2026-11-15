@@ -10,9 +10,8 @@ import { useAuth } from "../auth/AuthContext";
 import { Empty, Field, Modal, money, Notice } from "./Common";
 import CustomerPicker from "./CustomerPicker";
 import Receipt, { receiptFrom } from "./Receipt";
-const saleShortcuts=[['F2','Search'],['↑ ↓','Choose product'],['Enter','Add'],['F3','Price list'],['F4','Sale lines'],['+ −','Quantity'],['Del','Remove line'],['F7','Discount'],['F8','Amount paid'],['F9','Customer'],['F10','Complete sale'],['F6','Invoice history'],['Esc','Back to search']];
 // screen: the Sales > New sale layout (one screen, keyboard-first). Cashier POS and Quotations keep the default layout.
-export default function POS({ quotation = false, onConvertQuotation, screen = false, active = true, onHistory }) {
+export default function POS({ quotation = false, onConvertQuotation, screen = false, active = true }) {
   const { setQuotations, drafts } = useOutletContext();
   const { user } = useAuth();
   const storageKey = journalKey(user, "pos-credit");
@@ -42,29 +41,16 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
   const [selectedRow,setSelectedRow]=useState(null),[removeRow,setRemoveRow]=useState(null),[confirmSale,setConfirmSale]=useState(false);
   const [customerOpen,setCustomerOpen]=useState(false);
   const lock = useRef(false),searchInput=useRef(null),itemInputs=useRef({});
-  const saleTypeSelect=useRef(null),discountSelect=useRef(null),typedQuantity=useRef(null);
   const [highlight,setHighlight]=useState(0),[suggestions,setSuggestions]=useState(true),[focusItem,setFocusItem]=useState(null);
   useEffect(()=>{if(focusItem){const field=itemInputs.current[focusItem.id]?.quantity;field?.focus();field?.select();}},[focusItem]);
   useEffect(()=>{
     const shortcut=e=>{
-      if(screen){screenShortcut(e);return;}
+      if(screen)return;
       if(e.ctrlKey||e.altKey||e.metaKey||e.shiftKey||e.isComposing||e.repeat||busy||customerBusy||document.querySelector('dialog[open]')||!searchInput.current?.getClientRects().length)return;
       if(e.key==='F2'){e.preventDefault();searchInput.current.focus({preventScroll:true});searchInput.current.select();setSuggestions(true);}
       else if(e.key==='F4'&&!quotation){e.preventDefault();paymentInput.current?.focus({preventScroll:true});paymentInput.current?.select();}
       else if(e.key==='F6'){e.preventDefault();editingRow.current=null;focusGrid(selectedRow);setSuggestions(false);}
       else if(e.key==='F10'&&!quotation){e.preventDefault();const message=checkoutError();if(message)setError(message);else {setError('');setConfirmSale(true);}}
-    };
-    // New sale screen: F2 search, F3 price list, F4 sale lines, F6 invoice history, F7 discount, F8 amount paid,
-    // F9 customer, F10 or Ctrl+Enter complete sale, Esc back to search. F5 (reload) is left to the browser.
-    const screenShortcut=e=>{
-      if(e.altKey||e.metaKey||e.isComposing||busy||customerBusy||document.querySelector('dialog[open]')||!searchInput.current?.getClientRects().length)return;
-      const checkout=()=>{const message=checkoutError();if(message)setError(message);else {setError('');setConfirmSale(true);}};
-      if(e.ctrlKey){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(!e.repeat)checkout();}return;}
-      if(e.shiftKey)return;
-      const focus=node=>{node?.focus({preventScroll:true});if(node?.tagName==='INPUT')node.select();};
-      const action={F2:()=>focus(searchInput.current),F3:()=>focus(saleTypeSelect.current),F4:()=>{editingRow.current=null;typedQuantity.current=null;focusGrid(cart[0]?._id);},F6:()=>onHistory?.(),F7:()=>focus(discountSelect.current),F8:()=>focus(paymentInput.current),F9:()=>setCustomerOpen(true),F10:checkout}[e.key];
-      if(action){e.preventDefault();if(!e.repeat)action();return;}
-      if(e.key==='Escape'&&!e.defaultPrevented&&!e.target.closest?.('nav[aria-label="Main navigation"]')){e.preventDefault();focus(searchInput.current);}
     };
     window.addEventListener('keydown',shortcut);return()=>window.removeEventListener('keydown',shortcut);
   });
@@ -150,7 +136,7 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
       wholesalePrice,
     };
     setError("");
-    editingRow.current=null;setSelectedRow(product._id);typedQuantity.current=null;
+    editingRow.current=null;setSelectedRow(product._id);
     // New sale screen: the cursor stays in search with its text selected, ready for the next product.
     if(screen)requestAnimationFrame(()=>{searchInput.current?.focus({preventScroll:true});searchInput.current?.select();document.getElementById('pos-row-'+product._id)?.scrollIntoView({block:'nearest'});});
     else {setFocusItem({id:product._id});setSearch("");setSuggestions(false);}
@@ -277,30 +263,18 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
   const setQuantity=(id,quantity)=>setCart(rows=>rows.map(p=>p._id===id?{...p,quantity}:p));
   function removeLine(line){
     const index=cart.findIndex(p=>p._id===line._id),remaining=cart.filter(p=>p._id!==line._id),next=remaining[Math.min(index,remaining.length-1)];
-    setCart(remaining);setError('');typedQuantity.current=null;setSelectedRow(next?._id??null);
+    setCart(remaining);setError('');setSelectedRow(next?._id??null);
     requestAnimationFrame(()=>{if(next){invoiceGrid.current?.focus({preventScroll:true});document.getElementById('pos-row-'+next._id)?.scrollIntoView({block:'nearest'});}else {searchInput.current?.focus({preventScroll:true});searchInput.current?.select();}});
   }
-  // New sale screen, sale lines focused: ↑/↓ select a line, + / − change its quantity, digits type a quantity, Delete removes it, Enter edits it.
+  // New sale screen, sale lines focused: ↑/↓ select a line, Delete removes it, Enter edits it.
   function screenGridKeys(e){
     if(e.target!==e.currentTarget||e.ctrlKey||e.altKey||e.metaKey||e.isComposing||!cart.length||busy)return;
     const index=Math.max(0,cart.findIndex(p=>p._id===selectedRow)),line=cart[index];
-    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();typedQuantity.current=null;focusGrid(cart[(index+(e.key==='ArrowDown'?1:-1)+cart.length)%cart.length]._id);}
-    else if(e.key==='+'||e.key==='='||e.key==='-'){
-      e.preventDefault();typedQuantity.current=null;const next=(Number(line.quantity)||0)+(e.key==='-'?-1:1);
-      if(next<1)return;
-      if(!quotation&&next>line.stockQuantity){setError('Only '+line.stockQuantity+' in stock for '+line.name+'.');return;}
-      setError('');setQuantity(line._id,next);
-    }
-    else if(/^[0-9]$/.test(e.key)){
-      // Digits typed within a second build one number (e.g. 1 then 2 = 12); a pause starts a new number.
-      e.preventDefault();const now=Date.now(),typed=typedQuantity.current;
-      const text=typed&&typed.id===line._id&&now-typed.time<1000?typed.text+e.key:e.key;
-      typedQuantity.current={id:line._id,text,time:now};setError('');setQuantity(line._id,String(Number(text)));
-    }
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();focusGrid(cart[(index+(e.key==='ArrowDown'?1:-1)+cart.length)%cart.length]._id);}
     else if(e.key==='Delete'){e.preventDefault();if(!e.repeat)removeLine(line);}
-    else if(e.key==='Enter'){e.preventDefault();if(!e.repeat){typedQuantity.current=null;beginEdit(line);setFocusItem({id:line._id});}}
+    else if(e.key==='Enter'){e.preventDefault();if(!e.repeat){beginEdit(line);setFocusItem({id:line._id});}}
   }
-  const filters=<ProductFilters search={search} searchRef={searchInput} searchProps={{id:screen?'sale-product-search':undefined,role:'combobox','aria-autocomplete':'list','aria-keyshortcuts':'F2','aria-expanded':screen||suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':(screen||suggestions)&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
+  const filters=<ProductFilters search={search} searchRef={searchInput} searchProps={{id:screen?'sale-product-search':undefined,role:'combobox','aria-autocomplete':'list','aria-keyshortcuts':screen?undefined:'F2','aria-expanded':screen||suggestions,'aria-controls':'pos-suggestions','aria-activedescendant':(screen||suggestions)&&availableProducts[highlight]?'pos-option-'+availableProducts[highlight]._id:undefined,onKeyDown:e=>{
           if(e.isComposing||e.ctrlKey||e.altKey||e.metaKey)return;if(e.repeat&&e.key==='Enter'){e.preventDefault();return;}
           if(e.key==='Tab'){setSuggestions(false);return;}
           if(e.key==='Escape'){e.preventDefault();if(screen)e.currentTarget.select();else setSuggestions(false);return;}
@@ -356,7 +330,7 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
         <form id="sale-form" className="sale-form" noValidate onSubmit={submit}>
           <fieldset disabled={busy} className="sale-main">
             <aside className="panel sale-search" aria-label="Product search panel">
-              <label className="sale-label" htmlFor="sale-product-search">Find a product <kbd>F2</kbd></label>
+              <label className="sale-label" htmlFor="sale-product-search">Find a product</label>
               {filters}
               <Notice error={categories.error} />
               <Notice error={products.error} loading={products.loading} />
@@ -385,15 +359,15 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
                 <div className="sale-cart-head">
                   <h2 id="sale-cart-title" className="h6 mb-0">Current sale</h2>
                   <span className="sale-count" aria-live="polite">{lineCount} {lineCount===1?'item':'items'}</span>
-                  <label className="sale-pricelist">Price list <kbd>F3</kbd>
-                    <select ref={saleTypeSelect} className="form-select form-select-sm" aria-keyshortcuts="F3" value={saleType} onChange={e=>setSaleType(e.target.value)}>
+                  <label className="sale-pricelist">Price list
+                    <select className="form-select form-select-sm" value={saleType} onChange={e=>setSaleType(e.target.value)}>
                       <option value="RETAIL">Retail</option>
                       <option value="WHOLESALE">Wholesale</option>
                     </select>
                   </label>
                 </div>
                 <div className="pos-error" role="status"><Notice error={error} /></div>
-                <div ref={invoiceGrid} className="sale-lines" tabIndex={0} role="group" aria-label="Sale lines. Up and down arrows choose a line, plus and minus change its quantity, type a number to set it, Delete removes it, Enter edits it." aria-keyshortcuts="F4" aria-activedescendant={selectedRow&&cart.some(p=>p._id===selectedRow)?'pos-row-'+selectedRow:undefined} onKeyDown={screenGridKeys}>
+                <div ref={invoiceGrid} className="sale-lines" tabIndex={0} role="group" aria-label="Sale lines. Up and down arrows choose a line, Delete removes it, Enter edits it." aria-activedescendant={selectedRow&&cart.some(p=>p._id===selectedRow)?'pos-row-'+selectedRow:undefined} onKeyDown={screenGridKeys}>
                   <table className="table table-sm cart-table sale-table">
                     <thead>
                       <tr>
@@ -433,14 +407,14 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
                       })}
                     </tbody>
                   </table>
-                  {!cart.length&&<p className="sale-empty">No items yet. Press <kbd>F2</kbd>, type a product name, then <kbd>Enter</kbd>.</p>}
+                  {!cart.length&&<p className="sale-empty">No items yet. Type a product name in search, then press Enter.</p>}
                 </div>
               </section>
               <section className="panel sale-pay" aria-label="Payment">
                 <div className="sale-pay-row">
                   <label className="sale-field">
-                    <span>Discount <kbd>F7</kbd></span>
-                    <select ref={discountSelect} className="form-select" aria-keyshortcuts="F7" value={discountType} onChange={e=>{setDiscountType(e.target.value);setDiscountValue('0');}}>
+                    <span>Discount</span>
+                    <select className="form-select" value={discountType} onChange={e=>{setDiscountType(e.target.value);setDiscountValue('0');}}>
                       <option value="NONE">No discount</option>
                       <option value="FIXED">Fixed amount</option>
                       <option value="PERCENTAGE">Percentage</option>
@@ -451,12 +425,12 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
                     <input className="form-control" type="number" min="0" step="any" max={discountType==='PERCENTAGE'?100:totals.subtotal} value={discountValue} onChange={e=>setDiscountValue(e.target.value)}/>
                   </label>}
                   <div className="sale-field">
-                    <span id="sale-customer-label">Customer <kbd>F9</kbd></span>
-                    <button type="button" className="btn btn-outline-secondary sale-customer" aria-labelledby="sale-customer-label sale-customer-name" aria-keyshortcuts="F9" onClick={()=>setCustomerOpen(true)}><span id="sale-customer-name">{customer?customer.name:'Walk-in customer'}</span></button>
+                    <span id="sale-customer-label">Customer</span>
+                    <button type="button" className="btn btn-outline-secondary sale-customer" aria-labelledby="sale-customer-label sale-customer-name" onClick={()=>setCustomerOpen(true)}><span id="sale-customer-name">{customer?customer.name:'Walk-in customer'}</span></button>
                   </div>
                   <label className="sale-field">
-                    <span>Amount paid <kbd>F8</kbd></span>
-                    <input className="form-control" type="number" step="any" min="0" max={Math.max(0,totals.total-creditAmount)} ref={paymentInput} aria-keyshortcuts="F8" value={payment.value} onChange={e=>setPaid(e.target.value)}/>
+                    <span>Amount paid</span>
+                    <input className="form-control" type="number" step="any" min="0" max={Math.max(0,totals.total-creditAmount)} ref={paymentInput} value={payment.value} onChange={e=>setPaid(e.target.value)}/>
                   </label>
                   {paymentAccounts.data?.accountingEnabled&&paidAmount>0&&<label className="sale-field">
                     <span>Payment account</span>
@@ -475,19 +449,16 @@ export default function POS({ quotation = false, onConvertQuotation, screen = fa
                 <Notice error={paymentAccounts.error} />
                 <p className="sale-hint">
                   {creditAmount>0?'Amount paid is the cash received, excluding the store credit used.':'Enter less than the total to record a credit sale.'}
-                  {due>0&&!customer&&' A credit sale needs a customer (F9).'}
+                  {due>0&&!customer&&' A credit sale needs a customer.'}
                   {customer&&<> Debt: {money(customer.remainingMoney)} · Store credit available: {money((customer.storeCreditBalanceMinor??0)/100)}.</>}
                 </p>
-                <button className="btn btn-primary w-100 sale-complete" type="submit" aria-keyshortcuts="F10 Control+Enter" disabled={busy || customerBusy || !cart.length || (!quotation && paymentAccounts.loading)}>
-                  {busy?'Saving...':<>Complete sale <kbd>F10</kbd></>}
+                <button className="btn btn-primary w-100 sale-complete" type="submit" disabled={busy || customerBusy || !cart.length || (!quotation && paymentAccounts.loading)}>
+                  {busy?'Saving...':'Complete sale'}
                 </button>
               </section>
             </div>
           </fieldset>
         </form>
-        <ul className="sale-shortcuts" aria-label="Keyboard shortcuts">
-          {saleShortcuts.map(([key,label])=><li key={key}><kbd>{key}</kbd> {label}</li>)}
-        </ul>
         {confirmDialog}
         {customerDialog}
       </div>
