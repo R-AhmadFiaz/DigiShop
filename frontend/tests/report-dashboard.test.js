@@ -95,8 +95,8 @@ try{
     assert.match(overview,/class="report-amber-note">Only sales after/);
     assert.match(overview,/<button type="button" class="btn btn-link" aria-controls="report-notes">View limitations<\/button>/);
     const notes=render(ReportNotes,{d,onClose:()=>{}});
-    assert.match(notes,/^<aside class="report-notes report-notes-panel" id="report-notes"/);assert.ok(notes.includes('Close <kbd'));
-    assert.ok(!render(ReportNotes,{d}).includes('Close <kbd'));
+    assert.match(notes,/^<aside class="report-notes report-notes-panel" id="report-notes"/);assert.ok(notes.includes('>Close</button>'));
+    assert.ok(!render(ReportNotes,{d}).includes('>Close</button>'));
   });
   await test('all actual purchase states get prominent badges without changing state values',()=>{
     for(const [status,label,tone] of [['DRAFT','Pending · Draft','warning'],['CONFIRMED','Pending · Confirmed','warning'],['PARTIALLY_RECEIVED','Partially Received','primary'],['RECEIVED','Received','success'],['CANCELLED','Cancelled','danger']]){

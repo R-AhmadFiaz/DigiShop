@@ -7,36 +7,32 @@ const pos=read('components/POS.jsx');
 
 test('only Sales > New sale uses the one-screen layout; cashier POS and quotations keep theirs',()=>{
   const sales=read('pages/owner/Sales.jsx');
-  assert.match(sales,/<POS screen active=\{tab === "sale"\} onHistory=\{\(\) => setTab\("history"\)\} \/>/);
+  assert.match(sales,/<POS screen active=\{tab === "sale"\} \/>/);
   assert.match(sales,/className="sales-screen-host"/);
   assert.match(read('App.jsx'),/<POS \/>/,'cashier POS is unchanged');
   assert.match(pos,/screen = false/);
   assert.match(pos,/if\(!root\|\|quotation\|\|screen\)return;/,'the measured height is only for the old layout');
 });
 
-test('new sale screen: search, results, sale lines, payment bar and shortcut bar',()=>{
-  const screen=pos.slice(pos.indexOf('if(screen){'),pos.indexOf('  return (\n    <div ref={workspace} className={"pos-grid')>0?pos.indexOf('  return (\n    <div ref={workspace} className={"pos-grid'):pos.length);
-  for(const text of ['Find a product <kbd>F2</kbd>','Current sale','Price list <kbd>F3</kbd>','Walk-in customer','Amount paid <kbd>F8</kbd>','Discount <kbd>F7</kbd>','Customer <kbd>F9</kbd>','Amount due','Total','Enter less than the total to record a credit sale.','Complete sale <kbd>F10</kbd>'])
+test('new sale screen: search, results, sale lines and payment bar',()=>{
+  const screen=pos.slice(pos.indexOf('if(screen){'),pos.indexOf('className={"pos-grid pos-unified"'));
+  for(const text of ['Find a product</label>','Current sale','Price list','Walk-in customer','<span>Amount paid</span>','<span>Discount</span>','Customer</span>','Amount due','Total','Enter less than the total to record a credit sale.',"'Complete sale'"])
     assert.ok(screen.includes(text),text);
-  assert.match(screen,/No items yet\. Press <kbd>F2<\/kbd>, type a product name, then <kbd>Enter<\/kbd>\./);
+  assert.match(screen,/No items yet\. Type a product name in search, then press Enter\./);
   for(const heading of ['Product','Qty','Unit rate','Disc/unit','Line total'])assert.ok(screen.includes('<th>'+heading+'</th>')||screen.includes('<th className="text-end">'+heading+'</th>'),heading);
   assert.match(screen,/Out of stock/);assert.match(screen,/disabled=\{busy\|\|products\.loading\|\|out\|\|noPrice\}/,'out-of-stock rows cannot be added');
   assert.match(screen,/· Stock \{product\.stockQuantity\}/);
-  assert.match(screen,/aria-keyshortcuts="F10 Control\+Enter"/);
-  for(const [key] of [['F2'],['F3'],['F4'],['F6'],['F7'],['F8'],['F9'],['F10'],['Esc']])assert.ok(pos.includes("['"+key+"'"),key);
+  assert.doesNotMatch(screen,/<kbd|aria-keyshortcuts="/,'no key badges or shortcut hints on the New sale screen');
 });
 
-test('new sale keyboard: F-keys, Ctrl+Enter, Esc, search Enter and sale-line keys',()=>{
-  assert.match(pos,/F2:\(\)=>focus\(searchInput\.current\),F3:\(\)=>focus\(saleTypeSelect\.current\),F4:/);
-  assert.match(pos,/F6:\(\)=>onHistory\?\.\(\),F7:\(\)=>focus\(discountSelect\.current\),F8:\(\)=>focus\(paymentInput\.current\),F9:\(\)=>setCustomerOpen\(true\),F10:checkout/);
-  assert.match(pos,/if\(action\)\{e\.preventDefault\(\);/,'F-keys cancel browser defaults such as F3 find');
-  assert.doesNotMatch(pos,/F5:/,'F5 reload is left alone');
-  assert.match(pos,/if\(e\.ctrlKey\)\{if\(e\.key==='Enter'/);
-  assert.match(pos,/e\.key==='Escape'&&!e\.defaultPrevented/);
+test('new sale keyboard: no F-key, Ctrl+Enter or Esc shortcuts; search Enter and sale-line keys remain',()=>{
+  assert.match(pos,/if\(screen\)return;/,'the page-wide F-key handler is off on the New sale screen');
+  assert.doesNotMatch(pos,/screenShortcut|onHistory|typedQuantity|saleTypeSelect|discountSelect/);
   assert.match(pos,/if\(screen\)requestAnimationFrame\(\(\)=>\{searchInput\.current\?\.focus\(\{preventScroll:true\}\);searchInput\.current\?\.select\(\);/,'after adding, search keeps focus with its text selected');
   assert.match(pos,/if\(suggestions\|\|screen\)add\(/);
-  assert.match(pos,/e\.key==='\+'\|\|e\.key==='='\|\|e\.key==='-'/);assert.match(pos,/\/\^\[0-9\]\$\/\.test\(e\.key\)/);assert.match(pos,/e\.key==='Delete'/);
-  assert.match(pos,/next>line\.stockQuantity/,'+ never goes past stock');
+  assert.doesNotMatch(pos,/e\.key==='\+'\|\|e\.key==='='\|\|e\.key==='-'/,'no + / − quantity keys');assert.doesNotMatch(pos,/\/\^\[0-9\]\$\/\.test\(e\.key\)/,'no typed-digit quantity');
+  assert.match(pos,/e\.key==='Delete'/);
+  assert.match(pos,/next>line\.stockQuantity/,'the + button never goes past stock');
 });
 
 test('subscription warning becomes a header pill on New sale only',()=>{
